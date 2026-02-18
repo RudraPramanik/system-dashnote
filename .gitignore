@@ -1,0 +1,43 @@
+# --- Python / Virtualenv ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# --- OS / Editor / Tooling ---
+# Windows
+Thumbs.db
+Desktop.ini
+
+# VS Code / IDEs
+.vscode/
+.idea/
+*.code-workspace
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+.hypothesis/
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# --- Project-local / Cursor / misc ---
+.cursor/
+.DS_Store
+
+# If you have local config you NEVER want committed, put it here, e.g.:
+# config.local.py
+

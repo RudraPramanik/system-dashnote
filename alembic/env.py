@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 from alembic import context
 
-# add project src/ to Python path
+# add project src/ to Python path.Ensures Alembic can import:
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # G:\projects\dashnotesystem
 SRC_DIR = os.path.join(BASE_DIR, "src")
 if SRC_DIR not in sys.path:
@@ -14,15 +14,15 @@ if SRC_DIR not in sys.path:
 
 from core.database.base import Base
 from config import settings
-from auth import models as auth_models  # noqa: F401
-from workspaces import models as workspace_models  # noqa: F401
+from auth import models as auth_models  # noqa: F401 - impoprted for side effect
+from workspaces import models as workspace_models  # noqa: F401 imported for side effect
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Tell Alembic about our models
+# Tell Alembic what to track
 target_metadata = Base.metadata
 
 # Convert async URL to sync URL for Alembic

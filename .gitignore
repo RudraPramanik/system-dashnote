@@ -38,6 +38,13 @@ coverage.xml
 .cursor/
 .DS_Store
 
+# Environment variables / Credentials (NEVER commit these!)
+.env
+.env.*
+!.env.example
+*.env.local
+*.env.*.local
+
 # If you have local config you NEVER want committed, put it here, e.g.:
 # config.local.py
 

@@ -33,7 +33,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     payload = {
         "sub": str(user.id),
-        "wid": str(membership.workspace_id),
+        "wid": str(membership.tenant_id),
         "role": membership.role,
     }
 

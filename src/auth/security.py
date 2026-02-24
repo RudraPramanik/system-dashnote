@@ -1,28 +1,39 @@
 from datetime import datetime, timedelta
-from hashlib import sha256
 
 from jose import jwt
 from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
 
 from config import settings
 
 
-# Use PBKDF2-SHA256 to avoid bcrypt backend / 72-byte issues
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+# Prefer bcrypt for new hashes, but allow verifying older pbkdf2_sha256 hashes if any exist
+pwd_context = CryptContext(
+    schemes=["bcrypt", "pbkdf2_sha256"],
+    deprecated=["pbkdf2_sha256"],
+)
 
 
-def _normalize_password(password: str) -> str:
-    """Normalize password input so bcrypt backend length limits are not a problem."""
-    # Use SHA-256 to turn any-length input into fixed 64-hex-char string
-    return sha256(password.encode("utf-8")).hexdigest()
+def _password_too_long(password: str) -> bool:
+    # bcrypt operates on bytes; limit is 72 bytes
+    return len(password.encode("utf-8")) > 72
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(_normalize_password(password))
+    # user requested "bcrypt" without sha256 prehashing; enforce bcrypt length limit explicitly
+    if _password_too_long(password):
+        raise ValueError("Password must be <= 72 bytes for bcrypt")
+    return pwd_context.hash(password)
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    return pwd_context.verify(_normalize_password(password), hashed)
+    if _password_too_long(password):
+        return False
+    try:
+        return pwd_context.verify(password, hashed)
+    except UnknownHashError:
+        # hash in DB isn't recognized by passlib (corrupt or legacy) -> treat as invalid credentials
+        return False
 
 
 def create_access_token(data: dict, expires_minutes: int = 15) -> str:

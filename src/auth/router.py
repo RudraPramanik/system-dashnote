@@ -10,9 +10,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=TokenResponse)
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    user, workspace, membership = await register_user(
-        db, data.email, data.password, data.workspace_name
-    )
+    try:
+        user, workspace, membership = await register_user(
+            db, data.email, data.password, data.workspace_name
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     payload = {"sub": str(user.id), "wid": str(workspace.id), "role": membership.role}
 

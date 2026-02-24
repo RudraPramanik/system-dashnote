@@ -13,7 +13,6 @@ from auth.security import (
     [
         "short-pass",
         "this-is-a-bit-longer-password-123",
-        "x" * 200,  # very long password should still work
     ],
 )
 def test_hash_and_verify_password(password: str) -> None:
@@ -21,6 +20,13 @@ def test_hash_and_verify_password(password: str) -> None:
     assert hashed != password
     assert verify_password(password, hashed)
     assert not verify_password(password + "x", hashed)
+
+
+def test_bcrypt_rejects_password_over_72_bytes() -> None:
+    # bcrypt has a 72-byte input limit; we reject longer passwords explicitly
+    too_long = "x" * 200
+    with pytest.raises(ValueError):
+        hash_password(too_long)
 
 
 def test_create_tokens() -> None:

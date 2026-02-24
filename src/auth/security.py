@@ -36,6 +36,8 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
+#jwt tokens
+
 def create_access_token(data: dict, expires_minutes: int = 15) -> str:
     payload = data.copy()
     payload["exp"] = datetime.utcnow() + timedelta(minutes=expires_minutes)

@@ -5,13 +5,13 @@ from starlette.requests import Request
 
 from config import settings
 from auth.router import router as auth_router
-# from workspaces.router import router as workspace_router
+from notebooks.router import router as notebooks_router
 
 
 # Routers
 def register_routes(app: FastAPI) -> None:
     app.include_router(auth_router)
-    # app.include_router(workspace_router)
+    app.include_router(notebooks_router)
 
     @app.get("/health", tags=["health"])
     async def health_check():

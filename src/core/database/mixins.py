@@ -25,3 +25,14 @@ class SoftDeleteMixin:
         DateTime(timezone=True),
         nullable=True,
     )
+
+
+class WorkspaceTenantMixin:
+    """
+    Workspace-scoped tenant mixin for multi-tenant entities.
+
+    For this project we use integer workspace IDs (see `workspaces.models.Workspace`),
+    so `workspace_id` is an `int`, not a UUID.
+    """
+
+    workspace_id: Mapped[int] = mapped_column(index=True)

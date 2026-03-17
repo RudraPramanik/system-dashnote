@@ -16,6 +16,7 @@ from core.database.base import Base
 from config import settings
 from auth import models as auth_models  # noqa: F401 - impoprted for side effect
 from workspaces import models as workspace_models  # noqa: F401 imported for side effect
+from notes import models as notes_models  # noqa: F401 imported for side effect
 
 config = context.config
 

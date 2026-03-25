@@ -1,3 +1,13 @@
+import os
+import sys
+
+# Ensure `src/` is on sys.path so imports like `from auth...` work when running:
+#   uvicorn src.main:app
+#   fastapi dev src.main:app
+_SRC_DIR = os.path.dirname(__file__)
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

@@ -135,3 +135,68 @@ Notes on how tests work:
 - `owner/admin` can:
   - CRUD any note in the workspace
 
+### Protected routes: verify JWT → `RequestContext` injection
+
+The protected routes rely on these dependencies:
+
+- `auth/dependency.py` (extracts `Authorization: Bearer ...`)
+- `core/security/dependency.py` (`get_current_context` decodes JWT claims into `RequestContext(user_id, workspace_id, role)`)
+- Domain RBAC helpers:
+  - `notes/permissions.py` for note visibility + edit rules
+  - `core/security/permissions.py` for coarse role gating (e.g. workspace rename, notebook create)
+
+Sanity checks you should run (especially for notes):
+
+1. Call a protected endpoint without auth
+   - Example: `GET /notes/`
+   - Expected: `401 Invalid or expired token`
+
+2. Call the same endpoint with a valid token
+   - Expected: `200` (and correct workspace-scoped results)
+
+3. Validate role enforcement
+   - `member` can view public notes + their own private notes
+   - `member` cannot edit/delete an `owner/admin` note
+
+> Manual member testing note: `/auth/login` chooses a “default” workspace based on the user’s memberships. If a user belongs to multiple workspaces, you may need a workspace-scoped token (JWT `wid` + `role`) to test member permissions reliably.
+
+### Supabase integration test (recommended)
+
+This repo includes a Supabase-backed smoke test that:
+
+- runs through `POST /auth/register` for 2 users
+- verifies a protected route returns `401` without auth
+- creates notes as `owner`
+- invites another user via `POST /workspaces/members/`
+- issues a member-scoped JWT for the invited user in the owner workspace
+- verifies:
+  - note visibility (public vs private)
+  - edit denial (`403`) for member on owner private notes
+  - delete allowed for owner
+- also checks role gating for:
+  - `PATCH /workspaces/me` (403 for member)
+  - `POST /notebooks/` (403 for member)
+
+Run it from repo root:
+
+```powershell
+$env:PYTHONPATH='src'
+.\.venv\Scripts\python tests\supabase_smoke_test.py
+```
+
+Expected output ends with:
+
+- `Supabase smoke test: OK`
+
+### Supabase DB migration (run before integration tests)
+
+If you changed any models/services:
+
+1. Generate a migration (only if needed)
+   - `.\.venv\Scripts\python -m alembic revision --autogenerate -m "your message"`
+
+2. Apply to Supabase
+   - `.\.venv\Scripts\python -m alembic upgrade head`
+
+Then re-run the Supabase smoke test above.
+

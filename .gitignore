@@ -8,6 +8,7 @@ __pycache__/
 *.egg
 dist/
 build/
+context.md
 
 # Virtual environments
 .venv/

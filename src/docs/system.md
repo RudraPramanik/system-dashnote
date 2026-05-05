@@ -145,8 +145,8 @@ If you add new note-like resources or collaboration features:
   - permission helper(s) if RBAC is non-trivial
 - inject auth as described in `src/docs/auth.md`.
 
-### Docker / Compose runbook (API + DB + migration)
-This repo now supports a compose flow where DB starts first, then a one-shot migration service runs `alembic upgrade head`, then API starts.
+### Docker / Compose runbook (API + DB + Redis + migration)
+This repo now supports a compose flow where DB and Redis start first, then a one-shot migration service runs `alembic upgrade head`, then API starts.
 
 #### One-time prerequisites
 - Docker Desktop running
@@ -161,6 +161,7 @@ docker compose up -d --build
 
 What this does:
 - starts `db` (`postgres:16-alpine`)
+- starts `redis` (`redis:7-alpine`)
 - waits for DB healthcheck
 - runs `migrate` service once
 - starts `api` only after migration succeeds

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from jose import jwt
 from passlib.context import CryptContext
@@ -40,12 +41,16 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_access_token(data: dict, expires_minutes: int = 15) -> str:
     payload = data.copy()
+    payload.setdefault("jti", str(uuid4()))
+    payload["typ"] = "access"
     payload["exp"] = datetime.utcnow() + timedelta(minutes=expires_minutes)
     return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
 
 
 def create_refresh_token(data: dict, expires_days: int = 30) -> str:
     payload = data.copy()
+    payload.setdefault("jti", str(uuid4()))
+    payload["typ"] = "refresh"
     payload["exp"] = datetime.utcnow() + timedelta(days=expires_days)
     return jwt.encode(payload, settings.JWT_REFRESH_SECRET, algorithm="HS256")
 # from datetime import datetime, timedelta

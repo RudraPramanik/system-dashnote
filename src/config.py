@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     JWT_SECRET: str
     JWT_REFRESH_SECRET: str = "change-me-refresh-secret"
+    REDIS_URL: str | None = None
+    REDIS_ENABLED: bool = True
 
     # App / runtime
     DEBUG: bool = True

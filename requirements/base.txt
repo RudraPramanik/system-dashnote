@@ -43,6 +43,7 @@ python-multipart==0.0.22
 PyYAML==6.0.3
 rich==14.3.2
 rich-toolkit==0.19.4
+redis==7.4.0
 rignore==0.7.6
 rsa==4.9.1
 sentry-sdk==2.53.0

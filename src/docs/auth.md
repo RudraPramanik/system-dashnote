@@ -34,7 +34,31 @@ JWT creation is done in:
 
 - `src/auth/security.py`
   - `create_access_token(data, expires_minutes=15)`
-  - `create_refresh_token(data, expires_days=30)` (not used elsewhere yet)
+  - `create_refresh_token(data, expires_days=30)`
+
+Token claims now include:
+- `jti`: unique token id
+- `typ`: `access` or `refresh`
+- `exp`: expiry timestamp
+
+### Redis-backed token state (refresh + logout)
+To keep auth module changes minimal, token state is handled by a reusable core component:
+
+- `src/core/redis/redis.py`
+  - `store_refresh_token(user_id, jti, ttl_seconds)`
+  - `is_refresh_token_active(user_id, jti)`
+  - `revoke_refresh_token(user_id, jti)`
+  - `blacklist_access_token(jti, ttl_seconds)`
+  - `is_access_token_blacklisted(jti)`
+
+Behavior:
+- On `register/login`, issued refresh token `jti` is stored in Redis.
+- On `refresh`, old refresh token must exist in Redis; then it is rotated (revoked and replaced).
+- On `logout`, access token `jti` is blacklisted in Redis until its `exp`.
+- On protected routes, access token is rejected if blacklisted.
+
+Fallback behavior:
+- If Redis is disabled or not configured (`REDIS_ENABLED=false` or missing `REDIS_URL`), auth still works in stateless mode.
 
 ### Token validation → building the `RequestContext`
 Every protected route should add a dependency that decodes the access token.
@@ -48,6 +72,8 @@ Key files:
 - `src/core/security/dependency.py`
   - `get_current_context(token=Depends(oauth2_scheme)) -> RequestContext`
   - Decodes the JWT using `settings.JWT_SECRET`
+  - Enforces `typ == "access"`
+  - Checks Redis access-token blacklist by `jti`
   - Builds:
     - `core.security.context.RequestContext(user_id, workspace_id, role)`
 
@@ -103,11 +129,19 @@ You’ll typically change one of these areas:
    - If you add a “switch workspace” endpoint:
      - update auth login to use a requested membership, or add a dedicated claims re-issue endpoint.
 
-4. Refresh token usage
-   - Refresh tokens are created but there is no refresh endpoint wired in this repo.
-   - Add:
-     - `POST /auth/refresh`
-   - Then decide where to re-issue access tokens with the correct `sub/wid/role` claims.
+4. Refresh + logout lifecycle
+   - `POST /auth/refresh` verifies refresh token exists in Redis and rotates it.
+   - `POST /auth/logout` blacklists current access token and optionally revokes a submitted refresh token.
+
+### Auth API commands (quick test)
+1. Login/register to get tokens.
+2. Refresh:
+   - `POST /auth/refresh`
+   - body: `{"refresh_token":"<refresh>"}` 
+3. Logout:
+   - `POST /auth/logout`
+   - header: `Authorization: Bearer <access_token>`
+   - optional body: `{"refresh_token":"<refresh>"}` (revokes refresh immediately)
 
 ### Operational best practices
 - Always enforce workspace scoping in repositories and/or via `tenant_filter` helpers.

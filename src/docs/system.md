@@ -145,3 +145,49 @@ If you add new note-like resources or collaboration features:
   - permission helper(s) if RBAC is non-trivial
 - inject auth as described in `src/docs/auth.md`.
 
+### Docker / Compose runbook (API + DB + migration)
+This repo now supports a compose flow where DB starts first, then a one-shot migration service runs `alembic upgrade head`, then API starts.
+
+#### One-time prerequisites
+- Docker Desktop running
+- Port `8000` and `5432` available
+
+#### Start everything
+From repo root:
+
+```powershell
+docker compose up -d --build
+```
+
+What this does:
+- starts `db` (`postgres:16-alpine`)
+- waits for DB healthcheck
+- runs `migrate` service once
+- starts `api` only after migration succeeds
+
+#### Verify state
+```powershell
+docker compose ps
+curl.exe -sS --max-time 10 http://127.0.0.1:8000/health
+docker compose logs --tail 50 api
+docker compose logs --tail 50 migrate
+```
+
+Expected health response:
+- `{"status":"ok"}`
+
+#### Stop services
+```powershell
+docker compose down
+```
+
+#### Reset everything including database volume
+```powershell
+docker compose down -v
+```
+
+#### Re-run migrations manually (if needed)
+```powershell
+docker compose run --rm migrate
+```
+

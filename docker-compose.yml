@@ -16,14 +16,28 @@ services:
       timeout: 3s
       retries: 10
 
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dashuser:dashpass@db:5432/dashnotes
+      JWT_SECRET: dev-secret
+      JWT_REFRESH_SECRET: dev-refresh-secret
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: dashnotesystem-api
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql+asyncpg://dashuser:dashpass@db:5432/dashnotes
       JWT_SECRET: dev-secret

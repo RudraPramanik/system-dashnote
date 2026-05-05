@@ -12,6 +12,8 @@ RUN pip install --upgrade pip && pip install -r /app/requirements/base.txt
 
 # Copy source code.
 COPY src /app/src
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
 
 EXPOSE 8000
 

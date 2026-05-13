@@ -1,6 +1,7 @@
 from sqlalchemy import Boolean, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from core.database.associations import note_attachments
 from core.database.base import Base
 from core.database.mixins import TimestampMixin, WorkspaceTenantMixin
 
@@ -14,4 +15,11 @@ class Note(Base, WorkspaceTenantMixin, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    attachments = relationship(
+        "File",
+        secondary=note_attachments,
+        back_populates="notes",
+        lazy="selectin",
+    )
 

@@ -90,10 +90,7 @@ Routers typically add:
   - uses existing `auth.models.WorkspaceUser` table (`workspace_users`) to list/invite/update/remove members
 
 - `src/files/*`
-  - uploads use MIME sniffing (`core/storage/utils.py`: `detect_mime_type`, `validate_file`, size/extension checks), storage abstraction (`core/storage/client.py`: Local / MinIO / `R2`), and persistence in `files/models.py` scoped by `workspace_id`.
-  - list/read/download visibility mirrors notes-style RBAC: `files/permissions.py` (`owner`/`admin` see all workspace files; `member` sees non-private files or files they created).
-  - note ↔ file links use the shared association table `note_attachments` in `core/database/associations.py` only (no direct imports between `notes/` and `files/` packages beyond this table).
-  - API routes live in `files/router.py` (`POST /files/upload`, `GET /files`, `GET /files/{file_id}`, download stream, patch/delete, attach to note, admin list).
+  - tenant-scoped file metadata, upload/download orchestration, and permissions; details in **Storage system** below.
 
 - `src/notes/*`
   - note ownership + visibility rules live in `notes/permissions.py`
@@ -133,15 +130,39 @@ Notes RBAC/visibility (important):
     - all public notes (`is_private = false`)
     - their own private notes (`created_by == ctx.user_id`)
 
+### Storage system (current implementation)
+Binary objects are stored **outside PostgreSQL** behind a small backend abstraction; the database holds **metadata**, **`workspace_id`**, and fields used for RBAC—same tenancy story as notes and notebooks.
+
+**Backend selection**
+- `core/storage/client.py`: `get_storage()` reads `config.settings.STORAGE_BACKEND` (`local`, `minio`, or `r2`) and returns a `StorageBackend` (`upload`, `download`, `delete`, `presigned_url`).
+- **Local** (`LocalStorageBackend`): files under `LOCAL_STORAGE_PATH`; `presigned_url` returns `None` so clients typically use the app’s download route.
+- **MinIO / R2** (`MinIOStorageBackend`, `R2StorageBackend`): S3-compatible endpoints via `aioboto3` / `boto3`; `presigned_url` may be used for direct client downloads depending on router/service behavior.
+
+**Upload validation**
+- `core/storage/utils.py`: MIME sniffing (`detect_mime_type`), `validate_file`, allowed extensions, and size limits so uploads stay consistent with detected type.
+
+**Tenancy**
+- `files.models.File` uses `WorkspaceTenantMixin`; repositories scope queries with `workspace_id` like other tenant modules (`tenant_filter` pattern).
+
+**RBAC and visibility**
+- `files/permissions.py`: `owner` and `admin` see all files in the workspace; `member` sees non-private files and any file they created (`created_by` matches `ctx.user_id`).
+
+**Note ↔ file association**
+- `core/database/associations.py` defines `note_attachments` only; `notes/` and `files/` do not import each other’s packages beyond this shared table.
+
+**HTTP surface**
+- `files/router.py` is mounted in `main.py` at prefix `/files` (upload, list, get, streamed download, patch, delete, attach to note, admin-oriented listing as implemented in code).
+
 ### Production-grade notes / operational concerns
 Recommended operational practices:
 
 - Treat `core/security/dependency.py` as the **single source of truth** for JWT claim names (`sub`, `wid`, `role`).
 - Keep permission logic out of routers:
-  - routers should call dedicated helpers like `notes/permissions.py`.
+  - routers should call dedicated helpers (for example `notes/permissions.py`, `files/permissions.py`).
 - When adding new tenant-scoped entities:
   - include a `workspace_id` column (use `WorkspaceTenantMixin`)
   - always scope queries via repository + `tenant_filter`.
+- For file-like features, keep bytes in object storage and metadata in SQL; extend `StorageBackend` or settings rather than embedding secrets in code.
 
 ### Where to extend next
 If you add new note-like resources or collaboration features:
@@ -152,52 +173,60 @@ If you add new note-like resources or collaboration features:
   - permission helper(s) if RBAC is non-trivial
 - inject auth as described in `src/docs/auth.md`.
 
-### Automated tests (files / storage)
-Integration-style unit tests live under `tests/files/` and use **pytest** + **pytest-asyncio**. They **mock** storage (`aioboto3`, `pathlib.Path`, etc.) and **never** connect to a real database or object storage.
+### Automated testing (files module)
+Tests under `tests/files/` exercise the files flow with **pytest** and **pytest-asyncio**. Storage and IO boundaries (`aioboto3`, `pathlib.Path`, and related calls) are **mocked** so the suite does not require a live PostgreSQL instance or real object storage.
 
-- Configure env for `Settings` in `tests/conftest.py` (database URL and JWT secret placeholders).
-- On hosts without **libmagic** (common on Windows), `tests/conftest.py` installs a tiny **`magic` stub** so `core.storage.utils` imports cleanly; Docker images install **`libmagic1`** for production MIME sniffing.
+**Fixtures and environment**
+- `tests/conftest.py` wires `Settings` (database URL and JWT secret placeholders) for imports and dependencies used by file tests.
+- On hosts without **libmagic** (typical on Windows), conftest provides a minimal **`magic` import stub** so `core.storage.utils` loads; production Docker images install **`libmagic1`** for real MIME detection.
 
-Run from the repository root:
+**Command** (repository root):
 
 ```powershell
 python -m pytest tests/files -q
 ```
 
-Project metadata: `pytest.ini` sets `pythonpath = src` and `asyncio_mode = auto`.
+**Pytest configuration**
+- `pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`.
 
-### Smoke: file upload (live API)
-With the stack up (`docker compose up -d --build`) and `GET /health` returning `{"status":"ok"}`, you can confirm `files/router.py` end-to-end: **register** (returns JWT), then **`POST /files/upload`** as `multipart/form-data` with part `file` (e.g. `requirement.txt` containing plain text), plus form fields `is_private` and optional `description`. The file must use an allowed extension that matches sniffed MIME (e.g. `.txt` for `text/plain`). Example using **httpx** from the repo root (requires `httpx` installed):
+### Smoke testing (file upload, live API)
+Use this after the stack is healthy (`docker compose up -d --build`, then `GET /health` → `{"status":"ok"}`) to validate `files/router.py` end-to-end.
+
+**Steps**
+1. `POST /auth/register` (or login) to obtain `access_token`.
+2. `POST /files/upload` as `multipart/form-data` with file part name `file`, form fields `is_private` and optional `description`.
+3. Use an allowed extension consistent with sniffed MIME (example: `.txt` with `text/plain` body).
+
+**Example** (repo root; requires `httpx`):
 
 ```powershell
-python -c "import uuid, httpx; b='http://127.0.0.1:8000'; e=f'test_{uuid.uuid4().hex[:8]}@example.com'; t=httpx.post(f'{b}/auth/register', json={'email':e,'password':'Test123!','workspace_name':'ws'}, timeout=30).json()['access_token']; r=httpx.post(f'{b}/files/upload', headers={'Authorization':f'Bearer {t}'}, files={'file':('requirement.txt',b'req line\n','text/plain')}, data={'is_private':'false','description':'smoke'}, timeout=30); print(r.status_code, r.json())"
+python -c "import uuid, httpx; b='http://127.0.0.1:8000'; e=f'test_{uuid.uuid4().hex[:8]}@exame.com'; t=httpx.post(f'{b}/auth/register', json={'email':e,'password':'Test123!','workspace_name':'ws'}, timeout=30).json()['access_token']; r=httpx.post(f'{b}/files/upload', headers={'Authorization':f'Bearer {t}'}, files={'file':('requirement.txt',b'req line\n','text/plain')}, data={'is_private':'false','description':'smoke'}, timeout=30); print(r.status_code, r.json())"
 ```
 
-A successful run returns **200** and a JSON body with `id`, `name`, `mime_type`, `size_bytes`, and `download_url` (relative `/files/{id}/download` when presigned URLs are not used).
+**Expected success**
+- HTTP **200** and JSON including `id`, `name`, `mime_type`, `size_bytes`, and `download_url` (often a relative `/files/{id}/download` when the backend does not return a presigned URL).
 
-### Docker / Compose runbook (API + DB + Redis + migration)
-This repo now supports a compose flow where DB and Redis start first, then a one-shot migration service runs `alembic upgrade head`, then API starts.
+### Docker Compose (API, database, Redis, migrations)
+Compose starts PostgreSQL and Redis, runs **`alembic upgrade head`** once via a **`migrate`** service after the database is healthy, then starts the **API** so migrations always precede traffic.
 
-#### One-time prerequisites
+#### Prerequisites
 - Docker Desktop running
-- Port `8000` and `5432` available
+- Host ports **8000** and **5432** free (or change mappings in compose)
 
-#### Start everything
-From repo root:
+#### Start the stack
+From the repository root:
 
 ```powershell
 docker compose up -d --build
 ```
 
-What this does:
-- builds the API image from `Dockerfile` (installs **`libmagic1`** for `python-magic` / upload MIME detection)
-- starts `db` (`postgres:16-alpine`)
-- starts `redis` (`redis:7-alpine`)
-- waits for DB healthcheck
-- runs `migrate` service once
-- starts `api` only after migration succeeds
+**Services**
+- **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation.
+- **db**: `postgres:16-alpine` with healthcheck.
+- **redis**: `redis:7-alpine`.
+- **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.
 
-#### Verify state
+#### Verify
 ```powershell
 docker compose ps
 curl.exe -sS --max-time 10 http://127.0.0.1:8000/health
@@ -205,20 +234,19 @@ docker compose logs --tail 50 api
 docker compose logs --tail 50 migrate
 ```
 
-Expected health response:
-- `{"status":"ok"}`
+**Health check body**: `{"status":"ok"}`.
 
-#### Stop services
+#### Stop
 ```powershell
 docker compose down
 ```
 
-#### Reset everything including database volume
+#### Reset including volumes
 ```powershell
 docker compose down -v
 ```
 
-#### Re-run migrations manually (if needed)
+#### Re-run migrations only
 ```powershell
 docker compose run --rm migrate
 ```

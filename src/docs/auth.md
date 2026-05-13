@@ -104,11 +104,13 @@ Then use:
 - `ctx.role` for RBAC checks
 
 ### Example: wiring `RequestContext` in a new router
-Use the same approach as existing routes like `src/notes/router.py` and `src/notebooks/router.py`:
+Use the same approach as existing routes like `src/notes/router.py`, `src/notebooks/router.py`, and `src/files/router.py`:
 
 - add `ctx = Depends(get_current_context)` (or `require_roles(...)`)
 - construct the repository with `workspace_id=ctx.workspace_id`
 - call permission helpers when entity ownership matters
+
+For how file metadata and object storage stay tenant-safe with the same JWT context, see [Storage system (current implementation)](system.md#storage-system-current-implementation) in `system.md`.
 
 ### How to update / evolve the auth workflow
 You’ll typically change one of these areas:
@@ -122,7 +124,7 @@ You’ll typically change one of these areas:
    - Roles are currently treated as strings:
      - `owner`, `admin`, `member`
    - Update `src/core/security/permissions.py` only if role gating behavior changes.
-   - Entity-specific RBAC should live in the domain module (e.g. `src/notes/permissions.py`).
+   - Entity-specific RBAC should live in the domain module (e.g. `src/notes/permissions.py`, `src/files/permissions.py`).
 
 3. Multi-workspace selection
    - Currently, `POST /auth/login` picks the user’s “first membership”.
@@ -147,4 +149,7 @@ You’ll typically change one of these areas:
 - Always enforce workspace scoping in repositories and/or via `tenant_filter` helpers.
 - Keep JWT decoding as a single dependency (avoid custom JWT decoding per route).
 - Keep ownership and visibility logic out of routers; use domain permission helpers.
+
+### See also
+- [system.md](system.md) — end-to-end request lifecycle, dependency map, tenancy, RBAC, and [object storage / files](system.md#storage-system-current-implementation) (`STORAGE_BACKEND`, upload validation, `files` RBAC).
 

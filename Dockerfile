@@ -6,6 +6,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install python dependencies first for better layer caching.
 COPY requirements/base.txt /app/requirements/base.txt
 RUN pip install --upgrade pip && pip install -r /app/requirements/base.txt

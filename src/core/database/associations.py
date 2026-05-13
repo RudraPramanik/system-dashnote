@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Table
+from sqlalchemy import Column, ForeignKey, Integer, Table
 from sqlalchemy.dialects.postgresql import UUID
 
 from core.database.base import Base
@@ -9,7 +9,7 @@ note_attachments = Table(
     Base.metadata,
     Column(
         "note_id",
-        UUID(as_uuid=True),
+        Integer,
         ForeignKey("notes.id", ondelete="CASCADE"),
         primary_key=True,
     ),
@@ -19,5 +19,5 @@ note_attachments = Table(
         ForeignKey("files.id", ondelete="CASCADE"),
         primary_key=True,
     ),
-    Column("workspace_id", UUID(as_uuid=True), nullable=False),
+    Column("workspace_id", Integer, nullable=False),
 )

@@ -51,9 +51,9 @@ def upgrade() -> None:
 
     op.create_table(
         "note_attachments",
-        sa.Column("note_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("note_id", sa.Integer(), nullable=False),
         sa.Column("file_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("workspace_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("workspace_id", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(["file_id"], ["files.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["note_id"], ["notes.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("note_id", "file_id"),

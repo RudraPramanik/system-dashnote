@@ -15,6 +15,7 @@ All tenant-scoped data access is performed through repositories that filter by `
 - `src/auth/router.py` (prefix: `/auth`)
 - `src/notebooks/router.py` (prefix: `/notebooks`)
 - `src/notes/router.py` (prefix: `/notes`)
+- `src/files/router.py` (mounted at `/files` via `src/main.py`)
 - `src/workspaces/router.py` (prefix: `/workspaces`)
 - `src/membership/router.py` (prefix: `/workspaces/members`)
 
@@ -88,6 +89,12 @@ Routers typically add:
 - `src/membership/*`
   - uses existing `auth.models.WorkspaceUser` table (`workspace_users`) to list/invite/update/remove members
 
+- `src/files/*`
+  - uploads use MIME sniffing (`core/storage/utils.py`: `detect_mime_type`, `validate_file`, size/extension checks), storage abstraction (`core/storage/client.py`: Local / MinIO / `R2`), and persistence in `files/models.py` scoped by `workspace_id`.
+  - list/read/download visibility mirrors notes-style RBAC: `files/permissions.py` (`owner`/`admin` see all workspace files; `member` sees non-private files or files they created).
+  - note ↔ file links use the shared association table `note_attachments` in `core/database/associations.py` only (no direct imports between `notes/` and `files/` packages beyond this table).
+  - API routes live in `files/router.py` (`POST /files/upload`, `GET /files`, `GET /files/{file_id}`, download stream, patch/delete, attach to note, admin list).
+
 - `src/notes/*`
   - note ownership + visibility rules live in `notes/permissions.py`
   - note persistence lives in `notes/repository.py`
@@ -145,6 +152,29 @@ If you add new note-like resources or collaboration features:
   - permission helper(s) if RBAC is non-trivial
 - inject auth as described in `src/docs/auth.md`.
 
+### Automated tests (files / storage)
+Integration-style unit tests live under `tests/files/` and use **pytest** + **pytest-asyncio**. They **mock** storage (`aioboto3`, `pathlib.Path`, etc.) and **never** connect to a real database or object storage.
+
+- Configure env for `Settings` in `tests/conftest.py` (database URL and JWT secret placeholders).
+- On hosts without **libmagic** (common on Windows), `tests/conftest.py` installs a tiny **`magic` stub** so `core.storage.utils` imports cleanly; Docker images install **`libmagic1`** for production MIME sniffing.
+
+Run from the repository root:
+
+```powershell
+python -m pytest tests/files -q
+```
+
+Project metadata: `pytest.ini` sets `pythonpath = src` and `asyncio_mode = auto`.
+
+### Smoke: file upload (live API)
+With the stack up (`docker compose up -d --build`) and `GET /health` returning `{"status":"ok"}`, you can confirm `files/router.py` end-to-end: **register** (returns JWT), then **`POST /files/upload`** as `multipart/form-data` with part `file` (e.g. `requirement.txt` containing plain text), plus form fields `is_private` and optional `description`. The file must use an allowed extension that matches sniffed MIME (e.g. `.txt` for `text/plain`). Example using **httpx** from the repo root (requires `httpx` installed):
+
+```powershell
+python -c "import uuid, httpx; b='http://127.0.0.1:8000'; e=f'test_{uuid.uuid4().hex[:8]}@example.com'; t=httpx.post(f'{b}/auth/register', json={'email':e,'password':'Test123!','workspace_name':'ws'}, timeout=30).json()['access_token']; r=httpx.post(f'{b}/files/upload', headers={'Authorization':f'Bearer {t}'}, files={'file':('requirement.txt',b'req line\n','text/plain')}, data={'is_private':'false','description':'smoke'}, timeout=30); print(r.status_code, r.json())"
+```
+
+A successful run returns **200** and a JSON body with `id`, `name`, `mime_type`, `size_bytes`, and `download_url` (relative `/files/{id}/download` when presigned URLs are not used).
+
 ### Docker / Compose runbook (API + DB + Redis + migration)
 This repo now supports a compose flow where DB and Redis start first, then a one-shot migration service runs `alembic upgrade head`, then API starts.
 
@@ -160,6 +190,7 @@ docker compose up -d --build
 ```
 
 What this does:
+- builds the API image from `Dockerfile` (installs **`libmagic1`** for `python-magic` / upload MIME detection)
 - starts `db` (`postgres:16-alpine`)
 - starts `redis` (`redis:7-alpine`)
 - waits for DB healthcheck

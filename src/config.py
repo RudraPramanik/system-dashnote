@@ -15,6 +15,23 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: List[str] = ["*"]
 
+    # Storage
+    STORAGE_BACKEND: str = "local"
+    LOCAL_STORAGE_PATH: str = "storage"
+
+    MINIO_ENDPOINT: str = ""
+    MINIO_ACCESS_KEY: str = ""
+    MINIO_SECRET_KEY: str = ""
+    MINIO_BUCKET: str = ""
+    MINIO_USE_SSL: bool = False
+
+    R2_ENDPOINT: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET: str = ""
+
+    MAX_FILE_SIZE_BYTES: int = 1_048_576
+
     class Config:
         env_file = ".env"
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from redis.asyncio import Redis
 
-from config import settings
+from core.redis.client import get_async_redis
 
 
 class BaseTokenStore:
@@ -23,8 +23,8 @@ class BaseTokenStore:
 
 
 class RedisTokenStore(BaseTokenStore):
-    def __init__(self, redis_url: str):
-        self.client = Redis.from_url(redis_url, decode_responses=True)
+    def __init__(self, client: Redis):
+        self.client = client
 
     @staticmethod
     def _access_key(jti: str) -> str:
@@ -53,13 +53,19 @@ class RedisTokenStore(BaseTokenStore):
 _token_store: BaseTokenStore | None = None
 
 
+def reset_token_store_singleton() -> None:
+    global _token_store
+    _token_store = None
+
+
 def get_token_store() -> BaseTokenStore:
     global _token_store
     if _token_store is not None:
         return _token_store
 
-    if settings.REDIS_ENABLED and settings.REDIS_URL:
-        _token_store = RedisTokenStore(settings.REDIS_URL)
+    client = get_async_redis()
+    if client is not None:
+        _token_store = RedisTokenStore(client)
     else:
         _token_store = BaseTokenStore()
     return _token_store

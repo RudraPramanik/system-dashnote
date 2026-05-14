@@ -96,6 +96,21 @@ Routers typically add:
   - note ownership + visibility rules live in `notes/permissions.py`
   - note persistence lives in `notes/repository.py`
 
+#### Redis (shared client, auth state, and cache-aside)
+Redis is optional at runtime (`REDIS_ENABLED`, `REDIS_URL` in `config.settings`). When configured, the process uses **one shared async Redis client** (`core/redis/client.py`: `get_async_redis`) for:
+- **JWT operational state** (refresh-token presence, access-token logout blacklist) via `get_token_store()` / `core/redis/redis.py` (see `src/docs/auth.md`).
+- **Application reads** using **cache-aside** in selected routers (`GET /notes`, `GET /notes/{id}`, `GET /notebooks/`).
+
+Tenant safety for cached reads:
+- Keys are always prefixed with `workspace_id` from `RequestContext` (JWT `wid`), plus a **list variant** for notes (`staff` for owner/admin vs `u{user_id}` for members) so member-visible subsets cannot leak across users.
+- **Invalidation** does not scan keys: each workspace keeps monotonic **generation counters** (`INCR` on `app:cache:gen:notes:{wid}` and `app:cache:gen:notebooks:{wid}`). Any note write bumps the notes generation; notebook create bumps the notebooks generation, so stale list/detail entries age out immediately when Redis is enabled.
+
+FastAPI wiring (no change to how JWT context is produced):
+- `core/redis/deps.py` exposes `get_redis_connection` and `get_workspace_cache`. Routers that need caching add `cache: WorkspaceRedisCache = Depends(get_workspace_cache)` alongside existing `get_current_context` / `get_session` dependencies. FastAPI deduplicates nested `Depends(get_current_context)` per request.
+- **TTL**: cached JSON entries use `settings.CACHE_TTL_SECONDS` (default 60) as the Redis `SETEX` lifetime; generations provide correctness, TTL bounds recovery if a bump is missed.
+
+When Redis is disabled, `WorkspaceRedisCache` receives `redis=None`: every read is a cache miss and mutations still succeed (no-op bump), preserving existing API behavior without Redis.
+
 ### Tenancy model (current implementation)
 Multi-tenancy is implemented using:
 
@@ -223,7 +238,7 @@ docker compose up -d --build
 **Services**
 - **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation.
 - **db**: `postgres:16-alpine` with healthcheck.
-- **redis**: `redis:7-alpine`.
+- **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, plus optional cache-aside for read-heavy routes documented above).
 - **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.
 
 #### Verify

@@ -71,11 +71,12 @@ System endpoints:
 ### 3.2 Request flow (protected endpoint)
 1. Client sends `Authorization: Bearer <token>`.
 2. `oauth2_scheme` extracts the token.
-3. `get_current_context` validates JWT and builds `RequestContext`.
-4. Router instantiates repository with `ctx.workspace_id` where tenant-scoped.
-5. Permission checks run (`require_roles` and/or domain helper).
-6. Repository executes async SQLAlchemy query.
-7. Router returns Pydantic schema.
+3. `get_current_context` validates JWT and builds `RequestContext` (including optional Redis access-token blacklist check via `get_token_store()`).
+4. Optional: routers that support read caching also resolve `WorkspaceRedisCache` via `get_workspace_cache` (nested `Depends(get_current_context)` + shared Redis client from `get_async_redis()`).
+5. Router instantiates repository with `ctx.workspace_id` where tenant-scoped.
+6. Permission checks run (`require_roles` and/or domain helper).
+7. Repository executes async SQLAlchemy query (on cache miss for cached routes).
+8. Router returns Pydantic schema.
 
 ## 4) Module-level low-level design
 
@@ -83,21 +84,36 @@ System endpoints:
 Responsibilities:
 - user registration
 - credential validation
-- token issuance
+- token issuance, refresh rotation, and logout (access blacklist + optional refresh revocation)
 
 Primary flow:
 - `POST /auth/register`
   - creates `users`, `workspaces`, `workspace_users`
-  - issues access + refresh JWTs with `sub`, `wid`, `role`
+  - issues access + refresh JWTs with `sub`, `wid`, `role`, `jti`, `typ`
+  - when Redis is enabled, stores the refresh token `jti` in Redis for rotation checks
 - `POST /auth/login`
   - validates credentials
   - selects first membership as default workspace
-  - issues access + refresh JWTs
+  - issues access + refresh JWTs (same Redis refresh tracking when enabled)
+- `POST /auth/refresh`
+  - validates refresh JWT; requires active refresh `jti` in Redis when enabled; rotates refresh token
+- `POST /auth/logout`
+  - blacklists access token `jti` until expiry when Redis is enabled; optionally revokes refresh `jti`
 
-Notes:
-- refresh tokens are generated but refresh endpoint is not implemented yet.
+Operational state is delegated to `core/redis/redis.py` (`get_token_store`) using the shared async client from `core/redis/client.py` when `REDIS_URL` is configured (details in `src/docs/auth.md`).
 
-### 4.2 `core.security` module
+### 4.2 `core.redis` — shared client + tenant cache-aside
+Components:
+- `core/redis/client.py`: lazy singleton `get_async_redis()`; `reset_async_redis_client()` clears the client and resets the token-store singleton (tests).
+- `core/redis/redis.py`: `RedisTokenStore` / `BaseTokenStore` for JWT blacklist + refresh tracking.
+- `core/redis/cache.py`: `WorkspaceRedisCache` — tenant-scoped key layout (`workspace_id` prefix), generation counters per domain (`notes`, `notebooks`), JSON cache-aside helpers.
+- `core/redis/deps.py`: `get_redis_connection`, `get_workspace_cache` — FastAPI dependencies composing `RequestContext` with Redis (no-op cache when Redis is disabled).
+
+Consumers (read caching):
+- `notes/router.py`: `GET /notes` (list), `GET /notes/{id}` (detail after permission); all note mutations `INCR` the workspace notes generation.
+- `notebooks/router.py`: `GET /notebooks/`; `POST /notebooks/` bumps workspace notebooks generation.
+
+### 4.3 `core.security` module
 Responsibilities:
 - auth context extraction from token
 - generic role gating
@@ -110,7 +126,7 @@ Failure behavior:
 - invalid/missing claims/token -> `401 Invalid or expired token`
 - insufficient role -> `403 Insufficient permissions`
 
-### 4.3 `workspaces` module
+### 4.4 `workspaces` module
 Responsibilities:
 - retrieve current workspace
 - rename workspace
@@ -122,7 +138,7 @@ Endpoints:
 Design note:
 - workspace identity is always taken from JWT `wid` through context.
 
-### 4.4 `membership` module
+### 4.5 `membership` module
 Responsibilities:
 - list members
 - invite member
@@ -140,7 +156,7 @@ Key rules in service layer:
 Storage model:
 - joins `workspace_users` with `users` for member listing.
 
-### 4.5 `notes` module
+### 4.6 `notes` module
 Responsibilities:
 - CRUD notes within workspace
 - visibility and ownership checks
@@ -160,7 +176,10 @@ Repository guarantees:
 - all note queries include tenant scope
 - member listing query applies visibility filter in SQL
 
-### 4.6 `notebooks` module
+Read performance:
+- `GET /notes` and `GET /notes/{id}` use Redis cache-aside when configured (`WorkspaceRedisCache` from `core/redis/deps.py`); keys include `workspace_id`, viewer variant, and a workspace generation counter bumped on any note mutation.
+
+### 4.7 `notebooks` module
 Responsibilities:
 - list notebooks in workspace
 - create notebook (owner/admin only)
@@ -169,7 +188,10 @@ Tenant handling:
 - repository extends `TenantRepository`
 - all operations scoped by workspace
 
-### 4.7 `files` module
+Read performance:
+- `GET /notebooks/` uses the same tenant-scoped cache-aside pattern; notebook create bumps the workspace notebooks generation.
+
+### 4.8 `files` module
 Responsibilities:
 - upload and persist file metadata in the active workspace
 - list, read metadata, stream download, update, delete
@@ -188,7 +210,7 @@ RBAC:
 Integration boundary:
 - Note-to-file links use `note_attachments` in `core/database/associations.py` so `notes/` and `files/` stay loosely coupled.
 
-### 4.8 `ai_gateway` module (current state)
+### 4.9 `ai_gateway` module (current state)
 Current code status:
 - `src/ai_gateway/router.py` and `src/ai_gateway/schemas.py` are placeholders (empty).
 
@@ -225,6 +247,10 @@ This keeps write semantics explicit and local to repository methods.
 ## 6) Dependency and responsibility matrix
 - `main.py`: app composition and module registration
 - `core/database/session.py`: async engine/session factory + DI dependency
+- `core/redis/client.py`: shared async Redis client (`get_async_redis`) when `REDIS_URL` is set
+- `core/redis/redis.py`: JWT refresh + access blacklist token store (`get_token_store`)
+- `core/redis/cache.py`: tenant-scoped `WorkspaceRedisCache` (cache-aside JSON + generation bumps)
+- `core/redis/deps.py`: `get_workspace_cache` / `get_redis_connection` for routers
 - `core/storage/client.py`: storage backend factory (`get_storage`) used by file write/read/delete paths
 - `core/storage/utils.py`: MIME and upload validation helpers
 - `core/security/dependency.py`: token decode to context
@@ -248,7 +274,8 @@ Current tests validate:
 - permissions and tenant repository behavior
 - notebooks API
 - notes RBAC API
-- auth security logic
+- auth security logic and token rotation / blacklist flows
+- `WorkspaceRedisCache` cache-aside and generation invalidation (`tests/core/test_workspace_redis_cache.py`)
 - page versioning behavior
 - files module flows with mocked storage (`tests/files/`)
 - Supabase smoke path for integrated flow

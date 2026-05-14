@@ -44,6 +44,7 @@ Token claims now include:
 ### Redis-backed token state (refresh + logout)
 To keep auth module changes minimal, token state is handled by a reusable core component:
 
+- `src/core/redis/client.py`: shared async Redis client (`get_async_redis`) used by the token store and application cache when `REDIS_URL` is configured.
 - `src/core/redis/redis.py`
   - `store_refresh_token(user_id, jti, ttl_seconds)`
   - `is_refresh_token_active(user_id, jti)`

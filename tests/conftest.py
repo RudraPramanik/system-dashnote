@@ -4,6 +4,8 @@ import os
 import sys
 import types
 
+import pytest
+
 
 def _ensure_magic_stub() -> None:
     """Allow importing `core.storage.utils` without system libmagic (e.g. Windows CI)."""
@@ -25,3 +27,11 @@ os.environ.setdefault(
     "postgresql+asyncpg://dashuser:dashpass@127.0.0.1:5432/dashnotes",
 )
 os.environ.setdefault("JWT_SECRET", "pytest-jwt-secret-not-for-production")
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_redis_after_test() -> None:
+    yield
+    from core.redis.client import reset_async_redis_client
+
+    reset_async_redis_client()

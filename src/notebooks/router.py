@@ -1,8 +1,9 @@
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.session import get_session
+from core.redis.cache import WorkspaceRedisCache
+from core.redis.deps import get_workspace_cache
 from core.security.context import RequestContext
 from core.security.dependency import get_current_context
 from core.security.permissions import require_roles
@@ -17,13 +18,21 @@ router = APIRouter(prefix="/notebooks", tags=["notebooks"])
 async def list_notebooks(
     ctx: RequestContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_session),
+    cache: WorkspaceRedisCache = Depends(get_workspace_cache),
 ):
     """
     List notebooks for the current workspace.
     """
-    repo = NotebookRepository(db, workspace_id=ctx.workspace_id)
-    notebooks = await repo.list()
-    return [NotebookRead.from_orm(nb) for nb in notebooks]
+    gen = await cache.read_generation("notebooks")
+    key = cache.key_notebooks_list(gen)
+
+    async def load() -> list[dict]:
+        repo = NotebookRepository(db, workspace_id=ctx.workspace_id)
+        notebooks = await repo.list()
+        return [NotebookRead.model_validate(nb).model_dump(mode="json") for nb in notebooks]
+
+    raw = await cache.aside_json(key, load)
+    return [NotebookRead.model_validate(item) for item in raw]
 
 
 @router.post("/", response_model=NotebookRead)
@@ -31,6 +40,7 @@ async def create_notebook(
     data: NotebookCreate,
     ctx: RequestContext = Depends(require_roles("owner", "admin")),
     db: AsyncSession = Depends(get_session),
+    cache: WorkspaceRedisCache = Depends(get_workspace_cache),
 ):
     """
     Create a notebook in the current workspace.
@@ -42,5 +52,5 @@ async def create_notebook(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    await cache.bump_generation("notebooks")
     return NotebookRead.from_orm(notebook)
-

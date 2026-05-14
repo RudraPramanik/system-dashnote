@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     JWT_REFRESH_SECRET: str = "change-me-refresh-secret"
     REDIS_URL: str | None = None
     REDIS_ENABLED: bool = True
+    CACHE_TTL_SECONDS: int = 60
 
     # App / runtime
     DEBUG: bool = True

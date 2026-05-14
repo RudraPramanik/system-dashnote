@@ -12,6 +12,8 @@ All tenant-scoped data access is performed through repositories that filter by `
 ### Entry point: `src/main.py`
 `src/main.py` creates the FastAPI app and registers routers:
 
+- **Reverse-proxy headers**: `uvicorn.middleware.proxy_headers.ProxyHeadersMiddleware` (trusted hosts `*`) so `request.client` reflects the original client when `X-Forwarded-For` is set by Nginx.
+- **Application rate limits**: a global FastAPI dependency (`core.security.rate_limit.enforce_global_rate_limit`) enforces Redis-backed fixed-window limits when `REDIS_URL` is configured (see **Rate limiting** below).
 - `src/auth/router.py` (prefix: `/auth`)
 - `src/notebooks/router.py` (prefix: `/notebooks`)
 - `src/notes/router.py` (prefix: `/notes`)
@@ -22,6 +24,22 @@ All tenant-scoped data access is performed through repositories that filter by `
 It also mounts **`core.health`** for orchestration:
 
 - `GET /health` — deep probe: async `SELECT 1` on PostgreSQL and Redis `PING` when Redis is configured (`REDIS_ENABLED` and `REDIS_URL`). Returns **200** when all required dependencies respond, **503** otherwise, with `timestamp`, `latency_ms`, and a `dependencies` map (`database`, and `redis` when applicable).
+
+### Rate limiting (Nginx + FastAPI)
+Traffic is limited at two layers: **per IP at the edge** (Nginx) and **per identity in the app** (FastAPI + Redis).
+
+#### Layer 1 — Nginx (`nginx/default.conf`)
+- Compose runs **`nginx:alpine`** in front of the **`api`** service (host port **80** → container **80**).
+- `limit_req_zone $binary_remote_addr zone=api_per_ip:10m rate=10r/s;` with `limit_req zone=api_per_ip burst=20 nodelay;` on proxied traffic.
+- Nginx forwards to `http://api:8000`, sets **`X-Real-IP`**, appends the client to **`X-Forwarded-For`**, forwards **`X-Forwarded-Proto`**, and sets **`X-Request-ID`** (`$request_id`) for tracing.
+
+#### Layer 2 — FastAPI (`core/security/rate_limit.py`)
+- **`RateLimiter`**: fixed-window counters in Redis (`INCR` + `EXPIRE` on first hit in the window). Keys follow `rate_limit:{scope}:{user_id|ip}:{window_index}` so each window is isolated without scanning.
+- **Redis**: `core/redis/deps.py` (`get_redis_connection`) supplies the async client. When Redis is not configured, checks are skipped (fail-open) so local/dev without Redis keeps working.
+- **Identity**: `get_optional_current_context` in `core/security/dependency.py` uses the same access-token validation path as `get_current_context` (via `_context_from_access_token`). If a valid access token is present, the counter is keyed by **`user_id`**; otherwise by **client IP** (after `ProxyHeadersMiddleware`).
+- **Global limit**: **100 requests per minute** per identity, applied as an app-level dependency in `main.py`.
+- **`POST /auth/login`**: stricter limit **5 requests per minute** per identity (`enforce_auth_login_rate_limit` on the route).
+- **429 responses**: `HTTPException` with status **429** and a **`Retry-After`** header (seconds), derived from Redis `TTL` when possible.
 
 ### Request lifecycle (workflow)
 Most endpoints follow the same flow:
@@ -53,6 +71,8 @@ Routers typically add:
 #### App wiring
 - `src/main.py`
   - depends on `config.settings`
+  - registers `ProxyHeadersMiddleware` and `CORSMiddleware`
+  - applies global `Depends(enforce_global_rate_limit)` on the FastAPI app
   - registers `core.health` (`GET /health`) before feature routers
   - depends on each module’s `router` (`auth/router.py`, `notes/router.py`, etc.)
 
@@ -78,6 +98,10 @@ Routers typically add:
 
 - `core/security/dependency.py`
   - decodes JWT and builds `RequestContext`
+  - optional bearer: `get_optional_current_context` (same decode path as `get_current_context`, used for rate-limit identity without forcing auth on public routes)
+
+- `core/security/rate_limit.py`
+  - `RateLimiter` (fixed window) + `enforce_global_rate_limit` / `enforce_auth_login_rate_limit`
 
 - `core/security/permissions.py`
   - provides `require_roles(*allowed_roles)` dependency factory
@@ -195,6 +219,8 @@ If you add new note-like resources or collaboration features:
 ### Automated testing (files module)
 Tests under `tests/files/` exercise the files flow with **pytest** and **pytest-asyncio**. Storage and IO boundaries (`aioboto3`, `pathlib.Path`, and related calls) are **mocked** so the suite does not require a live PostgreSQL instance or real object storage.
 
+**Rate limiting (`core/security/rate_limit.py`)** is covered by `tests/core/test_rate_limit.py` (mocked async Redis).
+
 **Fixtures and environment**
 - `tests/conftest.py` wires `Settings` (database URL and JWT secret placeholders) for imports and dependencies used by file tests.
 - On hosts without **libmagic** (typical on Windows), conftest provides a minimal **`magic` import stub** so `core.storage.utils` loads; production Docker images install **`libmagic1`** for real MIME detection.
@@ -206,7 +232,7 @@ python -m pytest tests/files -q
 ```
 
 **Pytest configuration**
-- `pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`.
+- `pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`, `addopts = --import-mode=importlib` (avoids duplicate `test_*.py` basenames across folders).
 
 ### Smoke testing (file upload, live API)
 Use this after the stack is healthy (`docker compose up -d --build`, then `GET /health` → HTTP **200** with `"status":"ok"` and dependency details) to validate `files/router.py` end-to-end.
@@ -219,18 +245,20 @@ Use this after the stack is healthy (`docker compose up -d --build`, then `GET /
 **Example** (repo root; requires `httpx`):
 
 ```powershell
-python -c "import uuid, httpx; b='http://127.0.0.1:8000'; e=f'test_{uuid.uuid4().hex[:8]}@exame.com'; t=httpx.post(f'{b}/auth/register', json={'email':e,'password':'Test123!','workspace_name':'ws'}, timeout=30).json()['access_token']; r=httpx.post(f'{b}/files/upload', headers={'Authorization':f'Bearer {t}'}, files={'file':('requirement.txt',b'req line\n','text/plain')}, data={'is_private':'false','description':'smoke'}, timeout=30); print(r.status_code, r.json())"
+python -c "import uuid, httpx; b='http://127.0.0.1'; e=f'test_{uuid.uuid4().hex[:8]}@exame.com'; t=httpx.post(f'{b}/auth/register', json={'email':e,'password':'Test123!','workspace_name':'ws'}, timeout=30).json()['access_token']; r=httpx.post(f'{b}/files/upload', headers={'Authorization':f'Bearer {t}'}, files={'file':('requirement.txt',b'req line\n','text/plain')}, data={'is_private':'false','description':'smoke'}, timeout=30); print(r.status_code, r.json())"
 ```
+
+For **local uvicorn** without Docker (direct port **8000**), use `http://127.0.0.1:8000` as the base URL; Nginx and edge limits apply only when using the Compose stack as documented.
 
 **Expected success**
 - HTTP **200** and JSON including `id`, `name`, `mime_type`, `size_bytes`, and `download_url` (often a relative `/files/{id}/download` when the backend does not return a presigned URL).
 
-### Docker Compose (API, database, Redis, migrations)
-Compose starts PostgreSQL and Redis, runs **`alembic upgrade head`** once via a **`migrate`** service after the database is healthy, then starts the **API** so migrations always precede traffic.
+### Docker Compose (Nginx, API, database, Redis, migrations)
+Compose starts PostgreSQL and Redis, runs **`alembic upgrade head`** once via a **`migrate`** service after the database is healthy, then starts the **API** (listens on **8000** inside the Compose network). **`nginx`** publishes host port **80** and reverse-proxies to **`api:8000`** with the rate limit and tracing headers described under **Rate limiting**.
 
 #### Prerequisites
 - Docker Desktop running
-- Host ports **8000** and **5432** free (or change mappings in compose)
+- Host ports **80**, **5432**, and **6379** free (or change mappings in compose)
 
 #### Start the stack
 From the repository root:
@@ -240,16 +268,18 @@ docker compose up -d --build
 ```
 
 **Services**
-- **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation.
+- **nginx**: `nginx:alpine`, binds **80:80**, mounts `nginx/default.conf` (edge `limit_req` + proxy headers including `X-Request-ID`).
+- **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation; also mapped **`8000:8000`** on the host for direct access to `/docs` and debugging (bypasses Nginx edge limits). Prefer **`http://127.0.0.1/`** (port **80**) when testing the full proxy + Nginx `limit_req` path.
 - **db**: `postgres:16-alpine` with healthcheck.
-- **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, plus optional cache-aside for read-heavy routes documented above).
+- **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, application rate limits, plus optional cache-aside for read-heavy routes documented above).
 - **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.
 
 #### Verify
 ```powershell
 docker compose ps
-curl.exe -sS --max-time 10 http://127.0.0.1:8000/health
+curl.exe -sS --max-time 10 http://127.0.0.1/health
 docker compose logs --tail 50 api
+docker compose logs --tail 50 nginx
 docker compose logs --tail 50 migrate
 ```
 

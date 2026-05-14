@@ -17,6 +17,7 @@ from auth.security import create_access_token, create_refresh_token
 from config import settings
 from core.database.session import get_db
 from core.redis import get_token_store
+from core.security.rate_limit import enforce_auth_login_rate_limit
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -59,7 +60,11 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    dependencies=[Depends(enforce_auth_login_rate_limit)],
+)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = await authenticate_user(db, data.email, data.password)
     if not user:

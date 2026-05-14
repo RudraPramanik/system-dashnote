@@ -8,12 +8,14 @@ _SRC_DIR = os.path.dirname(__file__)
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from config import settings
+from core.security.rate_limit import enforce_global_rate_limit
 from auth.router import router as auth_router
 from files.router import router as files_router
 from notebooks.router import router as notebooks_router
@@ -43,6 +45,7 @@ def register_middlewares(app: FastAPI) -> None:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 
 # Global exception handling
@@ -67,6 +70,7 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.DEBUG else None,
         redoc_url="/redoc" if settings.DEBUG else None,
         openapi_url="/openapi.json" if settings.DEBUG else None,
+        dependencies=[Depends(enforce_global_rate_limit)],
     )
 
     register_middlewares(app)

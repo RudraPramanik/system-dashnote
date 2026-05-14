@@ -27,6 +27,17 @@ services:
       timeout: 3s
       retries: 10
 
+  nginx:
+    image: nginx:alpine
+    container_name: dashnotesystem-nginx
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
   migrate:
     build:
       context: .
@@ -58,6 +69,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DEBUG: "true"
     ports:
+      # Direct API (docs, OpenAPI) for local dev. Production-style traffic uses nginx on :80 only.
       - "8000:8000"
     restart: unless-stopped
 

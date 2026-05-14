@@ -9,11 +9,12 @@ In scope:
 - RBAC + domain permissions
 - Object storage abstraction (local / S3-compatible backends) and the `files` module
 - Implemented modules: `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files`
+- Edge reverse proxy and dual-layer rate limiting (Nginx + Redis-backed FastAPI limits) as implemented in-repo
 - Extension contract for upcoming modules (such as `ai_gateway`)
 
 Out of scope:
 - Frontend design
-- Infrastructure provisioning
+- Cloud-specific provisioning beyond the provided `docker-compose.yml` and `nginx/default.conf`
 - Non-implemented runtime components
 
 ## 2) Design principles used
@@ -52,7 +53,9 @@ File bytes live in a `StorageBackend` implementation (`core/storage/client.py`: 
 
 ### 3.1 Entry point and composition
 `src/main.py` creates the FastAPI app and registers:
+- `ProxyHeadersMiddleware` (Uvicorn) so `request.client` reflects the proxied client when `X-Forwarded-For` is trusted.
 - CORS middleware
+- **Global application rate limit** dependency (`enforce_global_rate_limit`): Redis fixed-window counter per `user_id` (from JWT when present) or client IP; skipped when Redis is unavailable.
 - module routers
 - global exception handler
 
@@ -66,14 +69,16 @@ Registered routers:
 - `/workspaces/members`
 
 ### 3.2 Request flow (protected endpoint)
-1. Client sends `Authorization: Bearer <token>`.
-2. `oauth2_scheme` extracts the token.
-3. `get_current_context` validates JWT and builds `RequestContext` (including optional Redis access-token blacklist check via `get_token_store()`).
-4. Optional: routers that support read caching also resolve `WorkspaceRedisCache` via `get_workspace_cache` (nested `Depends(get_current_context)` + shared Redis client from `get_async_redis()`).
-5. Router instantiates repository with `ctx.workspace_id` where tenant-scoped.
-6. Permission checks run (`require_roles` and/or domain helper).
-7. Repository executes async SQLAlchemy query (on cache miss for cached routes).
-8. Router returns Pydantic schema.
+1. When behind Nginx, the edge sets `X-Forwarded-For` / `X-Real-IP`; `ProxyHeadersMiddleware` adjusts ASGI `client` so downstream code (including rate limiting) sees the original host.
+2. Global rate limit dependency runs (Redis `INCR` on a fixed-window key before route handlers).
+3. Client sends `Authorization: Bearer <token>`.
+4. `oauth2_scheme` extracts the token.
+5. `get_current_context` validates JWT and builds `RequestContext` (including optional Redis access-token blacklist check via `get_token_store()`).
+6. Optional: routers that support read caching also resolve `WorkspaceRedisCache` via `get_workspace_cache` (nested `Depends(get_current_context)` + shared Redis client from `get_async_redis()`).
+7. Router instantiates repository with `ctx.workspace_id` where tenant-scoped.
+8. Permission checks run (`require_roles` and/or domain helper).
+9. Repository executes async SQLAlchemy query (on cache miss for cached routes).
+10. Router returns Pydantic schema.
 
 ## 4) Module-level low-level design
 
@@ -92,6 +97,7 @@ Primary flow:
   - validates credentials
   - selects first membership as default workspace
   - issues access + refresh JWTs (same Redis refresh tracking when enabled)
+  - additionally guarded by **`enforce_auth_login_rate_limit`** (5/min per identity in Redis when configured)
 - `POST /auth/refresh`
   - validates refresh JWT; requires active refresh `jti` in Redis when enabled; rotates refresh token
 - `POST /auth/logout`
@@ -114,14 +120,33 @@ Consumers (read caching):
 Responsibilities:
 - auth context extraction from token
 - generic role gating
+- optional access-token decode for non-auth-gated flows (rate limit identity)
 
 Components:
-- `get_current_context`: JWT decode -> `RequestContext`
+- `_context_from_access_token` / `get_current_context`: JWT decode -> `RequestContext`
+- `get_optional_current_context`: same validation when a bearer token is supplied; otherwise `None` (used by rate limiting without forcing login on public routes)
 - `require_roles(*roles)`: dependency factory for 403 enforcement
 
 Failure behavior:
-- invalid/missing claims/token -> `401 Invalid or expired token`
+- invalid/missing claims/token -> `401 Invalid or expired token` (strict `get_current_context` path only)
 - insufficient role -> `403 Insufficient permissions`
+
+### 4.3a `core.security.rate_limit` — application fixed-window limits
+Responsibilities:
+- enforce Redis-backed fixed-window quotas per logical **scope** and **identity**
+- emit **429** with **`Retry-After`** when a window is exceeded
+
+Components:
+- `RateLimiter(scope, limit, window_seconds)`: builds keys `rate_limit:{scope}:{user_id|ip}:{window_index}`, uses `INCR` + `EXPIRE`
+- `enforce_global_rate_limit`: FastAPI dependency (wired on the app in `main.py`) — default **100/min** (`scope=global`)
+- `enforce_auth_login_rate_limit`: route-level dependency on `POST /auth/login` — **5/min** (`scope=auth_login`)
+
+Identity rules:
+- If `get_optional_current_context` returns a `RequestContext`, the identity segment is `str(user_id)` (same JWT semantics as `get_current_context`).
+- Otherwise the identity segment is the client IP string from `Request.client` (after `ProxyHeadersMiddleware`).
+
+Operational notes:
+- When `get_redis_connection` yields `None`, checks are skipped (no Redis URL / disabled Redis) so unit tests and minimal dev setups keep working.
 
 ### 4.4 `workspaces` module
 Responsibilities:
@@ -242,15 +267,17 @@ Repositories currently perform:
 This keeps write semantics explicit and local to repository methods.
 
 ## 6) Dependency and responsibility matrix
-- `main.py`: app composition and module registration
+- `main.py`: app composition, module registration, `ProxyHeadersMiddleware`, global rate limit dependency
+- `nginx/default.conf` (Compose): edge `limit_req` per `$binary_remote_addr`, reverse proxy to `api:8000`, tracing/proxy headers
 - `core/database/session.py`: async engine/session factory + DI dependency
 - `core/redis/client.py`: shared async Redis client (`get_async_redis`) when `REDIS_URL` is set
 - `core/redis/redis.py`: JWT refresh + access blacklist token store (`get_token_store`)
 - `core/redis/cache.py`: tenant-scoped `WorkspaceRedisCache` (cache-aside JSON + generation bumps)
-- `core/redis/deps.py`: `get_workspace_cache` / `get_redis_connection` for routers
+- `core/redis/deps.py`: `get_workspace_cache` / `get_redis_connection` for routers and rate limiting
 - `core/storage/client.py`: storage backend factory (`get_storage`) used by file write/read/delete paths
 - `core/storage/utils.py`: MIME and upload validation helpers
-- `core/security/dependency.py`: token decode to context
+- `core/security/dependency.py`: token decode to context; optional decode for rate limit identity
+- `core/security/rate_limit.py`: fixed-window Redis rate limits + FastAPI dependencies
 - `core/security/permissions.py`: route-level RBAC
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
@@ -264,6 +291,7 @@ This keeps write semantics explicit and local to repository methods.
   - 401: auth failure
   - 403: permission denied
   - 404: entity/membership not found
+  - 429: application rate limit exceeded (`Retry-After` header)
 - Fallback global exception handler returns generic 500 body.
 
 ## 8) Testing strategy alignment
@@ -273,6 +301,7 @@ Current tests validate:
 - notes RBAC API
 - auth security logic and token rotation / blacklist flows
 - `WorkspaceRedisCache` cache-aside and generation invalidation (`tests/core/test_workspace_redis_cache.py`)
+- application rate limiter behavior (`tests/core/test_rate_limit.py`)
 - page versioning behavior
 - files module flows with mocked storage (`tests/files/`)
 - Supabase smoke path for integrated flow

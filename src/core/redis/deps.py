@@ -23,6 +23,9 @@ async def get_redis_connection() -> Redis | None:
     return get_async_redis()
 
 
+get_redis = get_redis_connection
+
+
 async def get_workspace_cache(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
     redis: Annotated[Redis | None, Depends(get_redis_connection)],

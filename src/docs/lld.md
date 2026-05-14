@@ -57,16 +57,13 @@ File bytes live in a `StorageBackend` implementation (`core/storage/client.py`: 
 - global exception handler
 
 Registered routers:
+- `core.health` → `GET /health` (deep probe: `SELECT 1`, Redis `PING` when Redis is configured; **503** if a required dependency fails)
 - `/auth`
 - `/files`
 - `/notebooks`
 - `/notes`
 - `/workspaces`
 - `/workspaces/members`
-
-System endpoints:
-- `GET /health`
-- `GET /`
 
 ### 3.2 Request flow (protected endpoint)
 1. Client sends `Authorization: Bearer <token>`.

@@ -73,9 +73,12 @@ Existing endpoints:
 - `GET /notebooks/`
 - `POST /notebooks/` (role gated by `require_roles("owner", "admin")`)
 
-#### System endpoints (`src/main.py`)
-- `GET /health`
-- `GET /` (base)
+#### System / health (`src/core/health.py`, mounted from `src/main.py`)
+- `GET /health` — deep readiness probe (no auth)
+  - Runs `SELECT 1` on the app DB session and `PING` on Redis when `REDIS_ENABLED` and `REDIS_URL` are set; if Redis is not configured, Redis is reported with `configured: false` and does not fail the check.
+  - **200**: `"status": "ok"` when every required dependency is reachable.
+  - **503**: `"status": "unavailable"` when the database or required Redis is unreachable.
+  - Response fields: `status`, `timestamp` (UTC ISO-8601), `latency_ms` (number), `dependencies` (e.g. `database.reachable`, `redis.reachable`, optional `redis.configured`).
 
 ### How to test routes manually (Swagger)
 1. Start the server (example):

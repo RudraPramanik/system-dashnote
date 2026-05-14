@@ -1,6 +1,6 @@
-### Health check
+### Deep health (PostgreSQL SELECT 1 + Redis PING when configured)
+### 200: status "ok"; 503: status "unavailable" — body always includes timestamp, latency_ms, dependencies
 GET http://localhost:8000/health
 
-GET http://localhost:8000
-
-POST http://localhost:8000/register
+### Auth
+POST http://localhost:8000/auth/register

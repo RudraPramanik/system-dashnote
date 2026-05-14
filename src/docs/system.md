@@ -19,10 +19,9 @@ All tenant-scoped data access is performed through repositories that filter by `
 - `src/workspaces/router.py` (prefix: `/workspaces`)
 - `src/membership/router.py` (prefix: `/workspaces/members`)
 
-It also exposes:
+It also mounts **`core.health`** for orchestration:
 
-- `GET /health`
-- `GET /` (base)
+- `GET /health` — deep probe: async `SELECT 1` on PostgreSQL and Redis `PING` when Redis is configured (`REDIS_ENABLED` and `REDIS_URL`). Returns **200** when all required dependencies respond, **503** otherwise, with `timestamp`, `latency_ms`, and a `dependencies` map (`database`, and `redis` when applicable).
 
 ### Request lifecycle (workflow)
 Most endpoints follow the same flow:
@@ -54,9 +53,14 @@ Routers typically add:
 #### App wiring
 - `src/main.py`
   - depends on `config.settings`
+  - registers `core.health` (`GET /health`) before feature routers
   - depends on each module’s `router` (`auth/router.py`, `notes/router.py`, etc.)
 
-#### Database access
+#### Health / readiness
+- `core/health.py`
+  - `check_database(db)` runs `SELECT 1` via SQLAlchemy
+  - `check_redis(redis)` runs `PING` when Redis is required
+  - `GET /health` uses `Depends(get_db)` and `Depends(get_redis)` (`core/redis/deps.py`)
 - `core/database/session.py`
   - depends on `config.settings.DATABASE_URL`
   - provides `get_session()` used by routers via `Depends(get_session)`
@@ -106,7 +110,7 @@ Tenant safety for cached reads:
 - **Invalidation** does not scan keys: each workspace keeps monotonic **generation counters** (`INCR` on `app:cache:gen:notes:{wid}` and `app:cache:gen:notebooks:{wid}`). Any note write bumps the notes generation; notebook create bumps the notebooks generation, so stale list/detail entries age out immediately when Redis is enabled.
 
 FastAPI wiring (no change to how JWT context is produced):
-- `core/redis/deps.py` exposes `get_redis_connection` and `get_workspace_cache`. Routers that need caching add `cache: WorkspaceRedisCache = Depends(get_workspace_cache)` alongside existing `get_current_context` / `get_session` dependencies. FastAPI deduplicates nested `Depends(get_current_context)` per request.
+- `core/redis/deps.py` exposes `get_redis_connection` (alias `get_redis`), and `get_workspace_cache`. Routers that need caching add `cache: WorkspaceRedisCache = Depends(get_workspace_cache)` alongside existing `get_current_context` / `get_session` dependencies. FastAPI deduplicates nested `Depends(get_current_context)` per request.
 - **TTL**: cached JSON entries use `settings.CACHE_TTL_SECONDS` (default 60) as the Redis `SETEX` lifetime; generations provide correctness, TTL bounds recovery if a bump is missed.
 
 When Redis is disabled, `WorkspaceRedisCache` receives `redis=None`: every read is a cache miss and mutations still succeed (no-op bump), preserving existing API behavior without Redis.
@@ -205,7 +209,7 @@ python -m pytest tests/files -q
 - `pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`.
 
 ### Smoke testing (file upload, live API)
-Use this after the stack is healthy (`docker compose up -d --build`, then `GET /health` → `{"status":"ok"}`) to validate `files/router.py` end-to-end.
+Use this after the stack is healthy (`docker compose up -d --build`, then `GET /health` → HTTP **200** with `"status":"ok"` and dependency details) to validate `files/router.py` end-to-end.
 
 **Steps**
 1. `POST /auth/register` (or login) to obtain `access_token`.
@@ -249,7 +253,7 @@ docker compose logs --tail 50 api
 docker compose logs --tail 50 migrate
 ```
 
-**Health check body**: `{"status":"ok"}`.
+**Health check**: expect HTTP **200** and JSON including `status`, `timestamp`, `latency_ms`, and `dependencies` (each dependency reports `reachable`; Redis may include `configured: false` when Redis is not enabled in settings).
 
 #### Stop
 ```powershell

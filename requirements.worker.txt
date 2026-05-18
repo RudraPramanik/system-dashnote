@@ -1,0 +1,14 @@
+# Worker dependencies — installed in Dockerfile.worker
+# Inherits all API deps via: -r requirements.api.txt
+# DO NOT add: torch, transformers, sentence-transformers, unstructured
+-r requirements.api.txt
+
+# ── Document parsing (worker only) ────────────────────────────────────
+pypdf>=4.2.0                    # PDF text extraction
+python-docx>=1.1.2              # Word document extraction
+markdown>=3.6                   # Markdown processing
+beautifulsoup4>=4.12.3          # HTML content extraction
+lxml>=5.2.0                     # XML/HTML parser backend
+
+# ── Text splitting ────────────────────────────────────────────────────
+langchain-text-splitters>=0.2.0  # RecursiveCharacterTextSplitter

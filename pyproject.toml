@@ -1,0 +1,28 @@
+# DashNoteSystem — pyproject.toml
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dashnote"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "ai*", "worker*", "shared*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "ai", "worker", "shared"]
+asyncio_mode = "auto"
+addopts = "--import-mode=importlib -q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true

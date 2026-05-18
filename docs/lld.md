@@ -14,8 +14,8 @@ In scope:
 
 Out of scope:
 - Frontend design
-- Cloud-specific provisioning beyond the provided `docker-compose.yml` and `nginx/default.conf`
-- Non-implemented runtime components
+- Cloud-specific provisioning beyond the provided `docker-compose.yml`, `Dockerfile.api`, and `nginx/default.conf`
+- Non-implemented runtime components (e.g. `Dockerfile.worker` / ARQ worker process until wired in Compose)
 
 ## 2) Design principles used
 
@@ -79,6 +79,29 @@ Registered routers:
 8. Permission checks run (`require_roles` and/or domain helper).
 9. Repository executes async SQLAlchemy query (on cache miss for cached routes).
 10. Router returns Pydantic schema.
+
+### 3.3 Deployable units (modular monolith layout)
+The repository separates **HTTP**, **AI orchestration**, **background work**, and **shared contracts** into top-level packages. Only a subset is copied into each container image.
+
+| Package / path | API image (`Dockerfile.api`) | Worker image (planned) | Notes |
+|----------------|------------------------------|-------------------------|--------|
+| `src/` | yes | via shared deps / config only | FastAPI routers, DB, storage clients, `src/config.py` |
+| `ai/` | yes | yes (planned) | Orchestration helpers for embeddings/indexing — no FastAPI imports in `ai/` |
+| `shared/` | yes | yes (planned) | Pydantic contracts and events; stdlib + pydantic only |
+| `worker/` | no | yes (planned) | ARQ jobs: parse, chunk, embed, index; may import `ai/`, `shared/`, `src/config/` only |
+
+**API container build (`Dockerfile.api`)**
+- Dependencies: `pip install -r requirements.api.txt` (see file header — excludes torch, transformers, `pypdf`, `python-docx`, `unstructured`, full `langchain` meta-package).
+- Files copied: `src/`, `ai/`, `shared/` only (no `worker/`, no wildcard `COPY . .`).
+- Runtime: `PYTHONPATH=/app/src:/app/ai:/app/shared`; process runs as non-root `appuser`.
+- Entry: `uvicorn src.main:app` on port **8000** (single worker in the default image CMD).
+
+**Worker container (planned)**
+- Will install `requirements.worker.txt` (`-r requirements.api.txt` plus document parsers and `langchain-text-splitters` only).
+- Hosted embedding APIs only — no local model weights; sized for ~8GB RAM dev machines.
+
+**Migrations**
+- Compose `migrate` service may continue to use the legacy root `Dockerfile` until a dedicated migrate image is introduced; it is not part of the lean API runtime image.
 
 ## 4) Module-level low-level design
 

@@ -232,7 +232,7 @@ python -m pytest tests/files -q
 ```
 
 **Pytest configuration**
-- `pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`, `addopts = --import-mode=importlib` (avoids duplicate `test_*.py` basenames across folders).
+- `pyproject.toml` `[tool.pytest.ini_options]`: `pythonpath = src, ai, worker, shared`, `asyncio_mode = auto`, `addopts = --import-mode=importlib -q` (avoids duplicate `test_*.py` basenames across folders). Install dev deps with `pip install -r requirements.dev.txt`.
 
 ### Smoke testing (file upload, live API)
 Use this after the stack is healthy (`docker compose up -d --build`, then `GET /health` → HTTP **200** with `"status":"ok"` and dependency details) to validate `files/router.py` end-to-end.
@@ -253,6 +253,25 @@ For **local uvicorn** without Docker (direct port **8000**), use `http://127.0.0
 **Expected success**
 - HTTP **200** and JSON including `id`, `name`, `mime_type`, `size_bytes`, and `download_url` (often a relative `/files/{id}/download` when the backend does not return a presigned URL).
 
+### Container images and dependency layers
+Production-oriented installs are split so the API container stays lean (no document parsers, no local ML):
+
+| File | Image | Purpose |
+|------|--------|---------|
+| `requirements.api.txt` | `Dockerfile.api` | FastAPI HTTP + AI orchestration (`ai/`), shared contracts, Qdrant/OpenAI clients — **no** `pypdf`, `python-docx`, or `unstructured` |
+| `requirements.worker.txt` | `Dockerfile.worker` (planned) | Inherits API via `-r requirements.api.txt`; adds parsing + chunking only |
+| `requirements.dev.txt` | local / CI | Inherits worker chain; adds pytest, ruff, mypy |
+
+**`Dockerfile.api`** (API only):
+- Base: `python:3.11-slim`
+- System: `libmagic1` (MIME sniffing for uploads), `curl` (health probes)
+- Installs `requirements.api.txt` before copying source (layer cache)
+- Copies only `src/`, `ai/`, `shared/` — never `COPY . .`
+- `PYTHONPATH=/app/src:/app/ai:/app/shared`; non-root `appuser` (uid 1000)
+- `CMD`: `uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 1`
+
+The **`worker/`** package is not included in the API image; background extraction and embedding run in a separate worker container.
+
 ### Docker Compose (Nginx, API, database, Redis, migrations)
 Compose starts PostgreSQL and Redis, runs **`alembic upgrade head`** once via a **`migrate`** service after the database is healthy, then starts the **API** (listens on **8000** inside the Compose network). **`nginx`** publishes host port **80** and reverse-proxies to **`api:8000`** with the rate limit and tracing headers described under **Rate limiting**.
 
@@ -269,7 +288,7 @@ docker compose up -d --build
 
 **Services**
 - **nginx**: `nginx:alpine`, binds **80:80**, mounts `nginx/default.conf` (edge `limit_req` + proxy headers including `X-Request-ID`).
-- **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation; also mapped **`8000:8000`** on the host for direct access to `/docs` and debugging (bypasses Nginx edge limits). Prefer **`http://127.0.0.1/`** (port **80**) when testing the full proxy + Nginx `limit_req` path.
+- **api**: built from **`Dockerfile.api`** and `requirements.api.txt`, including **`libmagic1`** for `python-magic` during upload validation (metadata only in the API — no PDF/DOCX parsers in this image); also mapped **`8000:8000`** on the host for direct access to `/docs` and debugging (bypasses Nginx edge limits). Prefer **`http://127.0.0.1/`** (port **80**) when testing the full proxy + Nginx `limit_req` path.
 - **db**: `postgres:16-alpine` with healthcheck.
 - **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, application rate limits, plus optional cache-aside for read-heavy routes documented above).
 - **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.

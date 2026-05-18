@@ -22,3 +22,32 @@ Docs: src/docs/system.md (Redis section + Compose blurb), src/docs/lld.md (reque
 core/redis/__init__.py no longer imports deps so from core.redis.cache import … in tests does not pull FastAPI/jose during collection.
 
 Configure in .env: REDIS_URL=redis://... (Compose already sets REDIS_URL for the API). Optional: CACHE_TTL_SECONDS. With Redis off or URL unset, behavior matches the previous non-cached API paths
+
+TO DO->
+Missing “hard systems” signals
+
+I don’t yet see:
+
+message queues
+async event pipelines
+distributed workers
+websocket scaling
+streaming systems
+deep observability
+tracing stack
+metrics systems
+circuit breakers
+retry orchestration
+dead-letter queues
+eventual consistency handling
+##
+Still missing for true production:
+
+No pagination on list endpoints — will hurt at scale
+Structured JSON logging not mentioned — blind in production without it
+DB pool tuning not mentioned — default pool_size=5 will bottleneck
+No mention of OpenTelemetry / APM tracing beyond request ID
+No audit log (who deleted what, when)
+Google/social auth not implemented (discussed but not built)
+Workspace switching not implemented (discussed but not built)
+Test coverage scope is narrow — only files module mentioned, no integration tests for auth/notes/notebooks/RBAC flows

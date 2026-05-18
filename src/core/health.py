@@ -1,6 +1,3 @@
-"""
-Deep health checks: minimal round-trips (SELECT 1, Redis PING) for orchestration probes.
-"""
 
 from __future__ import annotations
 

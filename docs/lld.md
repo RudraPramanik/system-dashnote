@@ -83,12 +83,12 @@ Registered routers:
 ### 3.3 Deployable units (modular monolith layout)
 The repository separates **HTTP**, **AI orchestration**, **background work**, and **shared contracts** into top-level packages. Only a subset is copied into each container image.
 
-| Package / path | API image (`Dockerfile.api`) | Worker image (planned) | Notes |
-|----------------|------------------------------|-------------------------|--------|
-| `src/` | yes | via shared deps / config only | FastAPI routers, DB, storage clients, `src/config.py` |
-| `ai/` | yes | yes (planned) | Orchestration helpers for embeddings/indexing — no FastAPI imports in `ai/` |
-| `shared/` | yes | yes (planned) | Pydantic contracts and events; stdlib + pydantic only |
-| `worker/` | no | yes (planned) | ARQ jobs: parse, chunk, embed, index; may import `ai/`, `shared/`, `src/config/` only |
+| Package / path | API image (`Dockerfile.api`) | Worker image (`Dockerfile.worker`) | Notes |
+|----------------|------------------------------|-------------------------------------|--------|
+| `src/` | yes | `src/config.py` only | API: full HTTP stack; worker: settings module only (no routers) |
+| `ai/` | yes | yes | Orchestration helpers for embeddings/indexing — no FastAPI imports in `ai/` |
+| `shared/` | yes | yes | Pydantic contracts and events; stdlib + pydantic only |
+| `worker/` | no | yes | ARQ jobs: parse, chunk, embed, index; may import `ai/`, `shared/`, `src.config` only |
 
 **API container build (`Dockerfile.api`)**
 - Dependencies: `pip install -r requirements.api.txt` (see file header — excludes torch, transformers, `pypdf`, `python-docx`, `unstructured`, full `langchain` meta-package).
@@ -96,8 +96,11 @@ The repository separates **HTTP**, **AI orchestration**, **background work**, an
 - Runtime: `PYTHONPATH=/app/src:/app/ai:/app/shared`; process runs as non-root `appuser`.
 - Entry: `uvicorn src.main:app` on port **8000** (single worker in the default image CMD).
 
-**Worker container (planned)**
-- Will install `requirements.worker.txt` (`-r requirements.api.txt` plus document parsers and `langchain-text-splitters` only).
+**Worker container (`Dockerfile.worker`)**
+- Installs `requirements.worker.txt` (`-r requirements.api.txt` plus document parsers and `langchain-text-splitters` only).
+- System packages include `build-essential`, `libxml2-dev`, `libxslt1-dev` for parsing wheels; no torch/transformers.
+- Copies `worker/`, `ai/`, `shared/`, and `src/config.py` only (not `src/` routers).
+- `PYTHONPATH=/app/worker:/app/ai:/app/shared:/app`; entry: `python -m arq worker.main.WorkerSettings` (no HTTP port).
 - Hosted embedding APIs only — no local model weights; sized for ~8GB RAM dev machines.
 
 **Migrations**

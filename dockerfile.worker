@@ -1,0 +1,37 @@
+# Dockerfile.worker — ARQ background worker image
+# Heavier than Dockerfile.api — includes document parsing libraries
+# This image intentionally larger: pypdf, python-docx live here only
+# Does NOT contain torch, transformers, or local ML models
+
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/worker:/app/ai:/app/shared:/app
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libmagic1 \
+        curl \
+        build-essential \
+        libxml2-dev \
+        libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.api.txt requirements.worker.txt ./
+RUN pip install --no-cache-dir -r requirements.worker.txt
+
+COPY worker/ ./worker/
+COPY ai/ ./ai/
+COPY shared/ ./shared/
+COPY src/config.py ./src/config.py
+RUN touch ./src/__init__.py
+
+RUN adduser --disabled-password --gecos "" --uid 1000 appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+CMD ["python", "-m", "arq", "worker.main.WorkerSettings"]

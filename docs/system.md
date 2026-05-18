@@ -259,7 +259,7 @@ Production-oriented installs are split so the API container stays lean (no docum
 | File | Image | Purpose |
 |------|--------|---------|
 | `requirements.api.txt` | `Dockerfile.api` | FastAPI HTTP + AI orchestration (`ai/`), shared contracts, Qdrant/OpenAI clients — **no** `pypdf`, `python-docx`, or `unstructured` |
-| `requirements.worker.txt` | `Dockerfile.worker` (planned) | Inherits API via `-r requirements.api.txt`; adds parsing + chunking only |
+| `requirements.worker.txt` | `Dockerfile.worker` | Inherits API via `-r requirements.api.txt`; adds parsing + chunking only |
 | `requirements.dev.txt` | local / CI | Inherits worker chain; adds pytest, ruff, mypy |
 
 **`Dockerfile.api`** (API only):
@@ -270,7 +270,13 @@ Production-oriented installs are split so the API container stays lean (no docum
 - `PYTHONPATH=/app/src:/app/ai:/app/shared`; non-root `appuser` (uid 1000)
 - `CMD`: `uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 1`
 
-The **`worker/`** package is not included in the API image; background extraction and embedding run in a separate worker container.
+The **`worker/`** package is not included in the API image; background extraction and embedding run in a separate worker container (`Dockerfile.worker`).
+
+**`Dockerfile.worker`** (worker only):
+- Base: `python:3.11-slim`; extra system libs for document parsing (`build-essential`, `libxml2-dev`, `libxslt1-dev`)
+- Installs `requirements.worker.txt` before copying source
+- Copies `worker/`, `ai/`, `shared/`, and **`src/config.py` only** (not full `src/`)
+- `CMD`: `python -m arq worker.main.WorkerSettings` — no `EXPOSE`
 
 ### Docker Compose (Nginx, API, database, Redis, migrations)
 Compose starts PostgreSQL and Redis, runs **`alembic upgrade head`** once via a **`migrate`** service after the database is healthy, then starts the **API** (listens on **8000** inside the Compose network). **`nginx`** publishes host port **80** and reverse-proxies to **`api:8000`** with the rate limit and tracing headers described under **Rate limiting**.

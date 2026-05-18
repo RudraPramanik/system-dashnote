@@ -1,17 +1,44 @@
-.git
-.gitignore
-.venv
-__pycache__
-*.pyc
+# Python cache
+__pycache__/
+*.py[cod]
 *.pyo
-*.pyd
-.pytest_cache
-.mypy_cache
-.ruff_cache
-.cursor
-agent-transcripts
-terminals
-tests
-api_test.http
-src/docs
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Environment and secrets — NEVER in Docker images
+.env
+.env.*
+!.env.example
+
+# Version control
+.git/
+.gitignore
+
+# Development tools
+.vscode/
+.idea/
+*.swp
+
+# Test artifacts
+tests/
+htmlcov/
+.coverage
+coverage.xml
+
+# Local storage and uploads
+storage/
+uploads/
+
+# Documentation
+docs/
 *.md
+!README.md
+
+# Node (if any frontend tooling exists)
+node_modules/
+
+# OS artifacts
+.DS_Store
+Thumbs.db

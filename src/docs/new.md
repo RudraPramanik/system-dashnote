@@ -1,4 +1,4 @@
-redis--1:Here is what was implemented.
+redis--1:Here is what was implemented...
 
 Redis configuration and architecture
 Shared client (src/core/redis/client.py): get_async_redis() builds a single decode_responses async Redis client when REDIS_ENABLED and REDIS_URL are set. reset_async_redis_client() clears it and resets the JWT token store singleton (used from tests/conftest.py after each test).

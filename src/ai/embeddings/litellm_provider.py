@@ -13,6 +13,7 @@ Switch to Cohere: cohere/embed-english-v3.0
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import litellm
@@ -65,6 +66,10 @@ class LiteLLMEmbeddingProvider(BaseEmbeddingProvider):
         self._dimension = settings.EMBEDDING_DIMENSION
         self._batch_size = settings.EMBEDDING_BATCH_SIZE
         self._max_retries = settings.EMBEDDING_MAX_RETRIES
+        if settings.GEMINI_API_KEY:
+            os.environ.setdefault("GEMINI_API_KEY", settings.GEMINI_API_KEY)
+        if settings.OPENAI_API_KEY:
+            os.environ.setdefault("OPENAI_API_KEY", settings.OPENAI_API_KEY)
 
     def get_model_name(self) -> str:
         return self._model

@@ -1,9 +1,10 @@
 from pydantic import model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     DATABASE_URL: str
     JWT_SECRET: str
     JWT_REFRESH_SECRET: str = "change-me-refresh-secret"
@@ -35,14 +36,16 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_BYTES: int = 1_048_576
 
     # ── Provider Keys ──────────────────────────────────
-    # LiteLLM uses this for all hosted provider calls
+    # LiteLLM uses these for hosted provider calls (model prefix selects provider)
     OPENAI_API_KEY: str | None = None
+    GEMINI_API_KEY: str | None = None
 
     # ──  LiteLLM Embedding ──────────────────────────────
     # Format: "provider/model" — e.g. "openai/text-embedding-3-small"
     # Change this one value to swap embedding providers entirely
-    EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
-    EMBEDDING_DIMENSION: int = 1536
+    # EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
+    EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"
+    EMBEDDING_DIMENSION: int = 3072
     EMBEDDING_BATCH_SIZE: int = 32
     EMBEDDING_MAX_RETRIES: int = 3
     EMBEDDING_CACHE_ENABLED: bool = True
@@ -62,9 +65,9 @@ class Settings(BaseSettings):
         """
         Global AI feature toggle.
         False = all embedding/LLM paths are skipped safely.
-        Set OPENAI_API_KEY to enable. Works as a kill-switch in production.
+        Set OPENAI_API_KEY and/or GEMINI_API_KEY for the configured EMBEDDING_MODEL.
         """
-        return bool(self.OPENAI_API_KEY)
+        return bool(self.OPENAI_API_KEY or self.GEMINI_API_KEY)
 
     @property
     def effective_arq_redis_url(self) -> str:
@@ -79,9 +82,6 @@ class Settings(BaseSettings):
                 f"CHUNK_SIZE ({self.CHUNK_SIZE})"
             )
         return self
-
-    class Config:
-        env_file = ".env"
 
 # we can call config for env
 settings = Settings()

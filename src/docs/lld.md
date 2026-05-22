@@ -311,7 +311,7 @@ Configuration (from `config.Settings`):
 | `EMBEDDING_DIMENSION` | Validation / Qdrant collection size (later) |
 | `EMBEDDING_BATCH_SIZE` | Batch loop |
 | `EMBEDDING_MAX_RETRIES` | Tenacity `stop_after_attempt` |
-| `OPENAI_API_KEY` | `settings.ai_enabled` kill-switch (not read inside provider) |
+| `OPENAI_API_KEY` / `GEMINI_API_KEY` | `settings.ai_enabled` kill-switch (not read inside provider) |
 
 Provider swap: change `EMBEDDING_MODEL` env only (e.g. `openai/text-embedding-3-small`, `voyage/voyage-3`).
 
@@ -330,20 +330,37 @@ get_embedding_provider()  ──first call──► LiteLLMEmbeddingProvider()
 - `reset_embedding_provider()` for tests.
 - FastAPI `Depends(...)` wiring deferred to route modules (AI layer must not import FastAPI).
 
-#### 4.10.6 Planned pipeline (1.2C — not implemented)
+#### 4.10.6 Embedding cache — `src/ai/services/cache.py`
+
+| Function | Behavior |
+|----------|----------|
+| `get_cached_vector(text, redis)` | `GET embed:v1:{sha256}` → `list[float]` or `None` |
+| `cache_vector(text, vector, redis)` | `SETEX` with `EMBEDDING_CACHE_TTL` |
+
+Non-fatal on Redis errors. Disabled when `EMBEDDING_CACHE_ENABLED=false`.
+
+#### 4.10.7 Pipeline — `src/ai/workflows/pipeline.py`
 
 ```
-ChunkResult[] ──texts──► BaseEmbeddingProvider.embed_texts()
-                              │
-                              ▼
-                      EmbeddedChunk[]  ──► Qdrant (Slice 2)
-                              ▲
-                      optional Redis cache (EMBEDDING_CACHE_*)
+process_note (keyword-only RBAC + content args)
+    │
+    ├─► TextChunker.chunk_note()
+    │
+    ├─► per chunk: get_cached_vector? ──hit──► vectors_by_index
+    │                    └──miss──► uncached_indices
+    │
+    ├─► provider.embed_texts(uncached_texts)
+    │
+    ├─► cache_vector for each new vector
+    │
+    └─► EmbeddedChunk[] + PipelineResult metrics
 ```
 
-Worker flow (later): dequeue `IndexingRequest` → chunk → embed → upsert vectors → `IndexingResult`.
+`EmbeddingPipeline(provider, redis=None)` — `redis=None` skips cache entirely.
 
-#### 4.10.7 Dependency matrix (AI embeddings)
+Worker flow (later): dequeue `IndexingRequest` → `EmbeddingPipeline.process_note` → Qdrant upsert → `IndexingResult`.
+
+#### 4.10.8 Dependency matrix (AI embeddings + pipeline)
 
 | Module | May import |
 |--------|------------|
@@ -352,6 +369,8 @@ Worker flow (later): dequeue `IndexingRequest` → chunk → embed → upsert ve
 | `ai/embeddings/litellm_provider.py` | stdlib, litellm, tenacity, `config`, `ai.embeddings.base` |
 | `ai/embeddings/factory.py` | stdlib, `ai.embeddings.base`, lazy `litellm_provider` |
 | `ai/embeddings/chunker.py` | stdlib, pydantic, langchain_text_splitters, `config` |
+| `ai/services/cache.py` | stdlib, `redis.asyncio`, `config`, `ai.embeddings.base` |
+| `ai/workflows/pipeline.py` | stdlib, pydantic, `ai.embeddings.*`, `ai.services.cache` |
 
 Must **not** import: FastAPI, SQLAlchemy, `notes/*`, `worker/*`, `qdrant-client`.
 
@@ -398,6 +417,8 @@ This keeps write semantics explicit and local to repository methods.
 - `ai/embeddings/litellm_provider.py`: LiteLLM `aembedding` + retries
 - `ai/embeddings/factory.py`: process-wide embedding provider singleton
 - `ai/embeddings/chunker.py`: deterministic note chunking
+- `ai/services/cache.py`: Redis embedding vector cache-aside
+- `ai/workflows/pipeline.py`: chunk → cache → embed orchestration
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
 - `<module>/repository.py`: DB access + persistence

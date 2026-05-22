@@ -185,7 +185,7 @@ Expected: chunk count printed, `PASS: chunk IDs are deterministic`, `PASS: chunk
 | `chunker.py` | `TextChunker` / `ChunkResult` (1.2A) |
 | `chuncker.py` | Deprecated re-export → use `chunker` |
 
-**Out of scope (1.2C)**: embedding pipeline orchestration, Redis vector cache, Qdrant client.
+**Pipeline / cache (1.2C)**: see below — implemented in `ai/workflows/pipeline.py` and `ai/services/cache.py`.
 
 ### `base.py` — contracts
 
@@ -245,7 +245,7 @@ python -m ai.embeddings.litellm_provider
 
 **Chunker**: `PASS: chunker validated successfully`.
 
-**LiteLLM**: prints model/dimension; with `OPENAI_API_KEY` set, `PASS: got vector of dimension 1536`. Without a key, `Provider error (expected if no API key)` is acceptable.
+**LiteLLM**: prints model/dimension; with `OPENAI_API_KEY` or `GEMINI_API_KEY` set, `PASS: got vector of dimension N`. Without a key, provider error is acceptable.
 
 **Docker** (after rebuild):
 
@@ -255,10 +255,89 @@ docker compose exec -e PYTHONPATH=/app/src api python -m ai.embeddings.litellm_p
 
 Do not use `python -m src.ai.embeddings.*` — the API image exposes `ai`, `config`, etc. under `/app/src`, not a `src.` package prefix.
 
+---
+
+## Sub-step 1.2C — Redis embedding cache + pipeline
+
+### Module layout
+
+| File | Role |
+|------|------|
+| `ai/services/cache.py` | `get_cached_vector`, `cache_vector` — Redis JSON cache keyed by `sha256(chunk_text)` |
+| `ai/workflows/pipeline.py` | `EmbeddingPipeline`, `PipelineResult` — chunk → cache → embed → cache write → `EmbeddedChunk[]` |
+
+**Out of scope**: Qdrant client (Slice 2), ARQ tasks (1.3).
+
+### Redis cache — `ai/services/cache.py`
+
+| Item | Detail |
+|------|--------|
+| Key | `embed:v1:{sha256(utf-8 chunk_text)}` |
+| Value | JSON-serialized `list[float]` |
+| TTL | `EMBEDDING_CACHE_TTL` (default 86400s) |
+| Toggle | `EMBEDDING_CACHE_ENABLED` — when false, all cache ops no-op |
+| Failure mode | Read/write errors logged; never raised (degrade to embed) |
+| Sharing | Same text in different notes hits the same key (by design) |
+
+**Import law**: stdlib, `redis.asyncio`, `config.get_settings`, `ai.embeddings.base`.
+
+Callers inject a `redis.asyncio.Redis` client (e.g. from `core.redis.client.get_async_redis()` in the worker/API layer). The cache module does not import `core.*`.
+
+### Pipeline — `ai/workflows/pipeline.py`
+
+```
+process_note(...)
+  1. TextChunker.chunk_note(note_id, title, content) → ChunkResult[]
+  2. For each chunk: get_cached_vector(text) if redis provided
+  3. embed_texts(uncached texts) via BaseEmbeddingProvider
+  4. cache_vector for each newly embedded chunk
+  5. Build EmbeddedChunk[] (RBAC fields + char span metadata)
+  → PipelineResult
+```
+
+| Field | Meaning |
+|-------|---------|
+| `chunks_processed` | Chunks after chunker |
+| `chunks_from_cache` | Served from Redis without API call |
+| `chunks_embedded` | New provider calls |
+| `embedded_chunks` | Ready for Qdrant upsert (Slice 2) |
+
+**Import law**: stdlib, pydantic, `ai.embeddings.*`, `ai.services.cache` — no FastAPI, SQLAlchemy, Qdrant, ARQ.
+
+### Provider configuration (Gemini example)
+
+| Env | Example |
+|-----|---------|
+| `GEMINI_API_KEY` | Google AI key for LiteLLM |
+| `EMBEDDING_MODEL` | `gemini/gemini-embedding-2` |
+| `EMBEDDING_DIMENSION` | `3072` (must match model output) |
+
+`settings.ai_enabled` is true when `OPENAI_API_KEY` **or** `GEMINI_API_KEY` is set. Avoid duplicate empty `EMBEDDING_*=` lines in `.env` — they override defaults and break integer parsing.
+
+### Local validation
+
+From repository root (loads `.env` from cwd):
+
+```powershell
+cd g:\projects\dashnotesystemv1
+$env:PYTHONPATH="src"
+python -m ai.workflows.pipeline
+```
+
+Expected with a valid `GEMINI_API_KEY` (or `OPENAI_API_KEY`) and optional local Redis (`REDIS_URL`):
+
+- `PASS: pipeline produces valid EmbeddedChunk objects`
+- With Redis up and repeat run: `PASS: cache hits on repeat text`
+
+**Docker**:
+
+```powershell
+docker compose exec -e PYTHONPATH=/app/src api python -m ai.workflows.pipeline
+```
+
 ### Next slices (planned)
 
-1. **1.2C — Embedding pipeline**: chunk → embed → `EmbeddedChunk` list; optional Redis cache (`EMBEDDING_CACHE_*`).
-2. **Slice 2**: `qdrant-client`, vector store upsert/delete using `EmbeddedChunk` + `IndexingRequest`.
+1. **Slice 2**: `qdrant-client`, vector store upsert/delete using `EmbeddedChunk` + `IndexingRequest`.
 3. **Worker**: `WorkerSettings`, register ARQ tasks, process `IndexingRequest` / `DeletionRequest`.
 4. **API**: append-only enqueue after note commit in `notes/router.py`.
 

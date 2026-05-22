@@ -10,5 +10,7 @@ and when running tests/tools from the project root, we re-export `settings`
 from the real module here.
 """
 
-from src.config import settings  # type: ignore[import-untyped]
+from src.config import get_settings, settings  # type: ignore[import-untyped]
+
+__all__ = ["get_settings", "settings"]
 

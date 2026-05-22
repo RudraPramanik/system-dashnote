@@ -111,13 +111,20 @@ From `src/docs/rules.md` (summary):
 ### Verify infrastructure (after `docker compose up -d`)
 
 ```powershell
-docker compose ps
-curl.exe -sS http://127.0.0.1:6333/readyz
+docker compose up -d qdrant
+curl.exe -sS http://127.0.0.1:6333/
+# Expected: {"title":"qdrant - vector search engine",...}
+
+docker compose exec api python -c "import sys; sys.path.insert(0, '/app/src'); from config import settings; print('ai_enabled:', settings.ai_enabled)"
+# Expected: ai_enabled: False  (until OPENAI_API_KEY is set with a real key)
+
 curl.exe -sS http://127.0.0.1/health
 ```
 
+- **Settings import**: use `from config import settings` (module is `src/config.py`; there is no `get_settings()` and no `src/config/settings.py`). The API adds `/app/src` to `sys.path` at startup; one-off `exec` commands must do the same.
 - **API health**: unchanged — `GET /health` via Nginx on port 80.
-- **Qdrant**: `GET http://127.0.0.1:6333/readyz` should respond when the `qdrant` service is up.
+- **Qdrant**: `GET http://127.0.0.1:6333/` (root) or `/readyz` when the `qdrant` service is up.
+- **Rebuild** after changing `src/config.py`: `docker compose up -d --build api`
 - **Worker**: will stay unhealthy or restart until `arq` is installed and `src.worker.main.WorkerSettings` exists (later slice).
 
 ### Related docs

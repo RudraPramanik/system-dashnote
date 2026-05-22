@@ -73,5 +73,25 @@ services:
       - "8000:8000"
     restart: unless-stopped
 
+  worker:
+    build: .
+    command: python -m arq src.worker.main.WorkerSettings
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    # Scale independently: docker compose up --scale worker=3 -d
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    # Dev only — for production set QDRANT_URL to Qdrant Cloud in .env
+
 volumes:
   postgres_data:
+  qdrant_data:

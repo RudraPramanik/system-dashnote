@@ -113,7 +113,7 @@ Added under `# --- AI Slice 1: Embedding pipeline ---` in `requirements.txt` and
 | `litellm` | Unified embedding/LLM provider calls (used in later slices) |
 | `langchain-text-splitters` | `RecursiveCharacterTextSplitter` for note chunking |
 | `arq` | Background worker queue (Compose `worker` service) |
-| `tenacity` | Retries for embedding batches (later slices) |
+| `tenacity` | Retries for LiteLLM embedding batches (1.2B) |
 | `tiktoken` | Token counting helpers (later slices) |
 
 **Not installed in 1.2A**: `qdrant-client` (Slice 2).
@@ -169,12 +169,96 @@ Expected: chunk count printed, `PASS: chunk IDs are deterministic`, `PASS: chunk
 
 ### Settings helper
 
-`get_settings()` appended to `src/config.py` — returns the `settings` singleton (same object as `from config import settings`).
+`get_settings()` in `src/config.py` — returns the `settings` singleton (same object as `from config import settings`). With `PYTHONPATH` / cwd set to `src` (Docker API image, local `cd src`), import as `from config import get_settings` or `from config import settings`.
+
+---
+
+## Sub-step 1.2B — LiteLLM embedding provider, base class, factory
+
+### Module layout — `src/ai/embeddings/`
+
+| File | Role |
+|------|------|
+| `base.py` | `BaseEmbeddingProvider` ABC, `EmbeddedChunk`, `EmbeddingProviderError`, `EmbeddingVector` alias |
+| `litellm_provider.py` | `LiteLLMEmbeddingProvider` — async `litellm.aembedding()`, batching, tenacity retry |
+| `factory.py` | Process singleton via `get_embedding_provider()` / `reset_embedding_provider()` (tests) |
+| `chunker.py` | `TextChunker` / `ChunkResult` (1.2A) |
+| `chuncker.py` | Deprecated re-export → use `chunker` |
+
+**Out of scope (1.2C)**: embedding pipeline orchestration, Redis vector cache, Qdrant client.
+
+### `base.py` — contracts
+
+| Type | Role |
+|------|------|
+| `EmbeddingVector` | `list[float]` — one embedding |
+| `EmbeddingProviderError` | Provider failure; `provider`, `retryable` attributes |
+| `EmbeddedChunk` | Frozen chunk + vector for indexing (pipeline / Qdrant in later slices) |
+| `BaseEmbeddingProvider` | `embed_texts`, `get_model_name`, `get_dimension`; default `embed_single` |
+
+**Import law**: stdlib, pydantic only.
+
+### `litellm_provider.py` — LiteLLM
+
+| Behavior | Detail |
+|----------|--------|
+| Settings | `EMBEDDING_MODEL`, `EMBEDDING_DIMENSION`, `EMBEDDING_BATCH_SIZE`, `EMBEDDING_MAX_RETRIES` via `get_settings()` |
+| Batching | Splits input into batches of `EMBEDDING_BATCH_SIZE` |
+| Empty texts | Stripped/empty strings filtered before API call (logged) |
+| Retry | Tenacity exponential backoff on `RateLimitError`, `Timeout`, `ServiceUnavailableError`, `APIConnectionError`; attempts = `EMBEDDING_MAX_RETRIES` |
+| Fail fast | `AuthenticationError`, `BadRequestError`, `NotFoundError` → `EmbeddingProviderError(retryable=False)` |
+| Provider swap | Change `EMBEDDING_MODEL` only (e.g. `voyage/voyage-3`, `cohere/embed-english-v3.0`) |
+
+**Import law**: stdlib, `litellm`, `tenacity`, `config.get_settings`, `ai.embeddings.base` — no FastAPI, SQLAlchemy, Qdrant.
+
+### `factory.py` — singleton
+
+- `get_embedding_provider()` — double-checked locking with `asyncio.Lock`; lazily constructs `LiteLLMEmbeddingProvider`.
+- `reset_embedding_provider()` — clears singleton (tests).
+- **No FastAPI** in this module (AI import law). Routes that need DI wrap `Depends` in the router layer when wired in a later slice.
+
+### Data flow (1.2B only)
+
+```mermaid
+flowchart LR
+  subgraph callers [Future callers]
+    W[Worker 1.2D]
+    P[Pipeline 1.2C]
+  end
+  F[factory.get_embedding_provider]
+  L[LiteLLMEmbeddingProvider]
+  LLM[litellm.aembedding]
+  callers --> F --> L --> LLM
+```
+
+### Local validation
+
+From `src/` (or Docker `exec` with `PYTHONPATH=/app/src`). Ensure required env vars exist (`DATABASE_URL`, `JWT_SECRET` at minimum — same as API boot).
+
+```powershell
+cd src
+$env:DATABASE_URL="postgresql+asyncpg://dashuser:dashpass@127.0.0.1:5432/dashnotes"
+$env:JWT_SECRET="pytest-jwt-secret"
+python -m ai.embeddings.chunker
+python -m ai.embeddings.litellm_provider
+```
+
+**Chunker**: `PASS: chunker validated successfully`.
+
+**LiteLLM**: prints model/dimension; with `OPENAI_API_KEY` set, `PASS: got vector of dimension 1536`. Without a key, `Provider error (expected if no API key)` is acceptable.
+
+**Docker** (after rebuild):
+
+```powershell
+docker compose exec -e PYTHONPATH=/app/src api python -m ai.embeddings.litellm_provider
+```
+
+Do not use `python -m src.ai.embeddings.*` — the API image exposes `ai`, `config`, etc. under `/app/src`, not a `src.` package prefix.
 
 ### Next slices (planned)
 
-1. **Slice 2**: `qdrant-client`, vector store upsert/delete using `ChunkResult` + `IndexingRequest`.
-2. **Embedding service**: LiteLLM batch embed + Redis cache (`EMBEDDING_*` settings).
+1. **1.2C — Embedding pipeline**: chunk → embed → `EmbeddedChunk` list; optional Redis cache (`EMBEDDING_CACHE_*`).
+2. **Slice 2**: `qdrant-client`, vector store upsert/delete using `EmbeddedChunk` + `IndexingRequest`.
 3. **Worker**: `WorkerSettings`, register ARQ tasks, process `IndexingRequest` / `DeletionRequest`.
 4. **API**: append-only enqueue after note commit in `notes/router.py`.
 
@@ -191,7 +275,7 @@ docker compose exec api python -c "import sys; sys.path.insert(0, '/app/src'); f
 curl.exe -sS http://127.0.0.1/health
 ```
 
-- **Settings import**: use `from config import settings` (module is `src/config.py`; there is no `get_settings()` and no `src/config/settings.py`). The API adds `/app/src` to `sys.path` at startup; one-off `exec` commands must do the same.
+- **Settings import**: `from config import settings` or `from config import get_settings` (`src/config.py`). The API adds `/app/src` to `sys.path` at startup; one-off `exec` commands must do the same.
 - **API health**: unchanged — `GET /health` via Nginx on port 80.
 - **Qdrant**: `GET http://127.0.0.1:6333/` (root) or `/readyz` when the `qdrant` service is up.
 - **Rebuild** after changing `src/config.py`: `docker compose up -d --build api`

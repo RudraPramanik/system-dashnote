@@ -9,8 +9,9 @@ In scope:
 - RBAC + domain permissions
 - Object storage abstraction (local / S3-compatible backends) and the `files` module
 - Implemented modules: `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files`
+- AI indexing foundation: `src/shared/contracts/indexing.py`, `src/ai/embeddings/*` (chunker, LiteLLM provider, factory) — see §4.10
 - Edge reverse proxy and dual-layer rate limiting (Nginx + Redis-backed FastAPI limits) as implemented in-repo
-- Extension contract for upcoming modules (such as `ai_gateway`)
+- Extension contract for upcoming modules (such as `ai_gateway`, full indexing pipeline)
 
 Out of scope:
 - Frontend design
@@ -241,6 +242,119 @@ LLD contract for implementation:
 - must consume `RequestContext` for workspace-safe behavior
 - avoid bypassing tenant and permission patterns used by other modules
 
+### 4.10 AI indexing — shared contracts and embeddings (Slice 1.2)
+
+This slice prepares note vector indexing without HTTP routes, Qdrant I/O, or ARQ job handlers. Full narrative: `src/docs/ai.md`. Import laws: `src/docs/rules.md`.
+
+#### 4.10.1 Shared contracts — `src/shared/contracts/indexing.py`
+
+| Type | Producer | Consumer (planned) |
+|------|----------|-------------------|
+| `IndexingRequest` | API after note upsert | ARQ worker |
+| `DeletionRequest` | API after note delete | ARQ worker |
+| `IndexingResult` | Worker | Logging / metrics |
+
+Frozen Pydantic models; imports stdlib + pydantic only.
+
+#### 4.10.2 Text chunking — `src/ai/embeddings/chunker.py`
+
+```
+IndexingRequest (content, title, note_id)
+        │
+        ▼
+   TextChunker.chunk_note()
+        │
+        ▼
+ list[ChunkResult]   # deterministic chunk_id = uuid5(NAMESPACE_URL, "{note_id}:{index}")
+```
+
+- `RecursiveCharacterTextSplitter` driven by `CHUNK_SIZE`, `CHUNK_OVERLAP`, `CHUNK_MIN_LENGTH`.
+- Title prefixed as markdown H1 for retrieval context.
+- Chunks below `CHUNK_MIN_LENGTH` dropped.
+
+#### 4.10.3 Embedding provider abstraction — `src/ai/embeddings/base.py`
+
+```
+                    BaseEmbeddingProvider (ABC)
+                              │
+                    embed_texts(texts) -> list[EmbeddingVector]
+                    get_model_name() / get_dimension()
+                              │
+                              ▼
+                 LiteLLMEmbeddingProvider (only impl today)
+```
+
+| Type | Purpose |
+|------|---------|
+| `EmbeddingVector` | `list[float]` |
+| `EmbeddingProviderError` | Unified failure; `retryable` flag for callers |
+| `EmbeddedChunk` | Pipeline output: chunk metadata + vector (Qdrant payload in Slice 2) |
+
+#### 4.10.4 LiteLLM provider — `src/ai/embeddings/litellm_provider.py`
+
+Sequence for one batch:
+
+```
+embed_texts
+  → filter empty/whitespace
+  → for each batch (size EMBEDDING_BATCH_SIZE):
+        _embed_batch_with_retry
+          → _call_litellm (+ tenacity on transient litellm errors)
+          → on fatal auth/4xx: EmbeddingProviderError(retryable=False)
+```
+
+Configuration (from `config.Settings`):
+
+| Setting | Used for |
+|---------|----------|
+| `EMBEDDING_MODEL` | `litellm.aembedding(model=...)` |
+| `EMBEDDING_DIMENSION` | Validation / Qdrant collection size (later) |
+| `EMBEDDING_BATCH_SIZE` | Batch loop |
+| `EMBEDDING_MAX_RETRIES` | Tenacity `stop_after_attempt` |
+| `OPENAI_API_KEY` | `settings.ai_enabled` kill-switch (not read inside provider) |
+
+Provider swap: change `EMBEDDING_MODEL` env only (e.g. `openai/text-embedding-3-small`, `voyage/voyage-3`).
+
+#### 4.10.5 Factory — `src/ai/embeddings/factory.py`
+
+```
+Process start
+    │
+    ▼
+get_embedding_provider()  ──first call──► LiteLLMEmbeddingProvider()
+    │                                      (stored in module singleton)
+    └── subsequent calls ──► same instance (asyncio.Lock + double-check)
+```
+
+- **Single instantiation point** for embedding backends.
+- `reset_embedding_provider()` for tests.
+- FastAPI `Depends(...)` wiring deferred to route modules (AI layer must not import FastAPI).
+
+#### 4.10.6 Planned pipeline (1.2C — not implemented)
+
+```
+ChunkResult[] ──texts──► BaseEmbeddingProvider.embed_texts()
+                              │
+                              ▼
+                      EmbeddedChunk[]  ──► Qdrant (Slice 2)
+                              ▲
+                      optional Redis cache (EMBEDDING_CACHE_*)
+```
+
+Worker flow (later): dequeue `IndexingRequest` → chunk → embed → upsert vectors → `IndexingResult`.
+
+#### 4.10.7 Dependency matrix (AI embeddings)
+
+| Module | May import |
+|--------|------------|
+| `shared/contracts/indexing.py` | stdlib, pydantic |
+| `ai/embeddings/base.py` | stdlib, pydantic |
+| `ai/embeddings/litellm_provider.py` | stdlib, litellm, tenacity, `config`, `ai.embeddings.base` |
+| `ai/embeddings/factory.py` | stdlib, `ai.embeddings.base`, lazy `litellm_provider` |
+| `ai/embeddings/chunker.py` | stdlib, pydantic, langchain_text_splitters, `config` |
+
+Must **not** import: FastAPI, SQLAlchemy, `notes/*`, `worker/*`, `qdrant-client`.
+
 ## 5) Data model and persistence design
 
 ### 5.1 Core entities (implemented)
@@ -279,6 +393,11 @@ This keeps write semantics explicit and local to repository methods.
 - `core/security/dependency.py`: token decode to context; optional decode for rate limit identity
 - `core/security/rate_limit.py`: fixed-window Redis rate limits + FastAPI dependencies
 - `core/security/permissions.py`: route-level RBAC
+- `shared/contracts/indexing.py`: API ↔ worker indexing message contracts
+- `ai/embeddings/base.py`: embedding provider ABC + `EmbeddedChunk`
+- `ai/embeddings/litellm_provider.py`: LiteLLM `aembedding` + retries
+- `ai/embeddings/factory.py`: process-wide embedding provider singleton
+- `ai/embeddings/chunker.py`: deterministic note chunking
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
 - `<module>/repository.py`: DB access + persistence

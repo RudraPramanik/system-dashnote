@@ -85,3 +85,8 @@ class Settings(BaseSettings):
 
 # we can call config for env
 settings = Settings()
+
+
+def get_settings() -> Settings:
+    """Return the process-wide Settings singleton."""
+    return settings

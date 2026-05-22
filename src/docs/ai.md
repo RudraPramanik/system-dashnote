@@ -97,7 +97,7 @@ From `src/docs/rules.md` (summary):
 ### What is explicitly out of scope for Part 1
 
 - `qdrant-client` install or vector CRUD (Slice 2).
-- ARQ job implementations beyond `src/worker/tasks.py` stub (`functions = []`).
+- ARQ job implementations beyond `embed_note_task` (Slice 1.3).
 - Router enqueue blocks and embedding API calls.
 
 ---
@@ -266,7 +266,7 @@ Do not use `python -m src.ai.embeddings.*` — the API image exposes `ai`, `conf
 | `ai/services/cache.py` | `get_cached_vector`, `cache_vector` — Redis JSON cache keyed by `sha256(chunk_text)` |
 | `ai/workflows/pipeline.py` | `EmbeddingPipeline`, `PipelineResult` — chunk → cache → embed → cache write → `EmbeddedChunk[]` |
 
-**Out of scope**: Qdrant client (Slice 2), ARQ tasks (1.3).
+**Out of scope**: Qdrant client (Slice 2). ARQ wiring is Sub-step 1.3.
 
 ### Redis cache — `ai/services/cache.py`
 
@@ -335,11 +335,101 @@ Expected with a valid `GEMINI_API_KEY` (or `OPENAI_API_KEY`) and optional local 
 docker compose exec -e PYTHONPATH=/app/src api python -m ai.workflows.pipeline
 ```
 
+---
+
+## Sub-step 1.3 — ARQ worker (`embed_note_task`)
+
+### Module layout
+
+| File | Role |
+|------|------|
+| `worker/ingestion/tasks.py` | `embed_note_task` — deserialise `IndexingRequest`, run `EmbeddingPipeline` |
+| `worker/tasks.py` | Task registry (re-exports `embed_note_task`) |
+| `worker/main.py` | `WorkerSettings` — ARQ entrypoint, startup Redis for embedding cache |
+
+### `embed_note_task` flow
+
+```
+IndexingRequest (dict from ARQ)
+  → ai_enabled? skip if false
+  → DELETE? log + success (Qdrant delete in Slice 2)
+  → get_embedding_provider() + EmbeddingPipeline(redis=ctx["redis"])
+  → process_note(...) → log vectors (qdrant_indexed=false)
+  → IndexingResult dict
+```
+
+| Log line | Meaning |
+|----------|---------|
+| `Embedding vectors produced (not written to Qdrant — Slice 2)` | Pipeline returned vectors; sample `chunk_id` + `vector_dim` |
+| `embed_note_task complete` | `chunks_processed`, `chunks_from_cache`, `chunks_embedded`, `qdrant_indexed: false` |
+
+**Import law**: stdlib, arq (via `worker/main` only), pydantic contracts, `config`, `ai.*`, `shared.*` — no FastAPI, SQLAlchemy, repositories, Qdrant.
+
+### Compose worker
+
+```text
+command: python -m arq src.worker.main.WorkerSettings
+depends_on: db, redis
+env: ARQ_REDIS_URL=redis://redis:6379  (in Docker network)
+```
+
+`startup` attaches `ctx["redis"]` (`decode_responses=True`) for embedding cache; same Redis server as ARQ queue when `ARQ_REDIS_URL` falls back to `REDIS_URL`.
+
+### Local validation
+
+**Task only** (no ARQ process):
+
+```powershell
+cd g:\projects\dashnotesystemv1
+$env:PYTHONPATH="src"
+python -m worker.ingestion.tasks
+```
+
+Expected: `PASS: worker task embedded N chunks ... (qdrant_indexed=false)`.
+
+**Full ARQ** (Redis required):
+
+```powershell
+docker compose up -d redis worker
+docker compose logs -f worker
+```
+
+Enqueue from a one-off shell (repo root, `PYTHONPATH=src`):
+
+```powershell
+python -c "
+import asyncio
+from arq import create_pool
+from arq.connections import RedisSettings
+from config import get_settings
+from shared.contracts.indexing import IndexingRequest, IndexingOperation
+
+async def main():
+    s = get_settings()
+    pool = await create_pool(RedisSettings.from_dsn(s.effective_arq_redis_url))
+    req = IndexingRequest(
+        operation=IndexingOperation.UPSERT,
+        note_id='arq-test-001',
+        workspace_id='ws-001',
+        created_by='user-001',
+        is_private=False,
+        title='ARQ Test',
+        content='Paragraph one.\n\nParagraph two with enough content to chunk.',
+    )
+    job = await pool.enqueue_job('embed_note_task', request_dict=req.model_dump(mode='json'))
+    print('enqueued', job.job_id)
+    await pool.close()
+
+asyncio.run(main())
+"
+```
+
+Worker logs should show `embed_note_task complete` and `qdrant_indexed: false`.
+
 ### Next slices (planned)
 
-1. **Slice 2**: `qdrant-client`, vector store upsert/delete using `EmbeddedChunk` + `IndexingRequest`.
-3. **Worker**: `WorkerSettings`, register ARQ tasks, process `IndexingRequest` / `DeletionRequest`.
-4. **API**: append-only enqueue after note commit in `notes/router.py`.
+1. **Slice 2**: `qdrant-client`, upsert/delete vectors from `EmbeddedChunk`.
+2. **API**: append-only enqueue `embed_note_task` after note commit in `notes/router.py`.
 
 ### Verify infrastructure (after `docker compose up -d`)
 
@@ -358,7 +448,7 @@ curl.exe -sS http://127.0.0.1/health
 - **API health**: unchanged — `GET /health` via Nginx on port 80.
 - **Qdrant**: `GET http://127.0.0.1:6333/` (root) or `/readyz` when the `qdrant` service is up.
 - **Rebuild** after changing `src/config.py`: `docker compose up -d --build api`
-- **Worker**: will stay unhealthy or restart until `arq` is installed and `src.worker.main.WorkerSettings` exists (later slice).
+- **Worker**: `docker compose logs worker` should show `ARQ worker started` and, after a job, `embed_note_task complete` with `qdrant_indexed: false`.
 
 ### Related docs
 

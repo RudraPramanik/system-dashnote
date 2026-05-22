@@ -77,6 +77,9 @@ services:
     build: .
     command: python -m arq src.worker.main.WorkerSettings
     env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ARQ_REDIS_URL: redis://redis:6379/0
     depends_on:
       - db
       - redis

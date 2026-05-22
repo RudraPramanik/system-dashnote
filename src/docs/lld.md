@@ -358,7 +358,7 @@ process_note (keyword-only RBAC + content args)
 
 `EmbeddingPipeline(provider, redis=None)` — `redis=None` skips cache entirely.
 
-Worker flow (later): dequeue `IndexingRequest` → `EmbeddingPipeline.process_note` → Qdrant upsert → `IndexingResult`.
+Worker flow (1.3): dequeue `IndexingRequest` → `embed_note_task` → `EmbeddingPipeline.process_note` → log vectors → `IndexingResult`. Qdrant upsert in Slice 2.
 
 #### 4.10.8 Dependency matrix (AI embeddings + pipeline)
 
@@ -373,6 +373,30 @@ Worker flow (later): dequeue `IndexingRequest` → `EmbeddingPipeline.process_no
 | `ai/workflows/pipeline.py` | stdlib, pydantic, `ai.embeddings.*`, `ai.services.cache` |
 
 Must **not** import: FastAPI, SQLAlchemy, `notes/*`, `worker/*`, `qdrant-client`.
+
+### 4.11 ARQ worker — `src/worker/` (Sub-step 1.3)
+
+```
+ARQ queue (Redis)
+    │
+    ▼
+embed_note_task(ctx, request_dict)
+    │
+    ├─► IndexingRequest validate
+    ├─► ai_enabled / DELETE short-circuits
+    ├─► get_embedding_provider()
+    ├─► EmbeddingPipeline(process_note)  [ctx["redis"] for cache]
+    ├─► log sample vector dim (no Qdrant write)
+    └─► IndexingResult → Redis job result
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `worker/main.py` | `WorkerSettings`, `startup`/`shutdown`, shared `ctx["redis"]` |
+| `worker/tasks.py` | Export registered ARQ functions |
+| `worker/ingestion/tasks.py` | `embed_note_task` implementation |
+
+**Import law**: stdlib, arq, pydantic, `config`, `ai.*`, `shared.*` — no FastAPI, SQLAlchemy, domain repositories, `qdrant-client`.
 
 ## 5) Data model and persistence design
 
@@ -419,6 +443,8 @@ This keeps write semantics explicit and local to repository methods.
 - `ai/embeddings/chunker.py`: deterministic note chunking
 - `ai/services/cache.py`: Redis embedding vector cache-aside
 - `ai/workflows/pipeline.py`: chunk → cache → embed orchestration
+- `worker/main.py`: ARQ `WorkerSettings` and process lifecycle
+- `worker/ingestion/tasks.py`: `embed_note_task` (indexing without Qdrant in Slice 1)
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
 - `<module>/repository.py`: DB access + persistence

@@ -271,7 +271,9 @@ docker compose up -d --build
 - **nginx**: `nginx:alpine`, binds **80:80**, mounts `nginx/default.conf` (edge `limit_req` + proxy headers including `X-Request-ID`).
 - **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation; also mapped **`8000:8000`** on the host for direct access to `/docs` and debugging (bypasses Nginx edge limits). Prefer **`http://127.0.0.1/`** (port **80**) when testing the full proxy + Nginx `limit_req` path.
 - **db**: `postgres:16-alpine` with healthcheck.
-- **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, application rate limits, plus optional cache-aside for read-heavy routes documented above).
+- **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, application rate limits, optional cache-aside for read-heavy routes, ARQ job queue, and embedding vector cache keys `embed:v1:*`).
+- **worker**: same image as `api`; runs `python -m arq src.worker.main.WorkerSettings`. Processes `embed_note_task` (chunk + embed notes; Qdrant upsert deferred to AI Slice 2). Depends on `db` and `redis`. Scale with `docker compose up --scale worker=3 -d`.
+- **qdrant**: vector store container for dev (`6333`); production may use Qdrant Cloud via `.env` (client wiring in AI Slice 2).
 - **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.
 
 #### Verify
@@ -281,6 +283,7 @@ curl.exe -sS --max-time 10 http://127.0.0.1/health
 docker compose logs --tail 50 api
 docker compose logs --tail 50 nginx
 docker compose logs --tail 50 migrate
+docker compose logs --tail 50 worker
 ```
 
 **Health check**: expect HTTP **200** and JSON including `status`, `timestamp`, `latency_ms`, and `dependencies` (each dependency reports `reachable`; Redis may include `configured: false` when Redis is not enabled in settings).

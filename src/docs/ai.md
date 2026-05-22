@@ -426,10 +426,21 @@ asyncio.run(main())
 
 Worker logs should show `embed_note_task complete` and `qdrant_indexed: false`.
 
+## Sub-step 1.4 — API enqueue hooks (`notes/router.py`)
+
+After a successful note create/update/delete (repository commit + cache bump), the notes router enqueues `embed_note_task` when `settings.ai_enabled` is true. Enqueue runs in `try/except` and never changes the HTTP response.
+
+| Route | Operation | When skipped |
+|-------|-----------|--------------|
+| `POST /notes/` | `IndexingOperation.UPSERT` | `ai_enabled` false or enqueue failure (logged) |
+| `PATCH /notes/{id}` | `UPSERT` (uses persisted `note.content`) | same |
+| `DELETE /notes/{id}` | `IndexingOperation.DELETE` | same |
+
+`src/main.py` lifespan creates `app.state.arq_pool` from `effective_arq_redis_url` at startup (or `None` when unset) and closes it on shutdown.
+
 ### Next slices (planned)
 
 1. **Slice 2**: `qdrant-client`, upsert/delete vectors from `EmbeddedChunk`.
-2. **API**: append-only enqueue `embed_note_task` after note commit in `notes/router.py`.
 
 ### Verify infrastructure (after `docker compose up -d`)
 

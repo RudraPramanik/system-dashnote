@@ -8,6 +8,10 @@ _SRC_DIR = os.path.dirname(__file__)
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+from contextlib import asynccontextmanager
+
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -62,6 +66,26 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- AI Slice 1: ARQ pool ---
+    from config import get_settings as _get_settings
+
+    _s = _get_settings()
+    if _s.effective_arq_redis_url:
+        app.state.arq_pool = await create_pool(
+            RedisSettings.from_dsn(_s.effective_arq_redis_url)
+        )
+    else:
+        app.state.arq_pool = None
+
+    yield
+
+    # --- AI Slice 1: ARQ pool cleanup ---
+    if hasattr(app.state, "arq_pool") and app.state.arq_pool is not None:
+        await app.state.arq_pool.close()
+
+
 # App factory (important for testing & scalability)
 def create_app() -> FastAPI:
     app = FastAPI(
@@ -71,6 +95,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.DEBUG else None,
         openapi_url="/openapi.json" if settings.DEBUG else None,
         dependencies=[Depends(enforce_global_rate_limit)],
+        lifespan=lifespan,
     )
 
     register_middlewares(app)

@@ -269,10 +269,10 @@ docker compose up -d --build
 
 **Services**
 - **nginx**: `nginx:alpine`, binds **80:80**, mounts `nginx/default.conf` (edge `limit_req` + proxy headers including `X-Request-ID`).
-- **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation; also mapped **`8000:8000`** on the host for direct access to `/docs` and debugging (bypasses Nginx edge limits). Prefer **`http://127.0.0.1/`** (port **80**) when testing the full proxy + Nginx `limit_req` path.
+- **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation; also mapped **`8000:8000`** on the host for direct access to `/docs` and debugging (bypasses Nginx edge limits). Uses `env_file: .env` plus Compose `environment` overrides (`DATABASE_URL`, `ARQ_REDIS_URL`, etc.) so `settings.ai_enabled` and ARQ enqueue work in Docker. Prefer **`http://127.0.0.1/`** (port **80**) when testing the full proxy + Nginx `limit_req` path. After recreating `api`, restart **nginx** if `/health` returns 502 (stale upstream).
 - **db**: `postgres:16-alpine` with healthcheck.
 - **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, application rate limits, optional cache-aside for read-heavy routes, ARQ job queue, and embedding vector cache keys `embed:v1:*`).
-- **worker**: same image as `api`; runs `python -m arq src.worker.main.WorkerSettings`. Processes `embed_note_task` (chunk + embed notes; Qdrant upsert deferred to AI Slice 2). Depends on `db` and `redis`. Scale with `docker compose up --scale worker=3 -d`.
+- **worker**: same image as `api`; runs `python -m arq src.worker.main.WorkerSettings`. Processes `embed_note_task` (chunk + embed notes; Qdrant upsert deferred to AI Slice 2). Emits structured logs (`extra` metrics: `chunks_processed`, `latency_ms`, `qdrant_indexed`, etc.); retryable provider errors are WARNING + ARQ retry, permanent failures ERROR with `permanent_failure: true`. Depends on `db` and `redis`. Scale with `docker compose up --scale worker=3 -d`.
 - **qdrant**: vector store container for dev (`6333`); production may use Qdrant Cloud via `.env` (client wiring in AI Slice 2).
 - **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.
 

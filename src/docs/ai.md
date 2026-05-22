@@ -426,6 +426,37 @@ asyncio.run(main())
 
 Worker logs should show `embed_note_task complete` and `qdrant_indexed: false`.
 
+## Sub-step 1.5 — Stabilisation & observability
+
+Structured logging uses `extra={}` for metrics fields (no f-strings in log messages).
+
+| Component | Success log | Failure log |
+|-----------|-------------|-------------|
+| `EmbeddingPipeline.process_note` | `Embedding pipeline complete` — `note_id`, `workspace_id`, `chunks_processed`, `chunks_from_cache`, `chunks_embedded`, `total_tokens`, `latency_ms` | `EmbeddingProviderError` re-raised to task |
+| `embed_note_task` | `embed_note_task complete` — same metrics plus `qdrant_indexed: false` | `EmbeddingProviderError`: WARNING + re-raise if `retryable`; ERROR + `permanent_failure: true` if not retryable |
+
+**Empty content** (`""` or whitespace): task returns `success=True`, `chunks_indexed=0` without calling the provider (bypasses `IndexingRequest` upsert validation). Pipeline returns zero-metric `PipelineResult` with the same success log shape.
+
+**Slice 1 gate**: API enqueue (1.4) → ARQ → worker → pipeline → structured logs; no Qdrant writes.
+
+### Slice 1 gate checklist (Docker)
+
+Prerequisites: `api` and `worker` must load `GEMINI_API_KEY` / `OPENAI_API_KEY` from `.env` (`docker-compose.yml` sets `env_file: .env` on both; Compose `environment` overrides `DATABASE_URL` for local Postgres). Worker logs render `extra={}` fields via `_ExtraFormatter` in `worker/main.py`.
+
+```powershell
+# 1–4: register, create note, PATCH with unchanged title+content (cache hit), DELETE
+# 2: docker compose logs worker --tail 50 | Select-String "embed_note_task complete"
+#    Expect: note_id, workspace_id, chunks_processed, chunks_from_cache, chunks_embedded,
+#            total_tokens, latency_ms, qdrant_indexed=False
+# 3: Re-embed with identical title AND content (title-only PATCH changes chunk text → cache miss)
+# 4: "Delete request received — Qdrant deletion wired in Slice 2"
+# 5: curl.exe -sS http://127.0.0.1/health  → "status":"ok"
+```
+
+If Nginx returns **502** after `api` recreate: `docker compose restart nginx` (stale upstream IP).
+
+---
+
 ## Sub-step 1.4 — API enqueue hooks (`notes/router.py`)
 
 After a successful note create/update/delete (repository commit + cache bump), the notes router enqueues `embed_note_task` when `settings.ai_enabled` is true. Enqueue runs in `try/except` and never changes the HTTP response.

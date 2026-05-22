@@ -90,9 +90,18 @@ class EmbeddingPipeline:
 
         chunks = self._chunker.chunk_note(note_id, title, content)
         if not chunks:
+            latency_ms = round((time.monotonic() - start) * 1000, 2)
             logger.info(
-                "No chunks produced — empty content?",
-                extra={"note_id": note_id},
+                "Embedding pipeline complete",
+                extra={
+                    "note_id": note_id,
+                    "workspace_id": workspace_id,
+                    "chunks_processed": 0,
+                    "chunks_from_cache": 0,
+                    "chunks_embedded": 0,
+                    "total_tokens": 0,
+                    "latency_ms": latency_ms,
+                },
             )
             return PipelineResult(
                 note_id=note_id,
@@ -101,7 +110,7 @@ class EmbeddingPipeline:
                 chunks_from_cache=0,
                 chunks_embedded=0,
                 total_tokens=0,
-                latency_ms=0.0,
+                latency_ms=latency_ms,
                 embedded_chunks=[],
             )
 
@@ -124,15 +133,7 @@ class EmbeddingPipeline:
             uncached_texts = [chunks[i].text for i in uncached_indices]
             try:
                 new_vectors = await self._provider.embed_texts(uncached_texts)
-            except EmbeddingProviderError as e:
-                logger.error(
-                    "Embedding provider error",
-                    extra={
-                        "note_id": note_id,
-                        "error": str(e),
-                        "retryable": e.retryable,
-                    },
-                )
+            except EmbeddingProviderError:
                 raise
 
             for local_idx, chunk_idx in enumerate(uncached_indices):
@@ -147,7 +148,10 @@ class EmbeddingPipeline:
         for i, chunk in enumerate(chunks):
             vector = vectors_by_index.get(i)
             if vector is None:
-                logger.warning("Missing vector for chunk %d — skipping", i)
+                logger.warning(
+                    "Missing vector for chunk — skipping",
+                    extra={"note_id": note_id, "chunk_index": i},
+                )
                 continue
             embedded.append(
                 EmbeddedChunk(
@@ -224,7 +228,10 @@ if __name__ == "__main__":
                 await candidate.ping()
                 redis = candidate
             except Exception as exc:
-                logger.warning("Redis unavailable for pipeline validation: %s", exc)
+                logger.warning(
+                    "Redis unavailable for pipeline validation",
+                    extra={"error": str(exc)},
+                )
 
         pipeline = EmbeddingPipeline(provider=provider, redis=redis)
 

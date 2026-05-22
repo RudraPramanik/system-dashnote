@@ -21,10 +21,65 @@ from worker.tasks import embed_note_task
 logger = logging.getLogger(__name__)
 
 
+class _ExtraFormatter(logging.Formatter):
+    """Append structured `extra={}` fields to console log lines for Compose grep."""
+
+    _SKIP = frozenset(
+        {
+            "name",
+            "msg",
+            "args",
+            "created",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "module",
+            "msecs",
+            "message",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "stack_info",
+            "exc_info",
+            "exc_text",
+            "thread",
+            "threadName",
+            "taskName",
+        }
+    )
+
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        extra = {
+            k: v
+            for k, v in record.__dict__.items()
+            if k not in self._SKIP and not k.startswith("_")
+        }
+        if not extra:
+            return base
+        parts = " ".join(f"{k}={v}" for k, v in sorted(extra.items()))
+        return f"{base} {parts}"
+
+
+def _configure_worker_logging() -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        _ExtraFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
 async def startup(ctx: dict) -> None:
     """Called once when worker starts. Initialise shared resources."""
     import redis.asyncio as aioredis
 
+    _configure_worker_logging()
     settings = get_settings()
     url = settings.effective_arq_redis_url
     if not url:

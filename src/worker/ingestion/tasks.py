@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import time
 
+from ai.embeddings.base import EmbeddingProviderError
 from config import get_settings
 from shared.contracts.indexing import (
     IndexingOperation,
@@ -34,10 +35,28 @@ async def embed_note_task(ctx: dict, *, request_dict: dict) -> dict:
     start = time.monotonic()
     settings = get_settings()
 
+    operation = request_dict.get("operation")
+    if operation in (IndexingOperation.UPSERT, IndexingOperation.UPSERT.value):
+        content = request_dict.get("content", "")
+        if not str(content).strip():
+            return IndexingResult(
+                request_id=request_dict.get("request_id", "unknown"),
+                note_id=request_dict.get("note_id", "unknown"),
+                workspace_id=request_dict.get("workspace_id", "unknown"),
+                success=True,
+                chunks_indexed=0,
+            ).model_dump(mode="json")
+
     try:
         request = IndexingRequest(**request_dict)
     except Exception as e:
-        logger.error("Invalid IndexingRequest payload: %s", e)
+        logger.error(
+            "Invalid IndexingRequest payload",
+            extra={
+                "error": str(e),
+                "note_id": request_dict.get("note_id", "unknown"),
+            },
+        )
         return IndexingResult(
             request_id=request_dict.get("request_id", "unknown"),
             note_id=request_dict.get("note_id", "unknown"),
@@ -127,12 +146,42 @@ async def embed_note_task(ctx: dict, *, request_dict: dict) -> dict:
             latency_ms=latency_ms,
         ).model_dump(mode="json")
 
+    except EmbeddingProviderError as e:
+        latency_ms = round((time.monotonic() - start) * 1000, 2)
+        log_extra = {
+            "note_id": request.note_id,
+            "workspace_id": request.workspace_id,
+            "error": str(e),
+            "provider": e.provider,
+            "retryable": e.retryable,
+            "latency_ms": latency_ms,
+        }
+        if e.retryable:
+            logger.warning(
+                "embed_note_task failed",
+                extra=log_extra,
+            )
+            raise
+        logger.error(
+            "embed_note_task failed",
+            extra={**log_extra, "permanent_failure": True},
+        )
+        return IndexingResult(
+            request_id=request.request_id,
+            note_id=request.note_id,
+            workspace_id=request.workspace_id,
+            success=False,
+            error=str(e),
+            latency_ms=latency_ms,
+        ).model_dump(mode="json")
+
     except Exception as e:
         latency_ms = round((time.monotonic() - start) * 1000, 2)
         logger.error(
             "embed_note_task failed",
             extra={
                 "note_id": request.note_id,
+                "workspace_id": request.workspace_id,
                 "error": str(e),
                 "latency_ms": latency_ms,
             },
@@ -161,6 +210,24 @@ if __name__ == "__main__":
     os.chdir(_repo_root)
 
     async def _validate() -> None:
+        for empty_content in ("", "   "):
+            empty_result = await embed_note_task(
+                {"redis": None},
+                request_dict={
+                    "operation": IndexingOperation.UPSERT.value,
+                    "note_id": "empty-note",
+                    "workspace_id": "empty-ws",
+                    "created_by": "empty-user",
+                    "is_private": False,
+                    "title": "Empty",
+                    "content": empty_content,
+                },
+            )
+            assert empty_result["success"], empty_result
+            assert empty_result["chunks_indexed"] == 0, empty_result
+            assert empty_result.get("error") is None, empty_result
+        print("PASS: empty content returns success with chunks_indexed=0")
+
         request = IndexingRequest(
             operation=IndexingOperation.UPSERT,
             note_id="worker-test-note-001",

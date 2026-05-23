@@ -1,66 +1,52 @@
-Dependency Direction Law (Never Violate)
-src/shared/  ←  imported by ai/, worker/, domain modules. Imports NOTHING.
-src/ai/      ←  imports from src/shared/ only. Never src/notes/, src/worker/.
-src/worker/  ←  imports from src/ai/ and src/shared/. Never FastAPI/HTTP logic.
-src/notes/   ←  calls src/ai/services/ via service interface only.
-src/files/   ←  same pattern as src/notes/.
-One sentence: shared ← ai ← worker and shared ← src modules → ai/services
-Tools → services → repositories. Never shortcut this chain.
+ARCHITECTURE LAW — DashNoteSystem. Enforce in ALL generated code.
 
-Never Rewrite — Only Append
-docker-compose.yml  →  append new services only
-requirements.txt    →  append new packages only, grouped by slice comment
-settings.py         →  append new fields only, grouped by slice comment
-.env                →  append new vars only, grouped by slice comment
-Dockerfile          →  evolve only if a new system package is truly needed
+MODULE PATHS:
+  Import as: from config import settings, get_settings
+             from ai.services.rag_service import RagService
+             from ai.retrieval.wrapper import get_workspace_vector_search
+             from core.security.context import RequestContext
+  NEVER as:  from src.config import ...
+             from src.ai.services import ...
 
-
-
-Package Install Discipline
-Install a package ONLY when writing the code that imports it.
-Add it to requirements.txt immediately under # --- AI requirements --- or #------worker requirements ---
-Never install speculatively.
-
-<!--  -->
-
-ARCHITECTURE LAW — DashNoteSystem. Memorise and enforce in ALL generated code.
-
-LAYER STRUCTURE (all inside src/):
-  src/shared/    → contracts, events, schemas. Imports NOTHING from other layers.
-  src/ai/        → AI orchestration. No HTTP. No FastAPI.
-  src/worker/    → ARQ background jobs. No HTTP. No FastAPI.
-  src/notes/     → existing domain. Minimal additions only.
-
-AI MODULE IMPORT LAW — src/ai/* may ONLY import from:
-  - src.shared.*
-  - src.config.settings
-  - src.core.redis.*
-  - stdlib + third-party packages
-
-AI MODULES MUST NEVER IMPORT(exception allowed for need):
-  - FastAPI, Request, Response, APIRouter, Depends, HTTPException
+AI SERVICE LAW — src/ai/services/* MUST NEVER import:
+  - FastAPI, Request, Response, HTTPException, APIRouter, Depends
   - SQLAlchemy sessions or any repository class
-  - src.notes.*, src.files.*, src.auth.*, src.workspaces.*
-  - src.worker.*
+  - RequestContext (accept workspace_id, user_id, role as plain str instead)
+  - src/worker/*, src/notes/*, src/files/*, src/auth/*
 
-WORKER MODULES MUST NEVER IMPORT(exception allowed for need)::
-  - FastAPI or any HTTP-related module
-  - Domain repositories directly
+WHY RequestContext is banned in services:
+  LangGraph agent tools will call these services directly in Slice 6.
+  Agent tools have no HTTP context — they pass plain strings.
+  Services that accept RequestContext cannot be reused by agents.
+  Design services for reuse from both HTTP routes AND agent tools.
+
+AI ROUTE LAW — src/ai_routes/* may import:
+  - FastAPI components, get_current_context, RequestContext
+  - ai.services.*, ai.retrieval.*
+  The router freezes ctx to plain strings before calling services.
 
 ROUTER LAW:
-  - Do not refactor, reorder, or rewrite existing router logic
-  - Only append minimal enqueue blocks after successful DB commits
-  - Never move, rename, or delete existing route functions
+  - Chat endpoint lives in src/ai_routes/chat.py — never notes/router.py
+  - Do not refactor or reorder any existing router
+  - Append new router registration to main.py only
+
+STRUCTURED OUTPUT LAW:
+  - Never parse raw LLM text with regex or string splitting
+  - Use litellm.acompletion() with response_format=RAGAnswer (Pydantic model)
+  - Citations must be grounded in retrieved chunks — never trust LLM-generated IDs
+
+PACKAGE DISCIPLINE:
+  - Install packages only when the code that needs them is written
+  - Do not add langchain-core or langsmith in Slice 3 — not needed yet
+  - LiteLLM already installed — it handles the completion call directly
 
 INFRA LAW:
-  - Do not create additional Dockerfiles or docker-compose files
-  - Do not create requirements.worker.txt or requirements.api.txt
-  - All changes go into the existing Dockerfile and requirements.txt
+  - No new Dockerfiles or compose files
+  - Append-only to requirements.txt, settings, .env
 
-
-PYDANTIC LAW:
-  - Use Pydantic V2 throughout — BaseModel, ConfigDict, model_validator
-  - All shared data models use ConfigDict(frozen=True)
-  - Use Python 3.11+ type hints: str | None not Optional[str]
+LangGraph compatibility note:
+  RagService.answer() accepts (question, workspace_id, user_id, role) as plain str.
+  This signature works identically from HTTP routes AND future agent tools.
+  Never couple service methods to HTTP request lifecycle objects.
 
 Acknowledge these laws before writing any code.

@@ -21,6 +21,7 @@ All tenant-scoped data access is performed through repositories that filter by `
 - `src/workspaces/router.py` (prefix: `/workspaces`)
 - `src/membership/router.py` (prefix: `/workspaces/members`)
 - `src/ai_gateway/search.py` (prefix: `/ai` — e.g. `GET /ai/test-search` for semantic note search validation)
+- `src/ai_routes/chat.py` (prefix: `/ai` — `POST /ai/chat` RAG assistant; Slice 3)
 
 It also mounts **`core.health`** for orchestration:
 
@@ -213,6 +214,11 @@ Recommended operational practices:
 - **Search** is only through `ai.retrieval.wrapper.WorkspaceVectorSearch` with `build_rbac_filter()` (`ai.retrieval.filters`) — same rules as `notes/permissions.py`. `workspace_id` is always from JWT `RequestContext`, never from query parameters.
 - **Indexing** (worker) uses `ai.retrieval.workspace_search.WorkspaceVectorIndex` + `NoteVectorIndexer`.
 - Diagnostic route: `GET /ai/test-search` (`ai_gateway/search.py`) — requires `ai_enabled` and `qdrant_enabled`; quality gate: relevance score > 0.4, workspace isolation verified.
+
+### AI chat (Slice 3)
+- Product route: `POST /ai/chat` (`ai_routes/chat.py`) — JWT required; router freezes `RequestContext` to plain strings before calling `RagService.answer()`.
+- Core engine: `ai/services/rag_service.py` (no HTTP imports — reusable from LangGraph tools in Slice 6).
+- Prompts: `ai/prompts/rag.py` only.
 
 ### Where to extend next
 If you add new note-like resources or collaboration features:

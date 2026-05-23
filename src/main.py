@@ -41,6 +41,9 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(membership_router)
     # --- AI Slice 2: internal search validation ---
     app.include_router(ai_search_router)
+    # --- AI Slice 3: Chat MVP ---
+    from ai_routes.chat import router as ai_chat_router
+    app.include_router(ai_chat_router)
 
 
 # Middleware

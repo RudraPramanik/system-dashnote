@@ -13,7 +13,8 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | Qdrant search | **`WorkspaceVectorSearch`** in `ai/retrieval/wrapper.py` only — never `AsyncQdrantClient` in routers |
 | Qdrant writes | `WorkspaceVectorIndex` + `NoteVectorIndexer` — worker/indexer path only |
 | RBAC filter | `build_rbac_filter()` in `ai/retrieval/filters.py` — mirrors `notes/permissions.py` exactly |
-| Routers | Test search at **`GET /ai/test-search`** (`ai_gateway/search.py`) |
+| Routers | Test search: **`GET /ai/test-search`** (`ai_gateway/search.py`); chat: **`POST /ai/chat`** (`ai_routes/chat.py`) |
+| Services | **`RagService.answer()`** (`ai/services/rag_service.py`) — plain `workspace_id` / `user_id` / `role` strings only |
 | Infra | Append-only to `settings`, `.env`, `docker-compose.yml`, `requirements*.txt` |
 
 ---
@@ -156,6 +157,67 @@ python -m ai.retrieval.indexer
 ### Dependencies
 
 `qdrant-client ~= 1.16.0` under `# --- AI Slice 2: Qdrant vector retrieval ---` in `requirements/base.txt`.
+
+---
+
+## Slice 3 (complete) — RAG chat MVP
+
+### Settings (Sub-step 3.1)
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `LLM_MODEL` | `gemini/gemini-2.5-flash` | Chat completion via LiteLLM |
+| `LLM_TEMPERATURE` | `0.0` | Deterministic answers |
+| `LLM_MAX_TOKENS` | `2048` | Max completion tokens |
+| `TOKEN_BUDGET_PER_REQUEST` | `8000` | Char budget for retrieved context sent to LLM |
+| `LANGSMITH_API_KEY` | `None` | Wired for Slice 10 |
+| `LANGSMITH_PROJECT` | `dashnote` | LangSmith project name |
+| `LANGSMITH_TRACING_ENABLED` | `False` | Enable in Slice 10 |
+| `langsmith_enabled` | property | `bool(LANGSMITH_API_KEY) and LANGSMITH_TRACING_ENABLED` |
+
+### Module layout — prompts + service
+
+| Path | Role |
+|------|------|
+| `ai/prompts/rag.py` | `RAGAnswer` (structured output), `RAG_SYSTEM_INSTRUCTION`, `build_rag_user_message()` |
+| `ai/services/rag_service.py` | `RagService.answer()` — retrieve → budget → LLM → ground citations → `ChatResult` |
+
+**Import law**: `rag_service.py` imports only `litellm`, `pydantic`, `config`, `ai.retrieval.*`, `ai.prompts.*`, stdlib — no FastAPI, SQLAlchemy, or `RequestContext`.
+
+### HTTP — `POST /ai/chat` (Sub-step 3.2)
+
+**Module**: `ai_routes/chat.py`  
+**Auth**: `Authorization: Bearer` → `RequestContext`; ctx frozen to plain strings before `RagService.answer()`.
+
+| Body field | Constraints |
+|------------|-------------|
+| `message` | 1–2000 chars |
+
+**Response**: `answer` (markdown), `citations[]` (`note_id`, `chunk_id`, `title`, `relevance_score`), `chunks_retrieved`, `chunks_used`, `latency_ms`.
+
+**Not in Slice 3**: streaming (`/ai/chat/stream`), `thread_id` / memory, LangGraph agents.
+
+### Slice 3 validation gate
+
+```powershell
+docker compose up -d --build api
+
+# 401 without token (route exists + auth enforced)
+curl.exe -sS -X POST http://127.0.0.1/ai/chat -H "Content-Type: application/json" -d "@$env:TEMP\chat-body.json"
+# (write {"message":"test"} to chat-body.json first)
+
+# Authenticated chat
+Invoke-RestMethod -Uri "http://127.0.0.1/ai/chat" -Method Post `
+  -Headers @{ Authorization = "Bearer <TOKEN>" } `
+  -ContentType "application/json" `
+  -Body '{"message": "What is the deadline for project X?"}'
+```
+
+**Sign-off criteria**: `latency_ms` < 5000; answer grounded in indexed notes; `citations` ≥ 1 with real `note_id`; empty workspace returns refusal string (not other tenants’ data); `GET /health` unchanged.
+
+```powershell
+python -m ai.services.rag_service   # import/schema validation (no LLM call)
+```
 
 ### Related docs
 

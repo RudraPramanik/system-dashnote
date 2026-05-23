@@ -12,6 +12,7 @@ In scope:
 - AI indexing foundation: `src/shared/contracts/indexing.py`, `src/ai/embeddings/*` (chunker, LiteLLM provider, factory) — see §4.10
 - Edge reverse proxy and dual-layer rate limiting (Nginx + Redis-backed FastAPI limits) as implemented in-repo
 - AI retrieval (Slice 2): `ai/retrieval/*`, `ai_gateway/search.py`, Qdrant RBAC search
+- AI chat RAG (Slice 3): `ai/prompts/rag.py`, `ai/services/rag_service.py`, `ai_routes/chat.py`
 
 Out of scope:
 - Frontend design
@@ -69,6 +70,7 @@ Registered routers:
 - `/workspaces`
 - `/workspaces/members`
 - `/ai` → `GET /ai/test-search` (internal semantic search validation; `ai_gateway/search.py`)
+- `/ai` → `POST /ai/chat` (RAG chat MVP; `ai_routes/chat.py`)
 
 ### 3.2 Request flow (protected endpoint)
 1. When behind Nginx, the edge sets `X-Forwarded-For` / `X-Real-IP`; `ProxyHeadersMiddleware` adjusts ASGI `client` so downstream code (including rate limiting) sees the original host.
@@ -437,6 +439,37 @@ GET /ai/test-search?q=...
 
 **Quality gate** (engineering sign-off): relevance `score` > 0.4 for on-topic queries; cross-workspace isolation; member cannot see others’ private chunks.
 
+### 4.13 AI chat RAG — Slice 3 (Sub-steps 3.1–3.2)
+
+```
+POST /ai/chat  { "message": "..." }
+    │
+    ├─► get_current_context() → RequestContext
+    ├─► freeze: workspace_id, user_id, role as plain str (never pass ctx to services)
+    ├─► RagService.answer(question, workspace_id, user_id, role)
+    │       ├─► WorkspaceVectorSearch.search(...)  — RBAC + embed query
+    │       ├─► token budget: TOKEN_BUDGET_PER_REQUEST (char cap on context)
+    │       ├─► build_rag_user_message() + RAG_SYSTEM_INSTRUCTION (ai/prompts/rag.py)
+    │       ├─► litellm.acompletion(model=LLM_MODEL, response_format=RAGAnswer)
+    │       └─► ground cited_chunk_ids against retrieved set → list[Citation]
+    └─► ChatResponse(answer, citations, chunks_*, latency_ms)
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `config.py` | `LLM_MODEL`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `TOKEN_BUDGET_PER_REQUEST`, `LANGSMITH_*`, `langsmith_enabled` |
+| `ai/prompts/rag.py` | `RAGAnswer` schema, `RAG_SYSTEM_INSTRUCTION`, `build_rag_user_message()` — **only** prompt strings |
+| `ai/services/rag_service.py` | `RagService`, `ChatResult`, `Citation`, `get_rag_service()` — no FastAPI/SQLAlchemy/RequestContext |
+| `ai_routes/chat.py` | `POST /ai/chat` — freezes ctx, injects `RagService` via `Depends(get_rag_service)` |
+
+**Security invariants**
+
+- `workspace_id` / `user_id` / `role` passed to `RagService` are frozen strings from JWT only.
+- Citations are built only from chunks actually retrieved; LLM `cited_chunk_ids` are validated against that set (top-3 fallback if empty).
+- Structured output only: `response_format=RAGAnswer` — no regex parsing of LLM text.
+
+**Slice 3 gate** (sign-off): `POST /ai/chat` returns 401 without token; grounded answer + `citations` with real `note_id` when notes are indexed; `latency_ms` < 5000; empty workspace returns the refusal string, not cross-tenant data.
+
 ## 5) Data model and persistence design
 
 ### 5.1 Core entities (implemented)
@@ -489,6 +522,9 @@ This keeps write semantics explicit and local to repository methods.
 - `ai/retrieval/workspace_search.py`: Qdrant upsert/delete (`WorkspaceVectorIndex`)
 - `ai/retrieval/indexer.py`: note-level vector indexing orchestration
 - `ai_gateway/search.py`: `GET /ai/test-search` validation route
+- `ai/prompts/rag.py`: RAG prompt templates and `RAGAnswer` structured output schema
+- `ai/services/rag_service.py`: `RagService.answer()` — retrieval + LLM + grounded citations
+- `ai_routes/chat.py`: `POST /ai/chat` — HTTP adapter (ctx freeze + `Depends`)
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
 - `<module>/repository.py`: DB access + persistence

@@ -66,6 +66,19 @@ class Settings(BaseSettings):
     QDRANT_NOTES_COLLECTION: str = "notes_chunks"
     QDRANT_TIMEOUT: int = 30
 
+    # ── AI Slice 3: LLM ────────────────────────────────────────────
+    # gemini/gemini-2.5-flash: fast, high-context, low-latency
+    # Change this string to swap LLM providers — no code change needed
+    LLM_MODEL: str = "gemini/gemini-2.5-flash"
+    LLM_TEMPERATURE: float = 0.0
+    LLM_MAX_TOKENS: int = 2048
+    TOKEN_BUDGET_PER_REQUEST: int = 8000   # max chars of context sent to LLM
+
+    # ── AI Slice 3: LangSmith (wired now, enabled in Slice 10) ─────
+    LANGSMITH_API_KEY: str | None = None
+    LANGSMITH_PROJECT: str = "dashnote"
+    LANGSMITH_TRACING_ENABLED: bool = False
+
     @property
     def ai_enabled(self) -> bool:
         """
@@ -84,6 +97,11 @@ class Settings(BaseSettings):
     def qdrant_enabled(self) -> bool:
         """True when Qdrant URL is configured (local container or cloud)."""
         return bool(self.QDRANT_URL)
+
+    @property
+    def langsmith_enabled(self) -> bool:
+        """True when LangSmith tracing is configured and active."""
+        return bool(self.LANGSMITH_API_KEY) and self.LANGSMITH_TRACING_ENABLED
 
     @model_validator(mode="after")
     def validate_ai_config(self) -> "Settings":

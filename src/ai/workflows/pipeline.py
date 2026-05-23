@@ -165,6 +165,7 @@ class EmbeddingPipeline:
                     token_count=chunk.token_estimate,
                     vector=vector,
                     metadata={
+                        "title": title,
                         "char_start": chunk.char_start,
                         "char_end": chunk.char_end,
                         **(metadata or {}),

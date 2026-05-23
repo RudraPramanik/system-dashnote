@@ -20,7 +20,7 @@ All tenant-scoped data access is performed through repositories that filter by `
 - `src/files/router.py` (mounted at `/files` via `src/main.py`)
 - `src/workspaces/router.py` (prefix: `/workspaces`)
 - `src/membership/router.py` (prefix: `/workspaces/members`)
-- `src/ai_search/router.py` (prefix: `/ai` — e.g. `POST /ai/test-search` for semantic note search)
+- `src/ai_gateway/search.py` (prefix: `/ai` — e.g. `GET /ai/test-search` for semantic note search validation)
 
 It also mounts **`core.health`** for orchestration:
 
@@ -210,8 +210,9 @@ Recommended operational practices:
 
 ### AI vector search (Slice 2)
 - Indexed note chunks live in Qdrant collection `notes_chunks` (see `src/docs/ai.md`).
-- All vector I/O is workspace-scoped through `ai.retrieval.workspace_search.WorkspaceVectorSearch`; `workspace_id` always comes from JWT `RequestContext`, never from client-supplied search scope.
-- Diagnostic route: `POST /ai/test-search` (`ai_search/router.py`) — requires `ai_enabled` and `qdrant_enabled`.
+- **Search** is only through `ai.retrieval.wrapper.WorkspaceVectorSearch` with `build_rbac_filter()` (`ai.retrieval.filters`) — same rules as `notes/permissions.py`. `workspace_id` is always from JWT `RequestContext`, never from query parameters.
+- **Indexing** (worker) uses `ai.retrieval.workspace_search.WorkspaceVectorIndex` + `NoteVectorIndexer`.
+- Diagnostic route: `GET /ai/test-search` (`ai_gateway/search.py`) — requires `ai_enabled` and `qdrant_enabled`; quality gate: relevance score > 0.4, workspace isolation verified.
 
 ### Where to extend next
 If you add new note-like resources or collaboration features:

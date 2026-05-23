@@ -6,12 +6,14 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 
 | Law | Rule |
 |-----|------|
-| Imports | `from config import settings` — never `from src.config` |
+| Imports | `from config import settings` / `get_settings` — never `from src.config` |
 | `src/ai/*` | Only `config`, `ai.*`, `shared.*`, stdlib, third-party |
 | `src/worker/*` | Only `config`, `ai.*`, `shared.*` — no raw Qdrant in tasks |
-| Qdrant | `workspace_id` **must** filter on every query; inject from `RequestContext` / `IndexingRequest` only |
-| Qdrant access | `WorkspaceVectorSearch` / `NoteVectorIndexer` only — never `AsyncQdrantClient` in routers or tasks |
-| Routers | Append-only; test search at **`POST /ai/test-search`** |
+| Qdrant | `workspace_id` **must** filter on every search query; inject from `RequestContext` / `IndexingRequest` only |
+| Qdrant search | **`WorkspaceVectorSearch`** in `ai/retrieval/wrapper.py` only — never `AsyncQdrantClient` in routers |
+| Qdrant writes | `WorkspaceVectorIndex` + `NoteVectorIndexer` — worker/indexer path only |
+| RBAC filter | `build_rbac_filter()` in `ai/retrieval/filters.py` — mirrors `notes/permissions.py` exactly |
+| Routers | Test search at **`GET /ai/test-search`** (`ai_gateway/search.py`) |
 | Infra | Append-only to `settings`, `.env`, `docker-compose.yml`, `requirements*.txt` |
 
 ---
@@ -35,19 +37,11 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 
 **Compose**: `worker`, `qdrant` (:6333), `ARQ_REDIS_URL` / `REDIS_URL`.
 
-**Validate (repo root, `PYTHONPATH=src`)**
-
-```powershell
-python -m ai.embeddings.chunker
-python -m ai.workflows.pipeline
-python -m worker.ingestion.tasks
-```
-
 ---
 
-## Slice 2 (current) — Qdrant indexing & test search
+## Slice 2 (current) — RBAC search, Qdrant indexing, quality gate
 
-### Settings (append-only)
+### Settings
 
 | Field | Default | Purpose |
 |-------|---------|---------|
@@ -63,10 +57,69 @@ python -m worker.ingestion.tasks
 |------|------|
 | `client.py` | `get_async_qdrant_client()` singleton (retrieval package only) |
 | `collection.py` | `ensure_notes_collection()` — cosine, `EMBEDDING_DIMENSION` |
-| `workspace_search.py` | **`WorkspaceVectorSearch`** — upsert, delete-by-note, search with mandatory `workspace_id` + member RBAC |
+| `filters.py` | **`build_rbac_filter(workspace_id, user_id, role)`** — pure Qdrant Filter; mirrors `notes/permissions.py` |
+| `wrapper.py` | **`WorkspaceVectorSearch`** — embed query + `query_points` + RBAC; **`get_workspace_vector_search()`** singleton |
+| `workspace_search.py` | **`WorkspaceVectorIndex`** — upsert/delete-by-note (indexing only) |
 | `indexer.py` | `NoteVectorIndexer` — delete-then-upsert per note (worker-facing) |
 
-**HTTP** (outside `ai/` import law): `ai_search/router.py` → `POST /ai/test-search` (JWT `workspace_id` only; embeds query, searches via `WorkspaceVectorSearch`).
+### RBAC filter (`build_rbac_filter`)
+
+Aligned with `notes/permissions.py`:
+
+| Role | Qdrant filter |
+|------|----------------|
+| `owner`, `admin` | `must`: `workspace_id` |
+| `member` | `must`: `workspace_id` **and** (`visibility=public` **or** `created_by=user_id`) |
+
+Payload field `visibility`: `"public"` ↔ `is_private=False`, `"private"` ↔ `is_private=True`.
+
+`workspace_id` is **never** optional and **never** taken from request query/body on search routes.
+
+### Qdrant payload (indexed chunks)
+
+| Field | Purpose |
+|-------|---------|
+| `workspace_id` | Tenant isolation (mandatory filter) |
+| `note_id`, `chunk_id`, `chunk_index` | Identity / ordering |
+| `text`, `chunk_text` | Chunk body (search display; `text` preferred by wrapper) |
+| `title` | Note title for display / retrieval context |
+| `created_by` | Member RBAC (own private notes) |
+| `visibility` | `"public"` \| `"private"` for member RBAC |
+| `is_private` | Legacy bool (kept for re-index compatibility) |
+| `token_count`, `char_start`, `char_end` | Metrics / debugging |
+
+Point id = UUID from deterministic `chunk_id`.
+
+### HTTP — internal test search
+
+**Route**: `GET /ai/test-search`  
+**Module**: `ai_gateway/search.py`  
+**Auth**: `Authorization: Bearer` → `RequestContext` (`sub`, `wid`, `role`)
+
+| Query param | Source |
+|-------------|--------|
+| `q` | User query (1–500 chars) |
+| `limit` | Max hits (1–20, default 5) |
+| `workspace_id` | **Never accepted** — always `ctx.workspace_id` from JWT |
+
+**503** when `ai_enabled` or `qdrant_enabled` is false.
+
+**Response** (per hit): `chunk_id`, `note_id`, `title`, `chunk_text` (truncated), `score`, `visibility`, `chunk_index`, `workspace_id`.
+
+### Quality gate (Sub-step 2.2)
+
+Before promoting search to product routes:
+
+1. **Relevance**: cosine `score` > **0.4** for queries that match indexed note content.
+2. **Tenant isolation**: every `workspace_id` in results equals JWT `wid`; another workspace’s JWT returns empty or only that workspace’s data.
+3. **Member RBAC**: members do not see other members’ private notes; own private + all public notes are visible.
+
+**Tuning** if scores are low:
+
+- Scores &lt; 0.3 → verify `EMBEDDING_DIMENSION=3072` matches model.
+- Scores &lt; 0.4 → try `CHUNK_SIZE` 600–800 and re-index.
+- Irrelevant hits → confirm chunker prepends title as H1.
+- Empty results → check Qdrant payload indexes; re-index after payload schema changes.
 
 ### Worker flow (`embed_note_task`)
 
@@ -79,50 +132,33 @@ IndexingRequest
 
 When `QDRANT_URL` is unset, embeddings still run; `qdrant_indexed=false`.
 
-### Payload (Qdrant)
-
-`workspace_id`, `note_id`, `chunk_id`, `chunk_index`, `chunk_text`, `created_by`, `is_private`, `token_count`, plus pipeline metadata (`char_start`, `char_end`, …). Point id = UUID from `chunk_id`.
-
-### Docker
-
-`api` and `worker` get `QDRANT_URL=http://qdrant:6333`; worker `depends_on: qdrant`.
+### Validation commands
 
 ```powershell
-docker compose up -d qdrant api worker
-docker compose exec -e PYTHONPATH=/app/src api python -m ai.retrieval.indexer
-docker compose logs --tail 30 worker   # expect qdrant_indexed=True after note create
-```
+docker compose up -d --build api
 
-### Local validation
+# Route exists (401 without token)
+curl.exe -sS http://127.0.0.1/ai/test-search?q=test
+
+# Authenticated search
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1/ai/test-search?q=your+note+content&limit=5" `
+  -Headers @{ Authorization = "Bearer <YOUR_TOKEN>" }
+```
 
 ```powershell
 cd g:\projects\dashnotesystemv1
 $env:PYTHONPATH="src"
 $env:QDRANT_URL="http://127.0.0.1:6333"
 python -m ai.retrieval.indexer
-python -m worker.ingestion.tasks
-```
-
-**End-to-end (stack on :80)**
-
-1. Register/login → create note with body text.
-2. Wait for worker: `embed_note_task complete` with `qdrant_indexed=True`.
-3. `POST /ai/test-search` with `{"query_text":"...", "limit":5}` and Bearer token.
-
-```powershell
-curl.exe -sS http://127.0.0.1:6333/readyz
-curl.exe -sS http://127.0.0.1/health
 ```
 
 ### Dependencies
 
-`qdrant-client ~= 1.16.0` under `# --- AI Slice 2: Qdrant vector retrieval ---` in `requirements/base.txt` and `requirements.txt`.
-
-### Next slices (planned)
-
-- Hybrid / rerank search, agent tools, file chunk collection (`QDRANT_FILES_COLLECTION`).
+`qdrant-client ~= 1.16.0` under `# --- AI Slice 2: Qdrant vector retrieval ---` in `requirements/base.txt`.
 
 ### Related docs
 
-- `src/docs/system.md` — API, Compose, `/ai/test-search` registration
+- `src/docs/system.md` — API wiring, Compose, short AI summary
+- `src/docs/lld.md` — §4.12 retrieval LLD
 - `src/docs/rules.md` — dependency direction

@@ -1,14 +1,14 @@
 """
 High-level note vector indexing — used by the ARQ worker.
 
-Delegates all Qdrant I/O to WorkspaceVectorSearch (never raw client in callers).
+Delegates Qdrant upsert/delete to WorkspaceVectorIndex (never raw client in callers).
 """
 from __future__ import annotations
 
 import logging
 
 from ai.embeddings.base import EmbeddedChunk
-from ai.retrieval.workspace_search import WorkspaceVectorSearch
+from ai.retrieval.workspace_search import WorkspaceVectorIndex
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ class NoteVectorIndexer:
     """Index or remove note chunk vectors for one workspace."""
 
     def __init__(self, workspace_id: str) -> None:
-        self._search = WorkspaceVectorSearch(workspace_id)
+        self._search = WorkspaceVectorIndex(workspace_id)
 
     @property
     def workspace_id(self) -> str:
@@ -86,13 +86,15 @@ if __name__ == "__main__":
         assert n > 0, "FAIL: no points indexed"
         print(f"PASS: indexed {n} chunks to Qdrant")
 
-        search = WorkspaceVectorSearch("indexer-validate-ws")
-        query_vec = result.embedded_chunks[0].vector
-        hits = await search.search_similar(
-            query_vec,
-            limit=3,
+        from ai.retrieval.wrapper import WorkspaceVectorSearch
+
+        searcher = WorkspaceVectorSearch()
+        hits = await searcher.search(
+            query_text="Indexer Validation",
+            workspace_id="indexer-validate-ws",
             user_id="indexer-user",
             role="owner",
+            limit=3,
         )
         assert hits, "FAIL: search returned no hits"
         print(f"PASS: search returned {len(hits)} hit(s)")

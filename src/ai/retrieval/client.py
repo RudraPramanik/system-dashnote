@@ -2,7 +2,7 @@
 Async Qdrant client singleton.
 
 Only ai.retrieval.* modules may call get_async_qdrant_client().
-Routers and worker tasks must use WorkspaceVectorSearch / NoteVectorIndexer.
+Routers must use wrapper.WorkspaceVectorSearch; workers use NoteVectorIndexer.
 """
 from __future__ import annotations
 

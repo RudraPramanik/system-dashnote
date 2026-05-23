@@ -1,9 +1,8 @@
 """
-Workspace-scoped Qdrant access.
+Workspace-scoped Qdrant indexing (upsert/delete).
 
 workspace_id is bound at construction (from RequestContext in HTTP,
-from IndexingRequest in the worker). Every query includes a mandatory
-workspace_id filter — never accept workspace_id from user input on search.
+from IndexingRequest in the worker). Vector search uses ai.retrieval.wrapper.
 """
 from __future__ import annotations
 
@@ -25,55 +24,16 @@ from ai.retrieval.client import get_async_qdrant_client
 from ai.retrieval.collection import ensure_notes_collection
 from ai.retrieval.errors import VectorStoreError
 from config import get_settings
-from shared.schemas.note import NoteChunk
-from shared.schemas.retrieval import RetrievalResult
 
 logger = logging.getLogger(__name__)
 
 
-def _workspace_must_filter(workspace_id: str) -> Filter:
-    return Filter(
-        must=[
-            FieldCondition(
-                key="workspace_id",
-                match=MatchValue(value=workspace_id),
-            )
-        ]
-    )
-
-
-def _rbac_filter(workspace_id: str, user_id: str, role: str) -> Filter:
-    """Tenant filter plus note visibility for members."""
-    if role in ("owner", "admin"):
-        return _workspace_must_filter(workspace_id)
-    return Filter(
-        must=[
-            FieldCondition(
-                key="workspace_id",
-                match=MatchValue(value=workspace_id),
-            ),
-            Filter(
-                should=[
-                    FieldCondition(
-                        key="is_private",
-                        match=MatchValue(value=False),
-                    ),
-                    FieldCondition(
-                        key="created_by",
-                        match=MatchValue(value=user_id),
-                    ),
-                ],
-                min_should=1,
-            ),
-        ]
-    )
-
-
-class WorkspaceVectorSearch:
+class WorkspaceVectorIndex:
     """
-    All Qdrant reads/writes for one workspace.
+    Qdrant upsert/delete for one workspace (indexing only — not search).
 
     Construct with workspace_id from trusted server context only.
+    Vector search must use ai.retrieval.wrapper.WorkspaceVectorSearch.
     """
 
     def __init__(
@@ -83,7 +43,7 @@ class WorkspaceVectorSearch:
         client: AsyncQdrantClient | None = None,
     ) -> None:
         if not str(workspace_id).strip():
-            raise ValueError("workspace_id is required for WorkspaceVectorSearch")
+            raise ValueError("workspace_id is required for WorkspaceVectorIndex")
         self._workspace_id = str(workspace_id)
         self._client = client
 
@@ -115,13 +75,18 @@ class WorkspaceVectorSearch:
         points: list[PointStruct] = []
         for chunk in chunks:
             point_id = str(uuid.UUID(chunk.chunk_id))
+            visibility = "private" if chunk.is_private else "public"
+            title = str((chunk.metadata or {}).get("title", ""))
             payload: dict[str, Any] = {
                 "workspace_id": self._workspace_id,
                 "note_id": chunk.note_id,
                 "chunk_id": chunk.chunk_id,
                 "chunk_index": chunk.chunk_index,
                 "chunk_text": chunk.chunk_text,
+                "text": chunk.chunk_text,
+                "title": title,
                 "created_by": chunk.created_by,
+                "visibility": visibility,
                 "is_private": chunk.is_private,
                 "token_count": chunk.token_count,
                 **(chunk.metadata or {}),
@@ -193,78 +158,6 @@ class WorkspaceVectorSearch:
             },
         )
 
-    async def search_similar(
-        self,
-        query_vector: list[float],
-        *,
-        limit: int = 5,
-        user_id: str,
-        role: str,
-    ) -> list[RetrievalResult]:
-        """Vector search scoped to workspace_id with RBAC payload filters."""
-        settings = get_settings()
-        await ensure_notes_collection()
-        client = await self._client_or_get()
-
-        query_filter = _rbac_filter(self._workspace_id, user_id, role)
-
-        try:
-            response = await client.query_points(
-                collection_name=settings.QDRANT_NOTES_COLLECTION,
-                query=query_vector,
-                query_filter=query_filter,
-                limit=limit,
-                with_payload=True,
-            )
-            hits = response.points
-        except Exception as e:
-            raise VectorStoreError(
-                f"Qdrant search failed: {e}", retryable=True
-            ) from e
-
-        results: list[RetrievalResult] = []
-        for hit in hits:
-            payload = hit.payload or {}
-            if str(payload.get("workspace_id")) != self._workspace_id:
-                logger.warning(
-                    "Skipping hit with mismatched workspace_id",
-                    extra={
-                        "expected": self._workspace_id,
-                        "got": payload.get("workspace_id"),
-                    },
-                )
-                continue
-
-            chunk = NoteChunk(
-                chunk_id=str(payload.get("chunk_id", hit.id)),
-                note_id=str(payload.get("note_id", "")),
-                workspace_id=self._workspace_id,
-                text=str(payload.get("chunk_text", "")),
-                index=int(payload.get("chunk_index", 0)),
-            )
-            meta = {
-                k: v
-                for k, v in payload.items()
-                if k
-                not in (
-                    "chunk_text",
-                    "chunk_id",
-                    "note_id",
-                    "workspace_id",
-                    "chunk_index",
-                )
-            }
-            results.append(
-                RetrievalResult(
-                    score=float(hit.score or 0.0),
-                    content_chunk=chunk,
-                    metadata=meta,
-                )
-            )
-
-        return results
-
-
 if __name__ == "__main__":
     import asyncio
     import os
@@ -286,8 +179,8 @@ if __name__ == "__main__":
             return
 
         await ensure_notes_collection()
-        search = WorkspaceVectorSearch("validate-ws-001")
-        await search.delete_note_vectors("validate-note-001")
-        print("PASS: WorkspaceVectorSearch collection + delete OK")
+        index = WorkspaceVectorIndex("validate-ws-001")
+        await index.delete_note_vectors("validate-note-001")
+        print("PASS: WorkspaceVectorIndex collection + delete OK")
 
     asyncio.run(_validate())

@@ -88,6 +88,16 @@ async def startup(ctx: dict) -> None:
         return
 
     ctx["redis"] = aioredis.from_url(url, decode_responses=True)
+
+    if settings.qdrant_enabled:
+        from ai.retrieval.collection import ensure_notes_collection
+
+        await ensure_notes_collection()
+        logger.info(
+            "Qdrant notes collection ready",
+            extra={"collection": settings.QDRANT_NOTES_COLLECTION},
+        )
+
     logger.info(
         "ARQ worker started",
         extra={"max_jobs": settings.WORKER_MAX_JOBS, "redis_url": url},
@@ -99,6 +109,9 @@ async def shutdown(ctx: dict) -> None:
     redis = ctx.get("redis")
     if redis is not None:
         await redis.aclose()
+    from ai.retrieval.client import close_async_qdrant_client
+
+    await close_async_qdrant_client()
     logger.info("ARQ worker stopped")
 
 

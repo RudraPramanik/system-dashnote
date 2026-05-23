@@ -27,6 +27,7 @@ from notes.router import router as notes_router
 from membership.router import router as membership_router
 from workspaces.router import router as workspaces_router
 from core.health import router as health_router
+from ai_gateway.search import router as ai_search_router
 
 
 # Routers
@@ -38,6 +39,8 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(notes_router)
     app.include_router(workspaces_router)
     app.include_router(membership_router)
+    # --- AI Slice 2: internal search validation ---
+    app.include_router(ai_search_router)
 
 
 # Middleware
@@ -79,11 +82,20 @@ async def lifespan(app: FastAPI):
     else:
         app.state.arq_pool = None
 
+    if _s.qdrant_enabled:
+        from ai.retrieval.collection import ensure_notes_collection
+
+        await ensure_notes_collection()
+
     yield
 
     # --- AI Slice 1: ARQ pool cleanup ---
     if hasattr(app.state, "arq_pool") and app.state.arq_pool is not None:
         await app.state.arq_pool.close()
+
+    from ai.retrieval.client import close_async_qdrant_client
+
+    await close_async_qdrant_client()
 
 
 # App factory (important for testing & scalability)

@@ -11,7 +11,7 @@ In scope:
 - Implemented modules: `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files`
 - AI indexing foundation: `src/shared/contracts/indexing.py`, `src/ai/embeddings/*` (chunker, LiteLLM provider, factory) — see §4.10
 - Edge reverse proxy and dual-layer rate limiting (Nginx + Redis-backed FastAPI limits) as implemented in-repo
-- Extension contract for upcoming modules (such as `ai_gateway`, full indexing pipeline)
+- AI retrieval (Slice 2): `ai/retrieval/*`, `ai_gateway/search.py`, Qdrant RBAC search
 
 Out of scope:
 - Frontend design
@@ -68,6 +68,7 @@ Registered routers:
 - `/notes`
 - `/workspaces`
 - `/workspaces/members`
+- `/ai` → `GET /ai/test-search` (internal semantic search validation; `ai_gateway/search.py`)
 
 ### 3.2 Request flow (protected endpoint)
 1. When behind Nginx, the edge sets `X-Forwarded-For` / `X-Real-IP`; `ProxyHeadersMiddleware` adjusts ASGI `client` so downstream code (including rate limiting) sees the original host.
@@ -386,7 +387,7 @@ embed_note_task(ctx, request_dict)
     ├─► ai_enabled / DELETE short-circuits
     ├─► get_embedding_provider()
     ├─► EmbeddingPipeline(process_note)  [ctx["redis"] for cache]
-    ├─► log sample vector dim (no Qdrant write)
+    ├─► NoteVectorIndexer (Qdrant upsert/delete when qdrant_enabled)
     └─► IndexingResult → Redis job result
 ```
 
@@ -397,6 +398,44 @@ embed_note_task(ctx, request_dict)
 | `worker/ingestion/tasks.py` | `embed_note_task` implementation |
 
 **Import law**: stdlib, arq, pydantic, `config`, `ai.*`, `shared.*` — no FastAPI, SQLAlchemy, domain repositories, `qdrant-client`.
+
+### 4.12 AI retrieval — RBAC search (Sub-step 2.2)
+
+```
+GET /ai/test-search?q=...
+    │
+    ├─► get_current_context() → RequestContext (user_id, workspace_id, role)
+    ├─► get_workspace_vector_search().search(...)
+    │       ├─► get_embedding_provider().embed_single(q)
+    │       ├─► build_rbac_filter(workspace_id, user_id, role)
+    │       └─► get_async_qdrant_client().query_points(..., query_filter=rbac)
+    └─► list[dict] hits (scores + payload fields for validation)
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `ai/retrieval/filters.py` | Pure `build_rbac_filter()` — mirrors `notes/permissions.py`; no FastAPI/SQLAlchemy |
+| `ai/retrieval/wrapper.py` | `WorkspaceVectorSearch`, `SearchResult`, `get_workspace_vector_search()` — **only** search entry point |
+| `ai/retrieval/workspace_search.py` | `WorkspaceVectorIndex` — upsert/delete vectors per workspace |
+| `ai/retrieval/indexer.py` | `NoteVectorIndexer` — worker-facing delete-then-upsert |
+| `ai/retrieval/client.py` | `get_async_qdrant_client()` singleton |
+| `ai/retrieval/collection.py` | Collection bootstrap (`notes_chunks`, dim 3072) |
+| `ai_gateway/search.py` | `GET /ai/test-search` — JWT-scoped validation endpoint |
+
+**RBAC filter contract** (must stay aligned with `notes/permissions.py`):
+
+| Role | Filter |
+|------|--------|
+| `owner`, `admin` | `must`: `workspace_id` |
+| `member` | `must`: `workspace_id`; `should`: `visibility=public` OR `created_by=user_id` (min 1) |
+
+**Security invariants**
+
+- `workspace_id` on every search is a `must` condition from JWT `wid`, never from query/body.
+- Routers never import `AsyncQdrantClient` directly.
+- `filters.py` / `wrapper.py` do not import FastAPI, SQLAlchemy, or domain repositories.
+
+**Quality gate** (engineering sign-off): relevance `score` > 0.4 for on-topic queries; cross-workspace isolation; member cannot see others’ private chunks.
 
 ## 5) Data model and persistence design
 
@@ -444,7 +483,12 @@ This keeps write semantics explicit and local to repository methods.
 - `ai/services/cache.py`: Redis embedding vector cache-aside
 - `ai/workflows/pipeline.py`: chunk → cache → embed orchestration
 - `worker/main.py`: ARQ `WorkerSettings` and process lifecycle
-- `worker/ingestion/tasks.py`: `embed_note_task` (indexing without Qdrant in Slice 1)
+- `worker/ingestion/tasks.py`: `embed_note_task` (pipeline + Qdrant via `NoteVectorIndexer`)
+- `ai/retrieval/filters.py`: RBAC Qdrant `Filter` builder
+- `ai/retrieval/wrapper.py`: tenant-safe semantic search (`WorkspaceVectorSearch`)
+- `ai/retrieval/workspace_search.py`: Qdrant upsert/delete (`WorkspaceVectorIndex`)
+- `ai/retrieval/indexer.py`: note-level vector indexing orchestration
+- `ai_gateway/search.py`: `GET /ai/test-search` validation route
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
 - `<module>/repository.py`: DB access + persistence

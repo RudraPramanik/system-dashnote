@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     ARQ_REDIS_URL: str = ""               # falls back to REDIS_URL if empty
     WORKER_MAX_JOBS: int = 5              # tune to your OpenAI tier TPM limit
 
+    # ── AI Slice 2: Qdrant vector store ─────────────────
+    QDRANT_URL: str | None = None
+    QDRANT_API_KEY: str | None = None
+    QDRANT_NOTES_COLLECTION: str = "notes_chunks"
+    QDRANT_TIMEOUT: int = 30
+
     @property
     def ai_enabled(self) -> bool:
         """
@@ -73,6 +79,11 @@ class Settings(BaseSettings):
     def effective_arq_redis_url(self) -> str:
         """ARQ uses its own Redis URL, falls back to main REDIS_URL."""
         return self.ARQ_REDIS_URL or self.REDIS_URL or ""
+
+    @property
+    def qdrant_enabled(self) -> bool:
+        """True when Qdrant URL is configured (local container or cloud)."""
+        return bool(self.QDRANT_URL)
 
     @model_validator(mode="after")
     def validate_ai_config(self) -> "Settings":

@@ -886,3 +886,14 @@ The service doesn't know or care whether it's being called from an HTTP route or
 > Add `POST /ai/chat/stream` with SSE streaming.
 > Freeze the ctx-to-primitives pattern into the streaming generator.
 > Better citations. Prompt tuning based on real usage from Slice 3.
+
+src/ai/prompts/rag.py           ← RAGAnswer schema, system instruction,
+                                   build_rag_user_message()
+src/ai/services/rag_service.py  ← RagService.answer() — plain string args,
+                                   LangGraph-compatible from day one
+                                   Citation, ChatResult models
+src/ai_routes/chat.py           ← POST /ai/chat — freezes ctx, calls service
+src/main.py                     ← ai_chat_router registered (1 line added)
+settings                        ← LLM_MODEL, LLM_TEMPERATURE, TOKEN_BUDGET,
+                                   LANGSMITH_* appended
+.env                            ← Slice 3 vars appended

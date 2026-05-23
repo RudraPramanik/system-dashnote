@@ -20,6 +20,7 @@ All tenant-scoped data access is performed through repositories that filter by `
 - `src/files/router.py` (mounted at `/files` via `src/main.py`)
 - `src/workspaces/router.py` (prefix: `/workspaces`)
 - `src/membership/router.py` (prefix: `/workspaces/members`)
+- `src/ai_search/router.py` (prefix: `/ai` — e.g. `POST /ai/test-search` for semantic note search)
 
 It also mounts **`core.health`** for orchestration:
 
@@ -207,6 +208,11 @@ Recommended operational practices:
   - always scope queries via repository + `tenant_filter`.
 - For file-like features, keep bytes in object storage and metadata in SQL; extend `StorageBackend` or settings rather than embedding secrets in code.
 
+### AI vector search (Slice 2)
+- Indexed note chunks live in Qdrant collection `notes_chunks` (see `src/docs/ai.md`).
+- All vector I/O is workspace-scoped through `ai.retrieval.workspace_search.WorkspaceVectorSearch`; `workspace_id` always comes from JWT `RequestContext`, never from client-supplied search scope.
+- Diagnostic route: `POST /ai/test-search` (`ai_search/router.py`) — requires `ai_enabled` and `qdrant_enabled`.
+
 ### Where to extend next
 If you add new note-like resources or collaboration features:
 
@@ -272,8 +278,8 @@ docker compose up -d --build
 - **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation; also mapped **`8000:8000`** on the host for direct access to `/docs` and debugging (bypasses Nginx edge limits). Uses `env_file: .env` plus Compose `environment` overrides (`DATABASE_URL`, `ARQ_REDIS_URL`, etc.) so `settings.ai_enabled` and ARQ enqueue work in Docker. Prefer **`http://127.0.0.1/`** (port **80**) when testing the full proxy + Nginx `limit_req` path. After recreating `api`, restart **nginx** if `/health` returns 502 (stale upstream).
 - **db**: `postgres:16-alpine` with healthcheck.
 - **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, application rate limits, optional cache-aside for read-heavy routes, ARQ job queue, and embedding vector cache keys `embed:v1:*`).
-- **worker**: same image as `api`; runs `python -m arq src.worker.main.WorkerSettings`. Processes `embed_note_task` (chunk + embed notes; Qdrant upsert deferred to AI Slice 2). Emits structured logs (`extra` metrics: `chunks_processed`, `latency_ms`, `qdrant_indexed`, etc.); retryable provider errors are WARNING + ARQ retry, permanent failures ERROR with `permanent_failure: true`. Depends on `db` and `redis`. Scale with `docker compose up --scale worker=3 -d`.
-- **qdrant**: vector store container for dev (`6333`); production may use Qdrant Cloud via `.env` (client wiring in AI Slice 2).
+- **worker**: same image as `api`; runs `python -m arq src.worker.main.WorkerSettings`. Processes `embed_note_task` (chunk, embed, upsert/delete in Qdrant via `NoteVectorIndexer` when `QDRANT_URL` is set). Logs `qdrant_indexed`, `qdrant_points`, embedding metrics. Depends on `db`, `redis`, and `qdrant`.
+- **qdrant**: vector store for dev (`6333`, collection `notes_chunks`, dim 3072). Set `QDRANT_URL=http://qdrant:6333` in Compose; host dev uses `http://127.0.0.1:6333`. Production: Qdrant Cloud via `.env`.
 - **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.
 
 #### Verify

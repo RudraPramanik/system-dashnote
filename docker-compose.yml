@@ -69,6 +69,7 @@ services:
       JWT_REFRESH_SECRET: dev-refresh-secret
       REDIS_URL: redis://redis:6379/0
       ARQ_REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
       DEBUG: "true"
     ports:
       # Direct API (docs, OpenAPI) for local dev. Production-style traffic uses nginx on :80 only.
@@ -82,9 +83,11 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       ARQ_REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
     depends_on:
       - db
       - redis
+      - qdrant
     restart: unless-stopped
     # Scale independently: docker compose up --scale worker=3 -d
 

@@ -1,8 +1,7 @@
 """
-Ingestion worker tasks — Slice 1.
+Ingestion worker tasks — chunk, embed, and index notes in Qdrant.
 
-embed_note_task: chunks and embeds a note.
-Vectors are logged only — Qdrant upsert added in Slice 2.
+embed_note_task: EmbeddingPipeline + NoteVectorIndexer (Slice 2).
 """
 from __future__ import annotations
 
@@ -29,8 +28,8 @@ async def embed_note_task(ctx: dict, *, request_dict: dict) -> dict:
 
     Returns IndexingResult as dict (ARQ serialises this to Redis).
 
-    NOTE (Slice 1): Vectors are logged but NOT written to Qdrant yet.
-    Qdrant upsert is added in Slice 2 once retrieval quality is validated.
+    When QDRANT_URL is set, vectors are upserted via NoteVectorIndexer.
+    When Qdrant is not configured, embedding still runs but qdrant_indexed=false.
     """
     start = time.monotonic()
     settings = get_settings()
@@ -66,9 +65,41 @@ async def embed_note_task(ctx: dict, *, request_dict: dict) -> dict:
         ).model_dump(mode="json")
 
     if request.operation == IndexingOperation.DELETE:
+        latency_ms = round((time.monotonic() - start) * 1000, 2)
+        qdrant_indexed = False
+        if settings.qdrant_enabled:
+            try:
+                from ai.retrieval.indexer import NoteVectorIndexer
+
+                indexer = NoteVectorIndexer(str(request.workspace_id))
+                await indexer.delete_note(str(request.note_id))
+                qdrant_indexed = True
+            except Exception as e:
+                logger.error(
+                    "Qdrant delete failed",
+                    extra={
+                        "note_id": request.note_id,
+                        "workspace_id": request.workspace_id,
+                        "error": str(e),
+                    },
+                )
+                return IndexingResult(
+                    request_id=request.request_id,
+                    note_id=request.note_id,
+                    workspace_id=request.workspace_id,
+                    success=False,
+                    error=str(e),
+                    latency_ms=latency_ms,
+                ).model_dump(mode="json")
+
         logger.info(
-            "Delete request received — Qdrant deletion wired in Slice 2",
-            extra={"note_id": request.note_id, "workspace_id": request.workspace_id},
+            "embed_note_task delete complete",
+            extra={
+                "note_id": request.note_id,
+                "workspace_id": request.workspace_id,
+                "qdrant_indexed": qdrant_indexed,
+                "latency_ms": latency_ms,
+            },
         )
         return IndexingResult(
             request_id=request.request_id,
@@ -76,6 +107,7 @@ async def embed_note_task(ctx: dict, *, request_dict: dict) -> dict:
             workspace_id=request.workspace_id,
             success=True,
             chunks_indexed=0,
+            latency_ms=latency_ms,
         ).model_dump(mode="json")
 
     if not settings.ai_enabled:
@@ -110,11 +142,22 @@ async def embed_note_task(ctx: dict, *, request_dict: dict) -> dict:
         )
 
         latency_ms = round((time.monotonic() - start) * 1000, 2)
+        qdrant_indexed = False
+        qdrant_points = 0
 
-        if result.embedded_chunks:
+        if settings.qdrant_enabled and result.embedded_chunks:
+            from ai.retrieval.indexer import NoteVectorIndexer
+
+            indexer = NoteVectorIndexer(str(request.workspace_id))
+            qdrant_points = await indexer.index_note_chunks(
+                str(request.note_id),
+                result.embedded_chunks,
+            )
+            qdrant_indexed = True
+        elif result.embedded_chunks:
             sample = result.embedded_chunks[0]
             logger.info(
-                "Embedding vectors produced (not written to Qdrant — Slice 2)",
+                "Embedding vectors produced (Qdrant disabled)",
                 extra={
                     "note_id": request.note_id,
                     "embedded_count": len(result.embedded_chunks),
@@ -133,7 +176,8 @@ async def embed_note_task(ctx: dict, *, request_dict: dict) -> dict:
                 "chunks_embedded": result.chunks_embedded,
                 "total_tokens": result.total_tokens,
                 "latency_ms": latency_ms,
-                "qdrant_indexed": False,
+                "qdrant_indexed": qdrant_indexed,
+                "qdrant_points": qdrant_points,
             },
         )
 
@@ -247,9 +291,10 @@ if __name__ == "__main__":
         print("embed_note_task result:", result_dict)
         assert result_dict["success"], f"FAIL: {result_dict.get('error')}"
         assert result_dict["chunks_indexed"] > 0, "FAIL: no chunks indexed"
+        qdrant = get_settings().qdrant_enabled
         print(
             f"PASS: worker task embedded {result_dict['chunks_indexed']} chunks "
-            f"in {result_dict['latency_ms']}ms (qdrant_indexed=false)"
+            f"in {result_dict['latency_ms']}ms (qdrant_enabled={qdrant})"
         )
 
     asyncio.run(_validate())

@@ -2,51 +2,52 @@ ARCHITECTURE LAW — DashNoteSystem. Enforce in ALL generated code.
 
 MODULE PATHS:
   Import as: from config import settings, get_settings
-             from ai.services.rag_service import RagService
-             from ai.retrieval.wrapper import get_workspace_vector_search
-             from core.security.context import RequestContext
+             from ai.services.rag_service import RagService, get_rag_service
+             from ai.prompts.rag import RAG_SYSTEM_INSTRUCTION, build_rag_user_message
+             from core.security.dependency import get_current_context
   NEVER as:  from src.config import ...
              from src.ai.services import ...
 
-AI SERVICE LAW — src/ai/services/* MUST NEVER import:
-  - FastAPI, Request, Response, HTTPException, APIRouter, Depends
-  - SQLAlchemy sessions or any repository class
-  - RequestContext (accept workspace_id, user_id, role as plain str instead)
-  - src/worker/*, src/notes/*, src/files/*, src/auth/*
+STREAMING LAWS:
+  1. stream_answer() accepts plain strings (workspace_id, user_id, role)
+     NEVER RequestContext — required for LangGraph tool reuse in Slice 6
+  2. RequestContext is frozen to plain strings in the ROUTE before generator opens
+     workspace_id = str(ctx.workspace_id)
+     user_id = str(ctx.user_id)
+     role = ctx.role
+     ctx is NEVER referenced inside async def generate()
+  3. RagService singleton is resolved BEFORE the generator function is defined
+     rag = get_rag_service()  ← resolved here, in route handler scope
+     async def generate():
+         async for chunk in rag.stream_answer(...):  ← rag captured by closure
+  4. Nginx buffering must be disabled for SSE to work end-to-end:
+     Headers: Cache-Control: no-cache, X-Accel-Buffering: no
+     Without these, Nginx holds the full response before forwarding = no streaming
 
-WHY RequestContext is banned in services:
-  LangGraph agent tools will call these services directly in Slice 6.
-  Agent tools have no HTTP context — they pass plain strings.
-  Services that accept RequestContext cannot be reused by agents.
-  Design services for reuse from both HTTP routes AND agent tools.
+PROMPT LAW:
+  - ONE system instruction for both streaming and non-streaming: RAG_SYSTEM_INSTRUCTION
+  - No streaming-specific prompt variant — same instruction, stream=True is the only diff
+  - Never add inline [CHUNK:uuid] parsing from token stream — unreliable mid-stream
+  - Citations come from retrieval grounding at stream END, not from LLM token parsing
 
-AI ROUTE LAW — src/ai_routes/* may import:
-  - FastAPI components, get_current_context, RequestContext
-  - ai.services.*, ai.retrieval.*
-  The router freezes ctx to plain strings before calling services.
+SERVICE LAW — src/ai/services/rag_service.py:
+  - APPEND ONLY — never touch existing answer() method or existing models
+  - stream_answer() is a NEW method added below existing code
+  - No FastAPI, RequestContext, SQLAlchemy in this file
 
-ROUTER LAW:
-  - Chat endpoint lives in src/ai_routes/chat.py — never notes/router.py
-  - Do not refactor or reorder any existing router
-  - Append new router registration to main.py only
-
-STRUCTURED OUTPUT LAW:
-  - Never parse raw LLM text with regex or string splitting
-  - Use litellm.acompletion() with response_format=RAGAnswer (Pydantic model)
-  - Citations must be grounded in retrieved chunks — never trust LLM-generated IDs
-
-PACKAGE DISCIPLINE:
-  - Install packages only when the code that needs them is written
-  - Do not add langchain-core or langsmith in Slice 3 — not needed yet
-  - LiteLLM already installed — it handles the completion call directly
+ROUTE LAW — src/ai_routes/chat.py:
+  - APPEND ONLY — POST /ai/chat must remain fully functional
+  - POST /ai/chat/stream is a NEW endpoint appended below existing route
+  - Do not restructure, reorder, or rewrite existing route logic
 
 INFRA LAW:
+  - No new packages needed — litellm already handles streaming
   - No new Dockerfiles or compose files
-  - Append-only to requirements.txt, settings, .env
+  - Append-only to requirements.txt only if a package is genuinely missing
 
-LangGraph compatibility note:
-  RagService.answer() accepts (question, workspace_id, user_id, role) as plain str.
-  This signature works identically from HTTP routes AND future agent tools.
-  Never couple service methods to HTTP request lifecycle objects.
+LangGraph compatibility:
+  stream_answer() signature is agent-tool-compatible:
+  (question, workspace_id, user_id, role) as plain strings.
+  Slice 6 agent tools call this with no adapter needed.
 
 Acknowledge these laws before writing any code.

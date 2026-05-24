@@ -13,6 +13,7 @@ In scope:
 - Edge reverse proxy and dual-layer rate limiting (Nginx + Redis-backed FastAPI limits) as implemented in-repo
 - AI retrieval (Slice 2): `ai/retrieval/*`, `ai_gateway/search.py`, Qdrant RBAC search
 - AI chat RAG (Slice 3): `ai/prompts/rag.py`, `ai/services/rag_service.py`, `ai_routes/chat.py`
+- AI chat streaming (Slice 4): `RagService.stream_answer()`, `POST /ai/chat/stream` SSE (`ai_routes/chat.py`)
 
 Out of scope:
 - Frontend design
@@ -71,6 +72,7 @@ Registered routers:
 - `/workspaces/members`
 - `/ai` → `GET /ai/test-search` (internal semantic search validation; `ai_gateway/search.py`)
 - `/ai` → `POST /ai/chat` (RAG chat MVP; `ai_routes/chat.py`)
+- `/ai` → `POST /ai/chat/stream` (SSE streaming RAG; `ai_routes/chat.py`)
 
 ### 3.2 Request flow (protected endpoint)
 1. When behind Nginx, the edge sets `X-Forwarded-For` / `X-Real-IP`; `ProxyHeadersMiddleware` adjusts ASGI `client` so downstream code (including rate limiting) sees the original host.
@@ -470,6 +472,44 @@ POST /ai/chat  { "message": "..." }
 
 **Slice 3 gate** (sign-off): `POST /ai/chat` returns 401 without token; grounded answer + `citations` with real `note_id` when notes are indexed; `latency_ms` < 5000; empty workspace returns the refusal string, not cross-tenant data.
 
+### 4.14 AI chat streaming — Slice 4 (Sub-steps 4.1–4.2)
+
+```
+POST /ai/chat/stream  { "message": "..." }
+    │
+    ├─► get_current_context() → RequestContext
+    ├─► freeze: workspace_id, user_id, role as plain str BEFORE generator opens
+    ├─► rag = Depends(get_rag_service) resolved BEFORE generate() — closure capture
+    ├─► StreamingResponse(generate(), text/event-stream)
+    │       headers: Cache-Control: no-cache, X-Accel-Buffering: no
+    │       async for event in rag.stream_answer(...):
+    │           yield data: {StreamToken|StreamMetadata JSON}\n\n
+    │       finally: data: [DONE]\n\n
+    └─► Client receives progressive tokens, then metadata + citations
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `ai/services/rag_service.py` | `StreamToken`, `StreamMetadata`, `StreamEvent`; `RagService.stream_answer()` — same retrieve/budget/prompt as `answer()`, `litellm.acompletion(stream=True)`, citations from top retrieved chunks at end (not LLM token parsing) |
+| `ai_routes/chat.py` | `POST /ai/chat/stream` — SSE adapter; `ctx` never referenced inside `generate()` |
+
+**SSE event contract**
+
+| `type` | When | Payload |
+|--------|------|---------|
+| `token` | During LLM stream | `content` (string; client skips empty) |
+| `metadata` | After stream completes | `citations`, `chunks_retrieved`, `chunks_used`, `latency_ms` |
+| `error` | On exception mid-stream | `message` (generic; no stack leak) |
+| `[DONE]` | Always in `finally` | Literal terminal frame |
+
+**Security / infra invariants**
+
+- Same JWT freeze pattern as `POST /ai/chat`; `generate()` uses only `workspace_id`, `user_id`, `role`, `body.message`, and closure-captured `rag`.
+- Nginx: `X-Accel-Buffering: no` + `Cache-Control: no-cache` required or edge may buffer the full response (Gate 1 failure).
+- `POST /ai/chat` unchanged — JSON `ChatResponse` for non-streaming clients.
+
+**Slice 4 gate** (sign-off): progressive `token` events via curl `--no-buffer`; final `metadata` with `citations[]`; `data: [DONE]` closes stream; empty workspace yields refusal token + empty citations; `POST /ai/chat` still returns JSON; `GET /health` unchanged.
+
 ## 5) Data model and persistence design
 
 ### 5.1 Core entities (implemented)
@@ -523,8 +563,8 @@ This keeps write semantics explicit and local to repository methods.
 - `ai/retrieval/indexer.py`: note-level vector indexing orchestration
 - `ai_gateway/search.py`: `GET /ai/test-search` validation route
 - `ai/prompts/rag.py`: RAG prompt templates and `RAGAnswer` structured output schema
-- `ai/services/rag_service.py`: `RagService.answer()` — retrieval + LLM + grounded citations
-- `ai_routes/chat.py`: `POST /ai/chat` — HTTP adapter (ctx freeze + `Depends`)
+- `ai/services/rag_service.py`: `RagService.answer()` / `stream_answer()` — retrieval + LLM + grounded citations
+- `ai_routes/chat.py`: `POST /ai/chat` (JSON), `POST /ai/chat/stream` (SSE) — HTTP adapters (ctx freeze + `Depends`)
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
 - `<module>/repository.py`: DB access + persistence

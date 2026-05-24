@@ -21,7 +21,7 @@ All tenant-scoped data access is performed through repositories that filter by `
 - `src/workspaces/router.py` (prefix: `/workspaces`)
 - `src/membership/router.py` (prefix: `/workspaces/members`)
 - `src/ai_gateway/search.py` (prefix: `/ai` — e.g. `GET /ai/test-search` for semantic note search validation)
-- `src/ai_routes/chat.py` (prefix: `/ai` — `POST /ai/chat` RAG assistant; Slice 3)
+- `src/ai_routes/chat.py` (prefix: `/ai` — `POST /ai/chat` RAG assistant; Slice 3; `POST /ai/chat/stream` SSE; Slice 4)
 
 It also mounts **`core.health`** for orchestration:
 
@@ -215,10 +215,11 @@ Recommended operational practices:
 - **Indexing** (worker) uses `ai.retrieval.workspace_search.WorkspaceVectorIndex` + `NoteVectorIndexer`.
 - Diagnostic route: `GET /ai/test-search` (`ai_gateway/search.py`) — requires `ai_enabled` and `qdrant_enabled`; quality gate: relevance score > 0.4, workspace isolation verified.
 
-### AI chat (Slice 3)
+### AI chat (Slice 3–4)
 - Product route: `POST /ai/chat` (`ai_routes/chat.py`) — JWT required; router freezes `RequestContext` to plain strings before calling `RagService.answer()`.
-- Core engine: `ai/services/rag_service.py` (no HTTP imports — reusable from LangGraph tools in Slice 6).
-- Prompts: `ai/prompts/rag.py` only.
+- Streaming route: `POST /ai/chat/stream` (`ai_routes/chat.py`) — same auth/freeze pattern; `StreamingResponse` with `text/event-stream`; `Cache-Control: no-cache` and `X-Accel-Buffering: no` so Nginx does not buffer the full response before forwarding.
+- Core engine: `ai/services/rag_service.py` — `answer()` (JSON) and `stream_answer()` (SSE events); no HTTP imports — reusable from LangGraph tools in Slice 6.
+- Prompts: `ai/prompts/rag.py` only (one system instruction for both streaming and non-streaming).
 
 ### Where to extend next
 If you add new note-like resources or collaboration features:

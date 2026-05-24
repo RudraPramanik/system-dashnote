@@ -14,7 +14,8 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | Qdrant writes | `WorkspaceVectorIndex` + `NoteVectorIndexer` — worker/indexer path only |
 | RBAC filter | `build_rbac_filter()` in `ai/retrieval/filters.py` — mirrors `notes/permissions.py` exactly |
 | Routers | Test search: **`GET /ai/test-search`** (`ai_gateway/search.py`); chat: **`POST /ai/chat`** (`ai_routes/chat.py`) |
-| Services | **`RagService.answer()`** (`ai/services/rag_service.py`) — plain `workspace_id` / `user_id` / `role` strings only |
+| Services | **`RagService.answer()`** / **`stream_answer()`** (`ai/services/rag_service.py`) — plain `workspace_id` / `user_id` / `role` strings only |
+| Streaming | **`POST /ai/chat/stream`** (SSE) — same prompt/RBAC/budget as `/ai/chat`; citations in final `metadata` event only |
 | Infra | Append-only to `settings`, `.env`, `docker-compose.yml`, `requirements*.txt` |
 
 ---
@@ -195,7 +196,74 @@ python -m ai.retrieval.indexer
 
 **Response**: `answer` (markdown), `citations[]` (`note_id`, `chunk_id`, `title`, `relevance_score`), `chunks_retrieved`, `chunks_used`, `latency_ms`.
 
-**Not in Slice 3**: streaming (`/ai/chat/stream`), `thread_id` / memory, LangGraph agents.
+**Not in Slice 3**: `thread_id` / memory, LangGraph agents.
+
+---
+
+## Slice 4 (current) — RAG streaming (SSE)
+
+### Service layer (Sub-step 4.1)
+
+| Path | Role |
+|------|------|
+| `ai/services/rag_service.py` | `StreamToken`, `StreamMetadata`, `StreamEvent`; `RagService.stream_answer()` async generator |
+
+**`stream_answer()` pipeline** (mirrors `answer()` for steps 1–3):
+
+1. `WorkspaceVectorSearch.search(...)` + RBAC
+2. Char budget: `TOKEN_BUDGET_PER_REQUEST`
+3. `build_rag_user_message()` + `RAG_SYSTEM_INSTRUCTION` (no streaming-specific prompt)
+4. `litellm.acompletion(..., stream=True)` → yield `StreamToken` per delta
+5. Yield `StreamMetadata` with citations from **top 5 retrieved chunks** — never parsed from token stream
+
+### HTTP — `POST /ai/chat/stream` (Sub-step 4.2)
+
+**Module**: `ai_routes/chat.py` (appended below `POST /ai/chat`; Slice 3 route unchanged)  
+**Auth**: same JWT → freeze `workspace_id`, `user_id`, `role` **before** `generate()` opens  
+**Response**: `text/event-stream` (`StreamingResponse`)
+
+| SSE frame | Example |
+|-----------|---------|
+| Token | `data: {"type":"token","content":"..."}` |
+| Metadata | `data: {"type":"metadata","citations":[...],"chunks_retrieved":N,...}` |
+| Terminal | `data: [DONE]` |
+
+**Required headers** (Nginx buffering):
+
+- `Cache-Control: no-cache`
+- `X-Accel-Buffering: no`
+- `Connection: keep-alive`
+- `Transfer-Encoding: chunked`
+
+**Not in Slice 4**: `thread_id` / memory, LangGraph agents.
+
+### Slice 4 validation gate
+
+```powershell
+docker compose up -d --build api
+
+# Non-streaming unchanged (JSON)
+Invoke-RestMethod -Uri "http://127.0.0.1/ai/chat" -Method Post `
+  -Headers @{ Authorization = "Bearer <TOKEN>" } `
+  -ContentType "application/json" `
+  -Body '{"message": "What is in my notes?"}'
+
+# Streaming (progressive tokens — use --no-buffer)
+curl.exe -sS -X POST http://127.0.0.1/ai/chat/stream `
+  -H "Authorization: Bearer <TOKEN>" `
+  -H "Content-Type: application/json" `
+  -d '{"message": "Summarize my workspace notes on project plans."}' `
+  --no-buffer
+
+# Health unchanged
+curl.exe -sS http://127.0.0.1/health
+```
+
+**Sign-off**: tokens arrive progressively (not one blob); penultimate event is `metadata` with `citations`; last line `data: [DONE]`; empty workspace → refusal token + `citations:[]`; `POST /ai/chat` still JSON.
+
+```powershell
+docker compose exec -e PYTHONPATH=/app/src api python -m ai.services.rag_service
+```
 
 ### Slice 3 validation gate
 

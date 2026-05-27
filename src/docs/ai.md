@@ -16,6 +16,8 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | Routers | Test search: **`GET /ai/test-search`** (`ai_gateway/search.py`); chat: **`POST /ai/chat`** (`ai_routes/chat.py`) |
 | Services | **`RagService.answer()`** / **`stream_answer()`** (`ai/services/rag_service.py`) — plain `workspace_id` / `user_id` / `role` strings only |
 | Streaming | **`POST /ai/chat/stream`** (SSE) — same prompt/RBAC/budget as `/ai/chat`; citations in final `metadata` event only |
+| Memory ORM | **`src/ai_memory/`** — `AIThread`, `AIMessage`; never import SQLAlchemy from `src/ai/*` |
+| Memory service | **`ThreadService`** (`ai/memory/service.py`), **`ContextBuilder`** (`ai/memory/context_builder.py`) |
 | Infra | Append-only to `settings`, `.env`, `docker-compose.yml`, `requirements*.txt` |
 
 ---
@@ -200,7 +202,72 @@ python -m ai.retrieval.indexer
 
 ---
 
-## Slice 4 (current) — RAG streaming (SSE)
+## Slice 5 (current) — Conversation memory
+
+### Settings (Sub-step 5.1)
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `AI_THREAD_MESSAGE_LIMIT` | `20` | Recent messages loaded into LLM context per turn |
+
+### Module layout — persistence + service
+
+| Path | Role |
+|------|------|
+| `ai_memory/models.py` | `AIThread`, `AIMessage` SQLAlchemy models (product layer) |
+| `ai_memory/repository.py` | `ThreadRepository` — stateless, `AsyncSession` per method, workspace filter on every query |
+| `ai/memory/service.py` | `ThreadService` — get/create thread, load history, persist turn |
+| `ai/memory/context_builder.py` | `ContextBuilder.build()` — `[system, ...history, user+context]` with char budget |
+
+**Import law**: `ai/memory/*` imports `ai_memory.repository`, `config`, `ai.prompts.rag` only — no SQLAlchemy, no FastAPI, no `RequestContext`.
+
+### RagService integration (Sub-step 5.2)
+
+| Change | Detail |
+|--------|--------|
+| `ChatResult.thread_id` | Optional UUID string returned after each turn |
+| `StreamMetadata.thread_id` | Same for streaming clients |
+| `_load_thread_context()` | Resolves thread via `ThreadService`; loads history when `thread_id` set |
+| `ContextBuilder` | Replaces manual step-2/3 budget + prompt assembly in `answer()` / `stream_answer()` |
+| `persist_turn()` | After LLM completes (or stream ends), saves user + assistant messages |
+
+`RagService` accepts `thread_id: str | None` and `db: AsyncSession | None`. Session is passed from `ai_routes/chat.py` via `Depends(get_session)` — never imported at module level in `rag_service.py` (TYPE_CHECKING only).
+
+### HTTP — `POST /ai/chat` and `/ai/chat/stream` (memory fields)
+
+| Body field | Purpose |
+|------------|---------|
+| `message` | User question (required) |
+| `thread_id` | Optional — continue existing thread; omit to create new |
+
+| Response field | Purpose |
+|----------------|---------|
+| `thread_id` | Use on next request to continue conversation |
+
+**Not in Slice 5**: `GET /ai/threads` list routes (Slice 5.3), LangGraph checkpointer (Slice 6).
+
+### Slice 5 validation
+
+```powershell
+docker compose build api
+
+docker compose exec -e PYTHONPATH=/app/src api python -c "
+from ai.memory.context_builder import ContextBuilder
+from ai.memory.service import ThreadService
+builder = ContextBuilder()
+built = builder.build(
+    question='test',
+    history_messages=[{'role':'user','content':'hello'}],
+    retrieved_chunks=[{'chunk_id':'abc','note_id':'n1','title':'T','text':'content','score':0.8}]
+)
+print('PASS: messages:', len(built.messages))
+"
+# Expected: PASS: messages: 3
+```
+
+---
+
+## Slice 4 — RAG streaming (SSE)
 
 ### Service layer (Sub-step 4.1)
 

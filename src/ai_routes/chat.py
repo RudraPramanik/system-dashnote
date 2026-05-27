@@ -26,7 +26,9 @@ import json
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.database.session import get_session
 from core.security.dependency import get_current_context
 from core.security.context import RequestContext
 from ai.services.rag_service import ChatResult, Citation, get_rag_service, RagService
@@ -44,6 +46,10 @@ class ChatRequest(BaseModel):
         max_length=2000,
         description="The user's question about their notes.",
     )
+    thread_id: str | None = Field(
+        default=None,
+        description="Optional conversation thread UUID. Omit to start a new thread.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -53,13 +59,14 @@ class ChatResponse(BaseModel):
     answer:     Markdown-formatted answer grounded in workspace notes.
     citations:  Source notes used to formulate the answer.
 
-    Slice 5 note: thread_id field will be added here when memory is implemented.
+    thread_id: conversation thread UUID (new or continued).
     """
     answer: str
     citations: list[Citation]
     chunks_retrieved: int
     chunks_used: int
     latency_ms: float
+    thread_id: str | None = None
 
 
 # ── Route ────────────────────────────────────────────────────────────────────
@@ -77,6 +84,7 @@ async def chat(
     body: ChatRequest,
     ctx: RequestContext = Depends(get_current_context),
     rag: RagService = Depends(get_rag_service),
+    db: AsyncSession = Depends(get_session),
 ) -> ChatResponse:
     """
     Answer a workspace question using retrieval-augmented generation.
@@ -100,6 +108,8 @@ async def chat(
         workspace_id=workspace_id,
         user_id=user_id,
         role=role,
+        thread_id=body.thread_id,
+        db=db,
     )
 
     return ChatResponse(
@@ -108,6 +118,7 @@ async def chat(
         chunks_retrieved=result.chunks_retrieved,
         chunks_used=result.chunks_used,
         latency_ms=result.latency_ms,
+        thread_id=result.thread_id,
     )
 
 
@@ -125,6 +136,7 @@ async def chat_stream(
     body: ChatRequest,
     ctx: RequestContext = Depends(get_current_context),
     rag: RagService = Depends(get_rag_service),
+    db: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
     """
     Stream a RAG answer using Server-Sent Events.
@@ -156,6 +168,7 @@ async def chat_stream(
     workspace_id = str(ctx.workspace_id)   # from JWT wid claim
     user_id = str(ctx.user_id)             # from JWT sub claim
     role = ctx.role                         # "owner" | "admin" | "member"
+    thread_id = body.thread_id
 
     # ── Step 2: Resolve service singleton BEFORE generator opens ────────────
     # get_rag_service() is already called via Depends(get_rag_service) above.
@@ -174,6 +187,8 @@ async def chat_stream(
                 workspace_id=workspace_id,
                 user_id=user_id,
                 role=role,
+                thread_id=thread_id,
+                db=db,
             ):
                 # Serialize StreamToken or StreamMetadata to JSON
                 yield f"data: {event.model_dump_json()}\n\n"

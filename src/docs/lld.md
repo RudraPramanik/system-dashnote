@@ -14,6 +14,7 @@ In scope:
 - AI retrieval (Slice 2): `ai/retrieval/*`, `ai_gateway/search.py`, Qdrant RBAC search
 - AI chat RAG (Slice 3): `ai/prompts/rag.py`, `ai/services/rag_service.py`, `ai_routes/chat.py`
 - AI chat streaming (Slice 4): `RagService.stream_answer()`, `POST /ai/chat/stream` SSE (`ai_routes/chat.py`)
+- AI conversation memory (Slice 5): `ai_memory/*` ORM, `ai/memory/*` services, `ContextBuilder`, thread-aware RAG
 
 Out of scope:
 - Frontend design
@@ -510,6 +511,46 @@ POST /ai/chat/stream  { "message": "..." }
 
 **Slice 4 gate** (sign-off): progressive `token` events via curl `--no-buffer`; final `metadata` with `citations[]`; `data: [DONE]` closes stream; empty workspace yields refusal token + empty citations; `POST /ai/chat` still returns JSON; `GET /health` unchanged.
 
+### 4.15 AI conversation memory — Slice 5 (Sub-steps 5.1–5.2)
+
+```
+POST /ai/chat  { "message": "...", "thread_id": "<optional-uuid>" }
+    │
+    ├─► get_current_context() → RequestContext
+    ├─► get_session() → AsyncSession (route layer only)
+    ├─► freeze: workspace_id, user_id, role as plain str
+    ├─► RagService.answer(..., thread_id=..., db=session)
+    │       ├─► _load_thread_context() → ThreadService.get_or_create_thread + load_history
+    │       ├─► WorkspaceVectorSearch.search(...)
+    │       ├─► ContextBuilder.build(history + retrieved_chunks) → BuiltContext.messages
+    │       ├─► litellm.acompletion(messages=built.messages, ...)
+    │       ├─► ground citations against built.context_chunks
+    │       └─► ThreadService.persist_turn() after success
+    └─► ChatResponse(..., thread_id=resolved_uuid)
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `ai_memory/models.py` | `AIThread` (UUID id, `WorkspaceTenantMixin`, `created_by`, `is_active`), `AIMessage` (role check, JSONB citations, FK cascade) |
+| `ai_memory/repository.py` | `ThreadRepository` — stateless; `workspace_id` filter on every query |
+| `ai/memory/service.py` | `ThreadService` — business logic over repository; no SQLAlchemy imports |
+| `ai/memory/context_builder.py` | `ContextBuilder` — char budget: 70% history / 30% context minimum; at least one chunk if available |
+| `ai/services/rag_service.py` | `_load_thread_context()`, `thread_id`/`db` kwargs; `ChatResult.thread_id`, `StreamMetadata.thread_id` |
+| `ai_routes/chat.py` | `ChatRequest.thread_id`, `ChatResponse.thread_id`; `Depends(get_session)` passed to RAG |
+
+**Layering rule**
+
+- **Product layer** (`ai_threads`, `ai_messages`): what users see in the UI; managed by `ThreadService`.
+- **Execution layer** (LangGraph `AsyncPostgresSaver`): Slice 6 only; linked by `thread_id` string, no FK.
+
+**Security invariants**
+
+- `ThreadRepository` applies `workspace_id` on every read/write — cross-workspace thread access returns `None` or no-op.
+- `get_or_create_thread()` raises `ValueError` when `thread_id` does not belong to JWT workspace.
+- `RagService` never imports `AsyncSession` at runtime (TYPE_CHECKING only); session injected from routes.
+
+**Slice 5 gate** (sign-off): `ContextBuilder` produces 3 messages for sample input; migration applied (`ai_threads`, `ai_messages`); `POST /ai/chat` returns `thread_id`; second message with same `thread_id` includes prior turn in context when notes are indexed.
+
 ## 5) Data model and persistence design
 
 ### 5.1 Core entities (implemented)
@@ -521,6 +562,8 @@ POST /ai/chat/stream  { "message": "..." }
 - `pages` (model exists and relates to notebooks)
 - `files` (metadata + `storage_key`; binary content in configured `StorageBackend`)
 - `note_attachments` (association between `notes` and `files`)
+- `ai_threads` (conversation threads per workspace/user)
+- `ai_messages` (messages within a thread; role check constraint)
 
 ### 5.2 Shared mixins/patterns
 - `TimestampMixin` for auditing fields
@@ -564,7 +607,11 @@ This keeps write semantics explicit and local to repository methods.
 - `ai_gateway/search.py`: `GET /ai/test-search` validation route
 - `ai/prompts/rag.py`: RAG prompt templates and `RAGAnswer` structured output schema
 - `ai/services/rag_service.py`: `RagService.answer()` / `stream_answer()` — retrieval + LLM + grounded citations
-- `ai_routes/chat.py`: `POST /ai/chat` (JSON), `POST /ai/chat/stream` (SSE) — HTTP adapters (ctx freeze + `Depends`)
+- `ai_memory/models.py`: `AIThread`, `AIMessage` ORM (product conversation layer)
+- `ai_memory/repository.py`: `ThreadRepository` — tenant-scoped thread/message persistence
+- `ai/memory/service.py`: `ThreadService` — thread lifecycle + persist turn
+- `ai/memory/context_builder.py`: `ContextBuilder` — LiteLLM messages array + budget
+- `ai_routes/chat.py`: `POST /ai/chat` (JSON), `POST /ai/chat/stream` (SSE) — HTTP adapters (ctx freeze + `Depends(get_session)`)
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
 - `<module>/repository.py`: DB access + persistence

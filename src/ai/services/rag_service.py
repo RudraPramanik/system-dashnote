@@ -26,14 +26,17 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import AsyncGenerator, Literal
+from typing import TYPE_CHECKING, AsyncGenerator, Literal
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 import litellm
 from pydantic import BaseModel, ConfigDict
 
 from config import get_settings
 from ai.retrieval.wrapper import WorkspaceVectorSearch, SearchResult, get_workspace_vector_search
-from ai.prompts.rag import RAGAnswer, RAG_SYSTEM_INSTRUCTION, build_rag_user_message
+from ai.prompts.rag import RAGAnswer
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,7 @@ class ChatResult(BaseModel):
     chunks_retrieved: int
     chunks_used: int
     latency_ms: float
+    thread_id: str | None = None
 
 
 # ── Slice 4: Streaming event models ─────────────────────────────────────────
@@ -90,6 +94,7 @@ class StreamMetadata(BaseModel):
     chunks_retrieved: int
     chunks_used: int
     latency_ms: float
+    thread_id: str | None = None
 
 
 # Union type for the generator yield type
@@ -117,6 +122,52 @@ class RagService:
     ) -> None:
         self._searcher = searcher or get_workspace_vector_search()
 
+    async def _load_thread_context(
+        self,
+        *,
+        thread_id: str | None,
+        workspace_id: str,
+        user_id: str,
+        db: "AsyncSession | None",
+    ) -> tuple[str, list[dict]]:
+        """
+        Load conversation history if thread_id provided.
+
+        Returns:
+            (resolved_thread_id, history_messages_list)
+            history_messages_list is empty if no thread or no db session.
+
+        Security: ThreadService.get_or_create_thread() verifies
+        thread belongs to workspace_id before returning it.
+        ValueError raised if workspace mismatch — propagates to route.
+        """
+        if db is None or not hasattr(db, "execute"):
+            # No DB session available — skip history gracefully
+            return (thread_id or "", [])
+
+        from ai.memory.service import ThreadService
+        thread_svc = ThreadService()
+
+        thread = await thread_svc.get_or_create_thread(
+            db,
+            thread_id=thread_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        resolved_id = str(thread.id)
+
+        if thread_id:
+            # Load existing history
+            history = await thread_svc.load_history_as_messages(
+                db,
+                thread_id=resolved_id,
+                workspace_id=workspace_id,
+            )
+        else:
+            history = []
+
+        return (resolved_id, history)
+
     async def answer(
         self,
         *,
@@ -125,6 +176,8 @@ class RagService:
         user_id: str,
         role: str,
         retrieval_limit: int = 8,
+        thread_id: str | None = None,
+        db: "AsyncSession | None" = None,
     ) -> ChatResult:
         """
         Answer a question using retrieved note context.
@@ -146,6 +199,13 @@ class RagService:
         """
         start = time.monotonic()
         settings = get_settings()
+
+        resolved_thread_id, history_messages = await self._load_thread_context(
+            thread_id=thread_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            db=db,
+        )
 
         # ── Step 1: retrieve relevant chunks with RBAC enforcement ──────────
         retrieved: list[SearchResult] = await self._searcher.search(
@@ -170,39 +230,33 @@ class RagService:
                 chunks_retrieved=0,
                 chunks_used=0,
                 latency_ms=round((time.monotonic() - start) * 1000, 2),
+                thread_id=resolved_thread_id or None,
             )
 
-        # ── Step 2: enforce token budget ────────────────────────────────────
-        # Prevent context overflow — keep total chars under TOKEN_BUDGET_PER_REQUEST
-        # This is a simple char-based budget; tiktoken can replace it later
-        budget = settings.TOKEN_BUDGET_PER_REQUEST
-        context_chunks: list[dict] = []
-        chars_used = 0
-
-        for result in retrieved:
-            chunk_chars = len(result.chunk_text)
-            if chars_used + chunk_chars > budget:
-                break
-            context_chunks.append({
+        context_chunks: list[dict] = [
+            {
                 "chunk_id": result.chunk_id,
                 "note_id": result.note_id,
                 "title": result.title,
                 "text": result.chunk_text,
                 "score": result.score,
-            })
-            chars_used += chunk_chars
+            }
+            for result in retrieved
+        ]
 
-        # ── Step 3: build prompt from template ──────────────────────────────
-        user_message = build_rag_user_message(question, context_chunks)
+        from ai.memory.context_builder import ContextBuilder
+        builder = ContextBuilder()
+        built = builder.build(
+            question=question,
+            history_messages=history_messages,
+            retrieved_chunks=context_chunks,
+        )
 
         # ── Step 4: call Gemini via LiteLLM with structured output ──────────
         try:
             response = await litellm.acompletion(
                 model=settings.LLM_MODEL,
-                messages=[
-                    {"role": "system", "content": RAG_SYSTEM_INSTRUCTION},
-                    {"role": "user", "content": user_message},
-                ],
+                messages=built.messages,
                 temperature=settings.LLM_TEMPERATURE,
                 max_tokens=settings.LLM_MAX_TOKENS,
                 response_format=RAGAnswer,
@@ -234,7 +288,7 @@ class RagService:
         # CRITICAL: never trust chunk IDs from the LLM directly.
         # Map LLM-cited IDs back against what was actually retrieved.
         # This prevents hallucinated citations entirely.
-        chunk_map = {c["chunk_id"]: c for c in context_chunks}
+        chunk_map = {c["chunk_id"]: c for c in built.context_chunks}
         citations: list[Citation] = []
 
         for chunk_id in rag_answer.cited_chunk_ids:
@@ -248,7 +302,7 @@ class RagService:
                 ))
 
         # If LLM cited nothing but we have context, cite top results anyway
-        if not citations and context_chunks:
+        if not citations and built.context_chunks:
             citations = [
                 Citation(
                     note_id=c["note_id"],
@@ -256,8 +310,18 @@ class RagService:
                     title=c["title"],
                     relevance_score=c["score"],
                 )
-                for c in context_chunks[:3]
+                for c in built.context_chunks[:3]
             ]
+
+        if db is not None and resolved_thread_id:
+            from ai.memory.service import ThreadService
+            await ThreadService().persist_turn(
+                db,
+                thread_id=resolved_thread_id,
+                user_question=question,
+                assistant_answer=rag_answer.answer,
+                citations=[c.model_dump() for c in citations],
+            )
 
         latency_ms = round((time.monotonic() - start) * 1000, 2)
 
@@ -266,7 +330,7 @@ class RagService:
             extra={
                 "workspace_id": workspace_id,
                 "chunks_retrieved": len(retrieved),
-                "chunks_used": len(context_chunks),
+                "chunks_used": len(built.context_chunks),
                 "citations_count": len(citations),
                 "model": settings.LLM_MODEL,
                 "latency_ms": latency_ms,
@@ -277,8 +341,9 @@ class RagService:
             answer=rag_answer.answer,
             citations=citations,
             chunks_retrieved=len(retrieved),
-            chunks_used=len(context_chunks),
+            chunks_used=len(built.context_chunks),
             latency_ms=latency_ms,
+            thread_id=resolved_thread_id or None,
         )
 
     async def stream_answer(
@@ -289,6 +354,8 @@ class RagService:
         user_id: str,
         role: str,
         retrieval_limit: int = 8,
+        thread_id: str | None = None,
+        db: "AsyncSession | None" = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Stream a RAG answer as progressive token events.
@@ -317,6 +384,13 @@ class RagService:
         start = time.monotonic()
         settings = get_settings()
 
+        resolved_thread_id, history_messages = await self._load_thread_context(
+            thread_id=thread_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            db=db,
+        )
+
         # ── Step 1: retrieve relevant chunks (same as answer()) ─────────────
         retrieved: list[SearchResult] = await self._searcher.search(
             query_text=question,
@@ -337,38 +411,34 @@ class RagService:
                 chunks_retrieved=0,
                 chunks_used=0,
                 latency_ms=round((time.monotonic() - start) * 1000, 2),
+                thread_id=resolved_thread_id or None,
             )
             return
 
-        # ── Step 2: enforce token budget (same as answer()) ─────────────────
-        budget = settings.TOKEN_BUDGET_PER_REQUEST
-        context_chunks: list[dict] = []
-        chars_used = 0
-
-        for result in retrieved:
-            chunk_chars = len(result.chunk_text)
-            if chars_used + chunk_chars > budget:
-                break
-            context_chunks.append({
+        context_chunks: list[dict] = [
+            {
                 "chunk_id": result.chunk_id,
                 "note_id": result.note_id,
                 "title": result.title,
                 "text": result.chunk_text,
                 "score": result.score,
-            })
-            chars_used += chunk_chars
+            }
+            for result in retrieved
+        ]
 
-        # ── Step 3: build prompt (same template, no streaming variant) ───────
-        user_message = build_rag_user_message(question, context_chunks)
+        from ai.memory.context_builder import ContextBuilder
+        builder = ContextBuilder()
+        built = builder.build(
+            question=question,
+            history_messages=history_messages,
+            retrieved_chunks=context_chunks,
+        )
 
         # ── Step 4: stream LiteLLM completion ───────────────────────────────
         try:
             response = await litellm.acompletion(
                 model=settings.LLM_MODEL,
-                messages=[
-                    {"role": "system", "content": RAG_SYSTEM_INSTRUCTION},
-                    {"role": "user", "content": user_message},
-                ],
+                messages=built.messages,
                 temperature=settings.LLM_TEMPERATURE,
                 max_tokens=settings.LLM_MAX_TOKENS,
                 stream=True,
@@ -385,10 +455,14 @@ class RagService:
             raise
 
         # ── Step 5: yield token events as they arrive ────────────────────────
+        streamed_answer_parts: list[str] = []
         async for chunk in response:
             delta = chunk.choices[0].delta.content
             if delta:
+                streamed_answer_parts.append(delta)
                 yield StreamToken(content=delta)
+
+        full_answer = "".join(streamed_answer_parts)
 
         # ── Step 6: ground citations and yield metadata ──────────────────────
         # Citations from retrieval — never from LLM token parsing
@@ -399,8 +473,18 @@ class RagService:
                 title=c["title"],
                 relevance_score=c["score"],
             )
-            for c in context_chunks[:5]   # top 5 retrieved chunks as citations
+            for c in built.context_chunks[:5]   # top 5 retrieved chunks as citations
         ]
+
+        if db is not None and resolved_thread_id and full_answer:
+            from ai.memory.service import ThreadService
+            await ThreadService().persist_turn(
+                db,
+                thread_id=resolved_thread_id,
+                user_question=question,
+                assistant_answer=full_answer,
+                citations=[c.model_dump() for c in citations],
+            )
 
         latency_ms = round((time.monotonic() - start) * 1000, 2)
 
@@ -409,7 +493,7 @@ class RagService:
             extra={
                 "workspace_id": workspace_id,
                 "chunks_retrieved": len(retrieved),
-                "chunks_used": len(context_chunks),
+                "chunks_used": len(built.context_chunks),
                 "citations_count": len(citations),
                 "model": settings.LLM_MODEL,
                 "latency_ms": latency_ms,
@@ -419,8 +503,9 @@ class RagService:
         yield StreamMetadata(
             citations=citations,
             chunks_retrieved=len(retrieved),
-            chunks_used=len(context_chunks),
+            chunks_used=len(built.context_chunks),
             latency_ms=latency_ms,
+            thread_id=resolved_thread_id or None,
         )
 
 

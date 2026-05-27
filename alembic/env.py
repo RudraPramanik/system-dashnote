@@ -19,6 +19,8 @@ from workspaces import models as workspace_models  # noqa: F401 imported for sid
 from pages import models as page_models  # noqa: F401 imported for side effect
 from notebooks import models as notebooks_models  # noqa: F401 imported for side effect
 from notes import models as notes_models  # noqa: F401 imported for side effect
+from files import models as files_models  # noqa: F401 imported for side effect
+from ai_memory.models import AIThread, AIMessage  # noqa: F401
 
 config = context.config
 

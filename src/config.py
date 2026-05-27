@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: str = "dashnote"
     LANGSMITH_TRACING_ENABLED: bool = False
 
+    # ── AI Slice 5: Memory ──────────────────────────────────────────
+    AI_THREAD_MESSAGE_LIMIT: int = 20   # recent messages loaded into context
+
     @property
     def ai_enabled(self) -> bool:
         """

@@ -244,7 +244,33 @@ python -m ai.retrieval.indexer
 |----------------|---------|
 | `thread_id` | Use on next request to continue conversation |
 
-**Not in Slice 5**: `GET /ai/threads` list routes (Slice 5.3), LangGraph checkpointer (Slice 6).
+### Slice 5.3 (complete) — Thread management routes
+
+Thread management HTTP routes live in `ai_routes/threads.py` and are mounted in `main.py`:
+
+- `GET /ai/threads` — list current user conversation threads in JWT workspace.
+- `GET /ai/threads/{thread_id}/messages` — load UI message history (default limit 50).
+- `DELETE /ai/threads/{thread_id}` — soft delete (`is_active=false`) with workspace isolation.
+
+Security contract:
+
+- `workspace_id` is always read from JWT `RequestContext` (`wid`), never from query/body/path.
+- Cross-workspace thread access returns `404` for thread routes and `400` for chat reuse attempts.
+
+### Slice 5.3 validation (executed)
+
+Validated with `docker compose up -d --build api` and fresh `POST /auth/register` tokens:
+
+- Gate 1: first `POST /ai/chat` with `thread_id: null` returns non-null UUID `thread_id`.
+- Gate 2: second `POST /ai/chat` with same `thread_id` succeeds and reuses thread.
+- Gate 3: `GET /ai/threads` returns list containing created thread id.
+- Gate 4: `GET /ai/threads/{thread_id}/messages` returns ordered messages (`user,assistant,user,assistant`).
+- Gate 5: different-workspace token + foreign `thread_id` returns HTTP `400`.
+- Gate 6: `POST /ai/chat/stream` returns SSE token + metadata including `thread_id`, and terminal `data: [DONE]`.
+- Gate 7: `DELETE /ai/threads/{thread_id}` returns HTTP `204`.
+- Gate 8: `GET /health` unchanged (`status: ok`).
+
+**Not in Slice 5**: LangGraph checkpointer integration (Slice 6).
 
 ### Slice 5 validation
 

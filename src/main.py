@@ -44,6 +44,9 @@ def register_routes(app: FastAPI) -> None:
     # --- AI Slice 3: Chat MVP ---
     from ai_routes.chat import router as ai_chat_router
     app.include_router(ai_chat_router)
+    # --- AI Slice 5: Thread management routes ---
+    from ai_routes.threads import router as ai_threads_router
+    app.include_router(ai_threads_router)
 
 
 # Middleware

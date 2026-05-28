@@ -224,8 +224,18 @@ class RagService:
                     "question_length": len(question),
                 },
             )
+            fallback_answer = "I could not find relevant information in your notes for this query."
+            if db is not None and resolved_thread_id:
+                from ai.memory.service import ThreadService
+                await ThreadService().persist_turn(
+                    db,
+                    thread_id=resolved_thread_id,
+                    user_question=question,
+                    assistant_answer=fallback_answer,
+                    citations=[],
+                )
             return ChatResult(
-                answer="I could not find relevant information in your notes for this query.",
+                answer=fallback_answer,
                 citations=[],
                 chunks_retrieved=0,
                 chunks_used=0,
@@ -405,7 +415,17 @@ class RagService:
                 "stream_answer: no relevant chunks found",
                 extra={"workspace_id": workspace_id},
             )
-            yield StreamToken(content="I could not find relevant information in your notes for this query.")
+            fallback_answer = "I could not find relevant information in your notes for this query."
+            if db is not None and resolved_thread_id:
+                from ai.memory.service import ThreadService
+                await ThreadService().persist_turn(
+                    db,
+                    thread_id=resolved_thread_id,
+                    user_question=question,
+                    assistant_answer=fallback_answer,
+                    citations=[],
+                )
+            yield StreamToken(content=fallback_answer)
             yield StreamMetadata(
                 citations=[],
                 chunks_retrieved=0,

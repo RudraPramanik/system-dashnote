@@ -551,6 +551,38 @@ POST /ai/chat  { "message": "...", "thread_id": "<optional-uuid>" }
 
 **Slice 5 gate** (sign-off): `ContextBuilder` produces 3 messages for sample input; migration applied (`ai_threads`, `ai_messages`); `POST /ai/chat` returns `thread_id`; second message with same `thread_id` includes prior turn in context when notes are indexed.
 
+### 4.16 AI thread management routes — Slice 5.3
+
+```
+GET /ai/threads
+    ├─► get_current_context() → RequestContext
+    ├─► get_session() → AsyncSession
+    ├─► ThreadRepository.list_threads(db, workspace_id, user_id)
+    └─► list[ThreadResponse]
+
+GET /ai/threads/{thread_id}/messages
+    ├─► get_current_context() → RequestContext
+    ├─► get_session() → AsyncSession
+    ├─► ThreadRepository.get_recent_messages(...)
+    ├─► if empty: ThreadRepository.get_thread(...) for secure 404 discrimination
+    └─► list[MessageResponse] (ordered oldest→newest)
+
+DELETE /ai/threads/{thread_id}
+    ├─► get_current_context() → RequestContext
+    ├─► get_session() → AsyncSession
+    ├─► ThreadRepository.delete_thread(...)  # soft delete
+    └─► 204 (or 404 if not found / wrong workspace)
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `ai_routes/chat.py` | Passes `thread_id` and `db` to `RagService.answer()` / `stream_answer()`; maps invalid cross-workspace thread reuse to HTTP 400 |
+| `ai_routes/threads.py` | Thread list/messages/delete HTTP adapters |
+| `ai_memory/repository.py` | Workspace-scoped thread/message queries and soft delete |
+| `ai/services/rag_service.py` | Returns `thread_id` in JSON and SSE metadata; persists turns even when retrieval is empty |
+
+**Slice 5.3 gate** (sign-off): end-to-end flow verified with real JWTs — new thread UUID returned, history thread continuation works, thread list/messages routes return expected data, foreign-workspace `thread_id` blocked (400), SSE metadata includes `thread_id` + `[DONE]`, delete returns 204, `/health` unchanged.
+
 ## 5) Data model and persistence design
 
 ### 5.1 Core entities (implemented)

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,7 +48,7 @@ class ChatRequest(BaseModel):
     )
     thread_id: str | None = Field(
         default=None,
-        description="Optional conversation thread UUID. Omit to start a new thread.",
+        description="Continue an existing conversation.",
     )
 
 
@@ -103,14 +103,20 @@ async def chat(
     user_id = str(ctx.user_id)             # from JWT sub claim
     role = ctx.role                         # "owner" | "admin" | "member"
 
-    result: ChatResult = await rag.answer(
-        question=body.message,
-        workspace_id=workspace_id,
-        user_id=user_id,
-        role=role,
-        thread_id=body.thread_id,
-        db=db,
-    )
+    try:
+        result: ChatResult = await rag.answer(
+            question=body.message,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role=role,
+            thread_id=body.thread_id,
+            db=db,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     return ChatResponse(
         answer=result.answer,
@@ -168,7 +174,7 @@ async def chat_stream(
     workspace_id = str(ctx.workspace_id)   # from JWT wid claim
     user_id = str(ctx.user_id)             # from JWT sub claim
     role = ctx.role                         # "owner" | "admin" | "member"
-    thread_id = body.thread_id
+    thread_id_str = body.thread_id
 
     # ── Step 2: Resolve service singleton BEFORE generator opens ────────────
     # get_rag_service() is already called via Depends(get_rag_service) above.
@@ -187,12 +193,19 @@ async def chat_stream(
                 workspace_id=workspace_id,
                 user_id=user_id,
                 role=role,
-                thread_id=thread_id,
+                thread_id=thread_id_str,
                 db=db,
             ):
                 # Serialize StreamToken or StreamMetadata to JSON
                 yield f"data: {event.model_dump_json()}\n\n"
 
+        except ValueError as exc:
+            error_payload = json.dumps({
+                "type": "error",
+                "message": str(exc),
+                "status_code": status.HTTP_400_BAD_REQUEST,
+            })
+            yield f"data: {error_payload}\n\n"
         except Exception:
             # Yield an error event so the client knows the stream failed
             # Never silently drop errors mid-stream

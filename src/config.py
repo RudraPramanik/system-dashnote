@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     # ── AI Slice 5: Memory ──────────────────────────────────────────
     AI_THREAD_MESSAGE_LIMIT: int = 20   # recent messages loaded into context
 
+    # ── AI Slice 6: LangGraph Agent ────────────────────────────────
+    AGENT_MAX_ITERATIONS: int = 10    # prevents infinite tool loops
+    AGENT_TOOL_TIMEOUT: int = 30      # seconds per tool call
+
     @property
     def ai_enabled(self) -> bool:
         """
@@ -105,6 +109,14 @@ class Settings(BaseSettings):
     def langsmith_enabled(self) -> bool:
         """True when LangSmith tracing is configured and active."""
         return bool(self.LANGSMITH_API_KEY) and self.LANGSMITH_TRACING_ENABLED
+
+    @property
+    def psycopg_database_url(self) -> str:
+        """
+        DATABASE_URL adapted for psycopg3 (AsyncPostgresSaver).
+        Strips '+asyncpg' driver suffix — psycopg3 uses plain postgresql://.
+        """
+        return self.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
     @model_validator(mode="after")
     def validate_ai_config(self) -> "Settings":

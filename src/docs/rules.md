@@ -1,55 +1,61 @@
 ARCHITECTURE LAW — DashNoteSystem. Enforce in ALL generated code.
 
+CRITICAL FOR SLICE 6:
+  POST /ai/chat is NEVER replaced or modified — it remains the fast RAG path.
+  POST /ai/chat/stream is NEVER replaced or modified.
+  LangGraph adds NEW endpoints: POST /ai/agent and POST /ai/agent/stream.
+  Users choose: fast RAG (/ai/chat) or agentic (/ai/agent).
+
 MODULE PATHS:
   Import as: from config import settings, get_settings
-             from core.database.session import get_session
-             from core.security.context import RequestContext
-             from ai_memory.models import AIThread, AIMessage
-             from ai_memory.repository import ThreadRepository
-             from ai.memory.service import ThreadService
-             from ai.memory.context_builder import ContextBuilder
+             from ai.tools.note_tools import get_note_tools
+             from ai.workflows.workspace_assistant import get_workspace_assistant
+             from ai.memory.checkpointer import init_checkpointer, get_graph_checkpointer
+             from notes.service import NoteService
   NEVER as:  from src.config import ...
-             from src.ai_memory import ...
+             from src.ai.tools import ...
 
-SQLALCHEMY LAW:
-  - AI domain models (ai_threads, ai_messages) live in src/ai_memory/models.py
-  - src/ai/memory/ contains ONLY service logic, context building — NO ORM models
-  - src/ai/* MUST NEVER import SQLAlchemy directly
-  - AsyncSession is NEVER stored on a class — passed per method call
-  - Follow the pattern in src/notes/repository.py exactly
+TOOL CHAIN LAW:
+  Tools MUST call existing service layer only:
+    search_notes_tool → RagService.answer()
+    create_note_tool  → NoteService.create_note()
+    update_note_tool  → NoteService.update_note()
+    summarize_workspace_tool → RagService.answer() with broad query
+  Tools NEVER call repositories directly.
+  Tools accept (workspace_id, user_id, role) as plain strings ONLY.
+  Tools NEVER accept RequestContext, FastAPI objects, or SQLAlchemy sessions.
 
-AI SERVICE LAW — src/ai/memory/* MUST NEVER import:
-  - FastAPI, Request, Response, HTTPException, APIRouter, Depends
-  - SQLAlchemy (use repository pattern — session injected as parameter)
-  - RequestContext (accept workspace_id, user_id as plain strings)
-  - src/notes/*, src/files/*, src/auth/*, src/workspaces/*
+LANGGRAPH CONNECTION LAW:
+  AsyncPostgresSaver uses psycopg3 async — NOT SQLAlchemy.
+  It does NOT share connection pool with SQLAlchemy engine.
+  Use a single async psycopg connection for checkpointer only.
+  Never pass DATABASE_URL to SQLAlchemy AND psycopg simultaneously in same pool.
 
-MIGRATION LAW:
-  - Tables created via Alembic only — never engine.create_all() or auto-migrate
-  - Generate: alembic revision --autogenerate -m "add ai_threads ai_messages"
-  - Apply: alembic upgrade head (via migrate service or direct)
-  - Import new models in alembic/env.py so autogenerate detects them
+GRAPH COMPILATION LAW:
+  graph.compile() is NEVER called at module import time.
+  It is called once inside an async init function, result cached.
+  get_workspace_assistant() returns the cached compiled graph.
+  Checkpointer must be initialized (init_checkpointer()) before compile().
 
-MODIFICATION LAW for Slice 5:
-  - answer() and stream_answer() get MINIMAL signature change only
-  - Add thread_id: str | None = None as keyword argument
-  - Extract _build_messages_with_history() as a NEW private method
-  - answer() and stream_answer() CALL the new method — not rewritten
-  - Never let Cursor rewrite the full method body
+TOOL FORMAT LAW:
+  Tools use StructuredTool with explicit args_schema Pydantic models.
+  Plain @tool decorator on async functions loses type safety.
+  LiteLLM tool calling uses OpenAI function definition format — not
+  LangChain .bind_tools() which is for LangChain LLM objects only.
 
-ROUTER LAW:
-  - ChatRequest gets thread_id: str | None = None appended
-  - ChatResponse gets thread_id: str | None = None appended
-  - POST /ai/chat and /ai/chat/stream handlers get minimal addition
-  - New routes: GET /ai/threads, GET /ai/threads/{id}/messages
-  - All new routes in src/ai_routes/threads.py (new file)
-  - Never touch notes/router.py
+MODIFICATION LAW:
+  src/ai_routes/chat.py — NEVER modified in Slice 6
+  src/ai/services/rag_service.py — NEVER modified in Slice 6
+  src/main.py — append only (init_checkpointer + new router)
 
-LANGGRAPH NOTE:
-  - Install langgraph now — used in Slice 6
-  - AsyncPostgresSaver from langgraph is NOT used in Slice 5
-  - Slice 5 uses plain SQL for conversation persistence
-  - ai_threads + ai_messages are the PRODUCT layer (what user sees)
-  - LangGraph checkpointer is the EXECUTION layer (Slice 6 only)
+NEW FILES ONLY:
+  src/notes/service.py         ← thin service over notes repository
+  src/ai/tools/__init__.py
+  src/ai/tools/note_tools.py   ← StructuredTool definitions
+  src/ai/tools/schemas.py      ← Pydantic args_schema models for tools
+  src/ai/memory/checkpointer.py
+  src/ai/workflows/state.py
+  src/ai/workflows/workspace_assistant.py
+  src/ai_routes/agent.py       ← NEW endpoints only
 
 Acknowledge these laws before writing any code.

@@ -74,3 +74,11 @@ tiktoken ~= 0.13.0
 
 # --- AI Slice 2: Qdrant vector retrieval ---
 qdrant-client ~= 1.16.0
+
+# --- AI Slice 5: Memory + LangGraph prep ---
+langgraph>=0.1.0
+langgraph-checkpoint-postgres>=0.1.0
+
+# --- AI Slice 6: LangGraph workflows ---
+psycopg[async]>=3.1.0   # required by AsyncPostgresSaver (psycopg3, not asyncpg)
+psycopg-binary>=3.1.0   # libpq wheels for slim Docker (psycopg3, not psycopg2-binary)

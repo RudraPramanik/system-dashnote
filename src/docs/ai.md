@@ -18,6 +18,9 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | Streaming | **`POST /ai/chat/stream`** (SSE) — same prompt/RBAC/budget as `/ai/chat`; citations in final `metadata` event only |
 | Memory ORM | **`src/ai_memory/`** — `AIThread`, `AIMessage`; never import SQLAlchemy from `src/ai/*` |
 | Memory service | **`ThreadService`** (`ai/memory/service.py`), **`ContextBuilder`** (`ai/memory/context_builder.py`) |
+| Agent tools | **`get_note_tools()`** (`ai/tools/note_tools.py`) — `StructuredTool` + Pydantic `args_schema`; service layer only |
+| Note mutations (agent) | **`NoteService`** (`notes/service.py`) — `db_session_var` set by graph tool node before create/update |
+| Checkpointer | **`init_checkpointer()`** / **`get_graph_checkpointer()`** (`ai/memory/checkpointer.py`) — psycopg3, separate from SQLAlchemy pool |
 | Infra | Append-only to `settings`, `.env`, `docker-compose.yml`, `requirements*.txt` |
 
 ---
@@ -271,6 +274,62 @@ Validated with `docker compose up -d --build api` and fresh `POST /auth/register
 - Gate 8: `GET /health` unchanged (`status: ok`).
 
 **Not in Slice 5**: LangGraph checkpointer integration (Slice 6).
+
+---
+
+## Slice 6 (in progress) — LangGraph workspace assistant
+
+`POST /ai/chat` and `POST /ai/chat/stream` are **unchanged** — fast RAG path. Slice 6 adds **`POST /ai/agent`** and **`POST /ai/agent/stream`** (wired in sub-steps 6.3–6.4).
+
+### Sub-step 6.1 — checkpointer, settings, NoteService
+
+| Path | Role |
+|------|------|
+| `config.py` | `AGENT_MAX_ITERATIONS`, `AGENT_TOOL_TIMEOUT`, `psycopg_database_url` |
+| `ai/memory/checkpointer.py` | `AsyncPostgresSaver` via dedicated psycopg3 async connection; `init_checkpointer()` / `close_checkpointer()` |
+| `notes/service.py` | Agent-callable `create_note()` / `update_note()` over `NoteRepository` |
+
+**Deps**: `psycopg[async]`, `psycopg-binary` (libpq on slim Docker), `langgraph`, `langgraph-checkpoint-postgres` in `requirements/base.txt`.
+
+### Sub-step 6.2 — StructuredTool definitions
+
+| Path | Role |
+|------|------|
+| `ai/tools/schemas.py` | Pydantic `args_schema` models (`SearchNotesArgs`, `CreateNoteArgs`, `UpdateNoteArgs`, `SummarizeWorkspaceArgs`) |
+| `ai/tools/note_tools.py` | Four `StructuredTool.from_function()` tools; `db_session_var` for mutation tools |
+| `ai/tools/__init__.py` | Package marker |
+
+**Tool chain** (never shortcut to repository):
+
+| Tool | Service |
+|------|---------|
+| `search_notes` | `RagService.answer(question=..., workspace_id, user_id, role)` |
+| `create_note` | `NoteService.create_note(db, ...)` — `db` from `db_session_var` |
+| `update_note` | `NoteService.update_note(db, ...)` — `db` from `db_session_var` |
+| `summarize_workspace` | `RagService.answer(..., retrieval_limit=12)` with broad overview question |
+
+**Invariants**: no FastAPI / `RequestContext` / SQLAlchemy imports in tool modules; tenant IDs passed as plain strings from agent state; LiteLLM receives OpenAI function definitions from `StructuredTool` (not LangChain `.bind_tools()`).
+
+**Not yet in Slice 6**: `workspace_assistant.py` graph compile, `POST /ai/agent` routes, `main.py` lifespan wiring for checkpointer.
+
+### Slice 6.2 validation
+
+```powershell
+docker compose build api
+
+docker compose exec -e PYTHONPATH=/app/src api python -c "
+from ai.tools.note_tools import get_note_tools
+from ai.tools.schemas import SearchNotesArgs, CreateNoteArgs
+tools = get_note_tools()
+print(f'PASS: {len(tools)} tools loaded')
+for t in tools:
+    print(f'  tool: {t.name}')
+    print(f'  schema: {t.args_schema.__name__}')
+args = SearchNotesArgs(question='test', workspace_id='ws1', user_id='u1', role='member')
+print(f'PASS: SearchNotesArgs validates: {args.question}')
+print('PASS: all tool validations passed')
+"
+```
 
 ### Slice 5 validation
 

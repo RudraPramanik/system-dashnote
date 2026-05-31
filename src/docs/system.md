@@ -226,6 +226,13 @@ Recommended operational practices:
 - Memory services: `ai/memory/service.py` (`ThreadService`), `ai/memory/context_builder.py` (`ContextBuilder` — history + retrieval budget).
 - Prompts: `ai/prompts/rag.py` only (one system instruction for both streaming and non-streaming).
 
+### AI agent foundation (Slice 6.1–6.2)
+- **Checkpointer** (`ai/memory/checkpointer.py`): LangGraph `AsyncPostgresSaver` on a dedicated psycopg3 connection (`settings.psycopg_database_url`); separate from SQLAlchemy `asyncpg` pool. Initialized via `init_checkpointer()` in app lifespan (wired in a later sub-step).
+- **NoteService** (`notes/service.py`): thin layer over `notes/repository.py` for agent note create/update; `AsyncSession` injected per call.
+- **Agent tools** (`ai/tools/note_tools.py`, `ai/tools/schemas.py`): four `StructuredTool` definitions calling `RagService.answer()` or `NoteService` only. Mutation tools read `db_session_var` (set by the graph tool node before execution). Import: `from ai.tools.note_tools import get_note_tools`.
+- **Agent settings**: `AGENT_MAX_ITERATIONS`, `AGENT_TOOL_TIMEOUT` in `config.py`.
+- **Planned routes** (not yet mounted): `POST /ai/agent`, `POST /ai/agent/stream` — existing `/ai/chat` paths stay the fast RAG path.
+
 ### Where to extend next
 If you add new note-like resources or collaboration features:
 

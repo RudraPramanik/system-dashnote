@@ -583,6 +583,40 @@ DELETE /ai/threads/{thread_id}
 
 **Slice 5.3 gate** (sign-off): end-to-end flow verified with real JWTs — new thread UUID returned, history thread continuation works, thread list/messages routes return expected data, foreign-workspace `thread_id` blocked (400), SSE metadata includes `thread_id` + `[DONE]`, delete returns 204, `/health` unchanged.
 
+### 4.17 LangGraph agent tools — Slice 6.2
+
+```
+Agent graph tool_node (Slice 6.3+)
+    ├─► db_session_var.set(session)   # before mutation tools only
+    ├─► LiteLLM tools=[OpenAI function defs from StructuredTool]
+    └─► invoke tool coroutine with validated args_schema
+
+search_notes / summarize_workspace
+    └─► RagService.answer(workspace_id, user_id, role as str)
+            └─► WorkspaceVectorSearch + litellm (no HTTP, no RequestContext)
+
+create_note / update_note
+    └─► db = db_session_var.get()
+    └─► NoteService.create_note(db, ...) / update_note(db, ...)
+            └─► NoteRepository(session, workspace_id=int(...))
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `ai/tools/schemas.py` | Pydantic `args_schema` for LLM argument validation and JSON schema generation |
+| `ai/tools/note_tools.py` | `StructuredTool.from_function()` × 4; `get_note_tools()`; `db_session_var` |
+| `notes/service.py` | Agent-facing note mutations; string IDs → `int` for repository |
+| `ai/services/rag_service.py` | Unchanged; `answer()` reused by search/summarize tools |
+| `ai/memory/checkpointer.py` | Execution-layer persistence (Slice 6.1); linked to product `thread_id` by string only |
+
+**Invariants**
+
+- Tools never import repositories, FastAPI, or `RequestContext`.
+- `workspace_id`, `user_id`, `role` on every tool schema — copied from agent state, not LLM-invented.
+- `AsyncSession` is not an LLM argument; only `contextvars` for note mutations.
+
+**Slice 6.2 gate**: `get_note_tools()` returns 4 tools; each `args_schema` validates; import smoke test in Docker passes.
+
 ## 5) Data model and persistence design
 
 ### 5.1 Core entities (implemented)

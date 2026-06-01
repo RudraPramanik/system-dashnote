@@ -226,12 +226,15 @@ Recommended operational practices:
 - Memory services: `ai/memory/service.py` (`ThreadService`), `ai/memory/context_builder.py` (`ContextBuilder` — history + retrieval budget).
 - Prompts: `ai/prompts/rag.py` only (one system instruction for both streaming and non-streaming).
 
-### AI agent foundation (Slice 6.1–6.2)
-- **Checkpointer** (`ai/memory/checkpointer.py`): LangGraph `AsyncPostgresSaver` on a dedicated psycopg3 connection (`settings.psycopg_database_url`); separate from SQLAlchemy `asyncpg` pool. Initialized via `init_checkpointer()` in app lifespan (wired in a later sub-step).
-- **NoteService** (`notes/service.py`): thin layer over `notes/repository.py` for agent note create/update; `AsyncSession` injected per call.
-- **Agent tools** (`ai/tools/note_tools.py`, `ai/tools/schemas.py`): four `StructuredTool` definitions calling `RagService.answer()` or `NoteService` only. Mutation tools read `db_session_var` (set by the graph tool node before execution). Import: `from ai.tools.note_tools import get_note_tools`.
-- **Agent settings**: `AGENT_MAX_ITERATIONS`, `AGENT_TOOL_TIMEOUT` in `config.py`.
-- **Planned routes** (not yet mounted): `POST /ai/agent`, `POST /ai/agent/stream` — existing `/ai/chat` paths stay the fast RAG path.
+### AI agent system path (Slice 6.1–6.4)
+- **Checkpointer** (`ai/memory/checkpointer.py`): LangGraph `AsyncPostgresSaver` on dedicated psycopg3 async connection; initialized in `main.py` lifespan startup and closed in shutdown. Failure is non-fatal (agent degrades gracefully).
+- **Graph state + workflow** (`ai/workflows/state.py`, `ai/workflows/workspace_assistant.py`): lazy-compiled singleton graph (`get_workspace_assistant()`), LiteLLM `tools=` calling, tool loop routing with `AGENT_MAX_ITERATIONS` guard.
+- **Agent tools** (`ai/tools/note_tools.py`, `ai/tools/schemas.py`): four `StructuredTool` definitions (`search_notes`, `create_note`, `update_note`, `summarize_workspace`); mutation tools use `db_session_var`.
+- **Agent routes** (`ai_routes/agent.py`): mounted under `/ai`:
+  - `POST /ai/agent` (final answer response model `AgentResponse`)
+  - `POST /ai/agent/stream` (SSE event stream from `graph.astream_events`)
+- **Thread linkage**: route resolves/validates thread via `ThreadService`/`ThreadRepository`, then passes `{"configurable": {"thread_id": thread_id}}` so LangGraph checkpoints align with product `ai_threads.id`.
+- **Coexistence rule**: `POST /ai/chat` and `POST /ai/chat/stream` remain unchanged as fast direct RAG endpoints; `/ai/agent*` is additive for multi-step tool-calling.
 
 ### Where to extend next
 If you add new note-like resources or collaboration features:

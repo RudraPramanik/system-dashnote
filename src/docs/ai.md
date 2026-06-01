@@ -310,7 +310,43 @@ Validated with `docker compose up -d --build api` and fresh `POST /auth/register
 
 **Invariants**: no FastAPI / `RequestContext` / SQLAlchemy imports in tool modules; tenant IDs passed as plain strings from agent state; LiteLLM receives OpenAI function definitions from `StructuredTool` (not LangChain `.bind_tools()`).
 
-**Not yet in Slice 6**: `workspace_assistant.py` graph compile, `POST /ai/agent` routes, `main.py` lifespan wiring for checkpointer.
+### Sub-step 6.3 — Agent graph (implemented)
+
+| Path | Role |
+|------|------|
+| `ai/workflows/state.py` | `AgentState` with `messages: Annotated[list, add_messages]`, tenant primitives, `steps_taken`, `thread_id` |
+| `ai/workflows/workspace_assistant.py` | LangGraph topology (`START -> agent -> tools -> agent -> END`), LiteLLM tool-calling, routing guard, lazy singleton compile |
+| `ai/workflows/workspace_assistent.py` | Backward-compatible alias for `workspace_assistant` |
+
+Runtime behavior:
+
+- `call_model()` uses `litellm.acompletion(..., tools=[OpenAI function defs])` (no LangChain `.bind_tools()`).
+- `steps_taken` increments on each model step and is checked by `should_continue()` against `AGENT_MAX_ITERATIONS`.
+- `compile_workspace_graph()` tries `get_graph_checkpointer()` and falls back to compile-without-checkpointer when unavailable.
+- `get_workspace_assistant()` compiles lazily on first call and caches the compiled graph.
+
+### Sub-step 6.4 — Agent routes + lifespan wiring (implemented)
+
+| Path | Role |
+|------|------|
+| `ai_routes/agent.py` | New `POST /ai/agent` and `POST /ai/agent/stream` endpoints |
+| `main.py` | Registers agent router and wires checkpointer init/cleanup in lifespan |
+
+Endpoint contract:
+
+- `POST /ai/agent` returns `AgentResponse`: `answer`, `thread_id`, `steps_taken`, `tool_calls_made`.
+- `POST /ai/agent/stream` emits SSE events from `graph.astream_events(..., version="v2")`:
+  - `token` from `on_chat_model_stream`
+  - `tool_start` from `on_tool_start`
+  - `tool_end` from `on_tool_end`
+  - `done` plus final `[DONE]`
+
+Invariants:
+
+- Existing `/ai/chat` and `/ai/chat/stream` are unchanged and remain the fast direct RAG path.
+- Route layer freezes `workspace_id`, `user_id`, `role` before async graph calls.
+- `db_session_var` is set in route scope before graph execution, enabling mutation tools.
+- LangGraph config uses `{"configurable": {"thread_id": thread_id}}` for checkpoint linkage.
 
 ### Slice 6.2 validation
 

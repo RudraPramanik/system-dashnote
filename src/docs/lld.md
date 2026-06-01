@@ -617,6 +617,53 @@ create_note / update_note
 
 **Slice 6.2 gate**: `get_note_tools()` returns 4 tools; each `args_schema` validates; import smoke test in Docker passes.
 
+### 4.18 LangGraph agent routes + lifecycle wiring — Slice 6.4
+
+```
+POST /ai/agent  { "message": "...", "thread_id": "<optional-uuid>" }
+    │
+    ├─► get_current_context() → RequestContext
+    ├─► get_session() → AsyncSession
+    ├─► freeze: workspace_id, user_id, role before async graph call
+    ├─► resolve thread_id via ThreadService / ThreadRepository
+    ├─► db_session_var.set(db)
+    ├─► graph = get_workspace_assistant()   # lazy-compiled singleton
+    ├─► graph.ainvoke(initial_state, config={"configurable":{"thread_id":...}})
+    ├─► db_session_var.reset(token)
+    └─► AgentResponse(answer, thread_id, steps_taken, tool_calls_made)
+```
+
+```
+POST /ai/agent/stream  (SSE)
+    │
+    ├─► same auth/context freeze/thread resolution
+    ├─► db_session_var.set(db) before graph streaming
+    ├─► graph.astream_events(..., version="v2")
+    │     ├─ on_chat_model_stream → {"type":"token","content":"..."}
+    │     ├─ on_tool_start       → {"type":"tool_start","tool":"...","args":...}
+    │     ├─ on_tool_end         → {"type":"tool_end","tool":"...","result":"..."}
+    │     └─ final               → {"type":"done","thread_id":"...","steps_taken":N}
+    ├─► emit terminal `data: [DONE]`
+    └─► db_session_var.reset(token) in finally
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `ai_routes/agent.py` | `POST /ai/agent` and `POST /ai/agent/stream`; HTTP adapter only |
+| `ai/workflows/workspace_assistant.py` | Lazy graph factory + `call_model`/`execute_tools`/`should_continue` |
+| `ai/workflows/state.py` | `AgentState` (`messages`, tenant primitives, `steps_taken`, `thread_id`) |
+| `ai/memory/checkpointer.py` | LangGraph checkpoint execution persistence |
+| `main.py` | Lifespan `init_checkpointer()` startup + `close_checkpointer()` shutdown; router registration |
+
+**Operational invariants**
+
+- `POST /ai/chat` and `POST /ai/chat/stream` are unchanged and remain the direct RAG path.
+- Agent routes are additive (`/ai/agent*`) and can degrade gracefully if checkpointer init fails.
+- `workspace_id` is always from JWT context; never from request body.
+- Graph configurable thread key is `{"configurable": {"thread_id": thread_id}}` and aligns with `ai_threads.id`.
+
+**Slice 6.4 gate** (sign-off): checkpointer startup log present; `/ai/chat` unaffected; `/ai/agent` returns `thread_id` + `steps_taken`; streaming emits token/tool/done SSE frames; cross-workspace thread reuse blocked (400); iteration guard enforced by `AGENT_MAX_ITERATIONS`.
+
 ## 5) Data model and persistence design
 
 ### 5.1 Core entities (implemented)

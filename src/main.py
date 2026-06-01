@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 
 # Ensure `src/` is on sys.path so imports like `from auth...` work when running:
 #   uvicorn src.main:app
@@ -29,6 +30,7 @@ from workspaces.router import router as workspaces_router
 from core.health import router as health_router
 from ai_gateway.search import router as ai_search_router
 
+logger = logging.getLogger(__name__)
 
 # Routers
 def register_routes(app: FastAPI) -> None:
@@ -47,6 +49,9 @@ def register_routes(app: FastAPI) -> None:
     # --- AI Slice 5: Thread management routes ---
     from ai_routes.threads import router as ai_threads_router
     app.include_router(ai_threads_router)
+    # --- AI Slice 6: Agent routes ---
+    from ai_routes.agent import router as ai_agent_router
+    app.include_router(ai_agent_router)
 
 
 # Middleware
@@ -92,6 +97,17 @@ async def lifespan(app: FastAPI):
         from ai.retrieval.collection import ensure_notes_collection
 
         await ensure_notes_collection()
+    # --- AI Slice 6: LangGraph checkpointer ---
+    try:
+        from ai.memory.checkpointer import init_checkpointer
+        await init_checkpointer()
+        logger.info("LangGraph checkpointer ready")
+    except Exception as e:
+        logger.error(
+            "Checkpointer init failed — agent features degraded",
+            extra={"error": str(e)},
+        )
+        # Non-fatal: /ai/chat continues working, /ai/agent degrades gracefully
 
     yield
 
@@ -102,6 +118,12 @@ async def lifespan(app: FastAPI):
     from ai.retrieval.client import close_async_qdrant_client
 
     await close_async_qdrant_client()
+    # --- AI Slice 6: LangGraph checkpointer cleanup ---
+    try:
+        from ai.memory.checkpointer import close_checkpointer
+        await close_checkpointer()
+    except Exception:
+        pass
 
 
 # App factory (important for testing & scalability)

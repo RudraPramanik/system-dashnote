@@ -15,6 +15,7 @@ from arq.connections import RedisSettings
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.requests import Request
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -143,6 +144,15 @@ def create_app() -> FastAPI:
     register_middlewares(app)
     register_routes(app)
     register_exception_handlers(app)
+
+    Instrumentator(
+        should_group_status_codes=False,
+        should_ignore_untemplated=True,
+    ).instrument(
+        app,
+        metric_namespace="dashnote",
+        metric_subsystem="api",
+    ).expose(app, endpoint="/metrics")
 
     return app
 

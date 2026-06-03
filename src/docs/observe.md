@@ -14,7 +14,7 @@ Short reference for humans and AI agents working on observability in this repo.
 | 1 | JSON logging (`setup_logging` in `main.py` lifespan) | Done |
 | 2 | Langfuse lazy client (`get_langfuse_client`) | Done |
 | 3 | RAG traces in `RagService` | Done |
-| 4 | Prometheus `/metrics` | Not started |
+| 4 | Prometheus `/metrics` | Done |
 | 5–6 | Grafana + dashboards | Not started |
 
 ---
@@ -205,9 +205,88 @@ If keys are missing, the app runs normally; no traces are sent (no-op path).
 
 ---
 
-## Next (Step 4)
+## Step 4 — Prometheus HTTP metrics
 
-- Prometheus `/metrics` on FastAPI (`main.py` only).
+### Dependency
+
+`requirements/base.txt` (Docker image source):
+
+```
+prometheus-fastapi-instrumentator >= 0.11.0
+```
+
+Installed in API image: **7.1.0** (pulls `prometheus-client` transitively).
+
+### Code (`src/main.py` only)
+
+Instrumentation runs at the end of `create_app()`, after middleware, routes, and exception handlers — before the app serves traffic.
+
+**Note (v7 API):** `metric_namespace` and `metric_subsystem` are passed to `.instrument()`, not `Instrumentator()`. Constructor options `should_group_status_codes` and `should_ignore_untemplated` are unchanged.
+
+```python
+from prometheus_fastapi_instrumentator import Instrumentator
+
+# inside create_app(), before return app:
+Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+).instrument(
+    app,
+    metric_namespace="dashnote",
+    metric_subsystem="api",
+).expose(app, endpoint="/metrics")
+```
+
+### Metric prefix
+
+All **HTTP metrics** from the instrumentator use the prefix **`dashnote_api_`** (namespace `dashnote` + subsystem `api`).
+
+Standard process/Python metrics (`python_*`, `process_*`) have no application prefix — that is expected.
+
+### Exact metric names (verified `curl http://localhost:8000/metrics`)
+
+Use these names in Grafana/Prometheus queries (Step 6).
+
+| Role | Exact name | Type |
+|------|------------|------|
+| Request total counter | `dashnote_api_http_requests_total` | counter |
+| Latency histogram (handler labels; SLI dashboards) | `dashnote_api_http_request_duration_seconds` | histogram |
+| Latency histogram (many buckets; percentiles) | `dashnote_api_http_request_duration_highr_seconds` | histogram |
+| Request body size | `dashnote_api_http_request_size_bytes` | summary |
+| Response body size | `dashnote_api_http_response_size_bytes` | summary |
+
+**Step 6 defaults:**
+
+- P95 latency: `histogram_quantile(0.95, sum(rate(dashnote_api_http_request_duration_seconds_bucket[5m])) by (le))`
+- Request rate: `sum(rate(dashnote_api_http_requests_total[5m]))`
+- Error rate (5xx): filter `dashnote_api_http_requests_total` with `status=~"5.."`
+
+Labels on the counter/handler histogram: `handler`, `method`, `status` (status not grouped into families because `should_group_status_codes=False`).
+
+### Verify
+
+```powershell
+cd g:\projects\dashnotesystemv1
+docker compose up -d --build api
+
+# Generate at least one request (optional but populates handler metrics)
+curl.exe -sS http://localhost:8000/health
+
+curl.exe -sS http://localhost:8000/metrics
+```
+
+Expect `# TYPE dashnote_api_http_requests_total counter` and histogram types for `dashnote_api_http_request_duration_*`.
+
+### Rules
+
+- No custom metrics in this step.
+- Do not instrument in routers, services, or `src/observability/`.
+
+---
+
+## Next (Step 5)
+
+- Prometheus scrape config + Compose service (see `observation-blueprint.md`).
 
 ---
 

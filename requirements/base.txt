@@ -85,3 +85,6 @@ psycopg-binary>=3.1.0   # libpq wheels for slim Docker (psycopg3, not psycopg2-b
 
 # --- Observability: Langfuse ---
 langfuse >= 2.60.0,<4
+
+# --- Observability: Prometheus HTTP metrics ---
+prometheus-fastapi-instrumentator >= 0.11.0

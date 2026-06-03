@@ -772,3 +772,4 @@ For any new bounded module under `src/<module>/`:
 If the module stores binary blobs, use `StorageBackend` (`core/storage/client.py`) for bytes and keep SQL rows tenant-scoped with metadata and `storage_key`, following the `files` module pattern.
 
 This keeps all modules consistent with current architecture and minimizes security regression risk.
+<!--  -->

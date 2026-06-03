@@ -15,7 +15,8 @@ Short reference for humans and AI agents working on observability in this repo.
 | 2 | Langfuse lazy client (`get_langfuse_client`) | Done |
 | 3 | RAG traces in `RagService` | Done |
 | 4 | Prometheus `/metrics` | Done |
-| 5–6 | Grafana + dashboards | Not started |
+| 5 | Prometheus + Grafana (Compose) | Done |
+| 6 | Grafana provisioning + dashboards | Not started |
 
 ---
 
@@ -284,9 +285,75 @@ Expect `# TYPE dashnote_api_http_requests_total counter` and histogram types for
 
 ---
 
-## Next (Step 5)
+## Step 5 — Prometheus + Grafana (Docker)
 
-- Prometheus scrape config + Compose service (see `observation-blueprint.md`).
+### Files
+
+| Path | Role |
+|------|------|
+| `monitoring/prometheus.yml` | Scrape `api:8000` at `/metrics`, 15s interval |
+| `docker-compose.yml` | `prometheus` (256m) + `grafana` (512m) services |
+| `monitoring/grafana/provisioning/` | Mount point for Step 6 datasources/dashboards |
+
+### Prometheus config
+
+- **Job:** `dashnote_api` → `http://api:8000/metrics`
+- **Retention:** 7d (`--storage.tsdb.retention.time=7d`)
+- **Image:** `prom/prometheus:v2.51.2`
+
+### Grafana config
+
+- **URL:** http://localhost:3001 (host port `3001` → container `3000`)
+- **Login:** `admin` / password from `GRAFANA_ADMIN_PASSWORD` in `.env` (default `changeme` via Compose)
+- **Sign-up / anonymous:** disabled in Compose env
+- **Image:** `grafana/grafana:10.4.2`
+- **Datasource/dashboards:** Step 6 adds files under `monitoring/grafana/provisioning/`
+
+### Env (`.env.example`)
+
+```env
+GRAFANA_ADMIN_PASSWORD=changeme
+```
+
+Compose maps this to `GF_SECURITY_ADMIN_PASSWORD` on the Grafana service.
+
+### mem_limit note
+
+`mem_limit` on `prometheus` and `grafana` is enforced by Docker Engine directly. `deploy.resources` is only respected in Swarm mode and is not used here.
+
+### Bring up / verify
+
+```powershell
+cd g:\projects\dashnotesystemv1
+docker compose up -d prometheus grafana
+```
+
+Ensure `api` is running (scrape target is the API container hostname `api` on the Compose network):
+
+```powershell
+docker compose up -d api
+```
+
+### Validation gate (confirmed)
+
+| Check | URL / command | Expected |
+|-------|----------------|----------|
+| Prometheus targets | http://localhost:9090/targets | Job **`dashnote_api`**, endpoint `http://api:8000/metrics`, **State: UP** (green) |
+| Targets API | `curl.exe -sS http://localhost:9090/api/v1/targets` | `"health":"up"` for `job":"dashnote_api"` |
+| Grafana UI | http://localhost:3001/login | HTTP 200, login page loads |
+
+On the targets page, **State: UP** means the last scrape succeeded (`health: up` in the API). If the API container is down, the target shows **DOWN** with a last error such as connection refused.
+
+### Rules
+
+- Do not change existing Compose services when editing monitoring stack.
+- Prometheus scrapes the **`api`** service directly (not nginx on :80).
+
+---
+
+## Next (Step 6)
+
+- Grafana datasource + dashboard provisioning (see `observation-blueprint.md`).
 
 ---
 

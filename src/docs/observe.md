@@ -16,7 +16,7 @@ Short reference for humans and AI agents working on observability in this repo.
 | 3 | RAG traces in `RagService` | Done |
 | 4 | Prometheus `/metrics` | Done |
 | 5 | Prometheus + Grafana (Compose) | Done |
-| 6 | Grafana provisioning + dashboards | Not started |
+| 6 | Grafana provisioning + dashboards | Done |
 
 ---
 
@@ -351,13 +351,44 @@ On the targets page, **State: UP** means the last scrape succeeded (`health: up`
 
 ---
 
-## Next (Step 6)
+## Step 6 — Grafana dashboards + docs
 
-- Grafana datasource + dashboard provisioning (see `observation-blueprint.md`).
+**Human guide:** `docs/observability.md` (architecture, validation, troubleshooting).
+
+### Provisioning files
+
+| File | Role |
+|------|------|
+| `monitoring/grafana/provisioning/datasources/prometheus.yml` | Default Prometheus datasource → `http://prometheus:9090` |
+| `monitoring/grafana/provisioning/dashboards/dashboard.yml` | File provider, folder **DashNote** |
+| `monitoring/grafana/provisioning/dashboards/api_overview.json` | **API Overview** — 4 panels |
+
+### Dashboard queries (Step 4 metric names only)
+
+| Panel | Expression |
+|-------|------------|
+| Request Rate | `sum(rate(dashnote_api_http_requests_total[5m]))` |
+| Error Rate (5xx) | `sum(rate(dashnote_api_http_requests_total{status=~"5.."}[5m]))` |
+| P95 Latency | `histogram_quantile(0.95, sum(rate(dashnote_api_http_request_duration_seconds_bucket[5m])) by (le))` |
+| P99 Latency | `histogram_quantile(0.99, sum(rate(dashnote_api_http_request_duration_seconds_bucket[5m])) by (le))` |
+
+Uses `_bucket` because Step 4 confirmed `dashnote_api_http_request_duration_seconds_bucket` on `/metrics`.
+
+### Reload + validate
+
+```powershell
+docker compose restart grafana
+# UI: http://localhost:3001 → DashNote folder → API Overview
+1..10 | ForEach-Object { curl.exe -sS http://localhost:8000/health | Out-Null }
+```
+
+### Images
+
+Pinned `prom/prometheus:v2.51.2` and `grafana/grafana:10.4.2` are the standard lightweight official images; see `docs/observability.md` for alternatives note.
 
 ---
 
-## Stack (target)
+## Stack (live)
 
 ```
 Nginx → FastAPI

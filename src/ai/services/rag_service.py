@@ -19,8 +19,8 @@ Pipeline:
   5. ground citations against retrieved set — never trust LLM chunk IDs blindly
   6. return ChatResult
 
-IMPORT LAW: Only litellm, pydantic, config, ai.retrieval.*, ai.prompts.*, stdlib.
-NO FastAPI. NO RequestContext. NO SQLAlchemy. NO domain repositories.
+IMPORT LAW: litellm, pydantic, config, ai.retrieval.*, ai.prompts.*, observability.tracing, stdlib.
+NO FastAPI. NO RequestContext. NO SQLAlchemy. NO domain repositories. NO langfuse SDK.
 """
 from __future__ import annotations
 
@@ -37,8 +37,35 @@ from pydantic import BaseModel, ConfigDict
 from config import get_settings
 from ai.retrieval.wrapper import WorkspaceVectorSearch, SearchResult, get_workspace_vector_search
 from ai.prompts.rag import RAGAnswer
+from observability.tracing import rag_span, rag_trace
 
 logger = logging.getLogger(__name__)
+
+
+def _litellm_usage_output(response: object) -> dict[str, int | float] | None:
+    """Extract token usage and cost from a LiteLLM completion response when present."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+
+    out: dict[str, int | float] = {}
+    if isinstance(usage, dict):
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            if usage.get(key) is not None:
+                out[key] = usage[key]
+    else:
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            val = getattr(usage, key, None)
+            if val is not None:
+                out[key] = val
+
+    hidden = getattr(response, "_hidden_params", None)
+    if isinstance(hidden, dict):
+        cost = hidden.get("response_cost")
+        if cost is not None:
+            out["cost"] = cost
+
+    return out or None
 
 
 # ── Response models ─────────────────────────────────────────────────────────
@@ -207,80 +234,103 @@ class RagService:
             db=db,
         )
 
-        # ── Step 1: retrieve relevant chunks with RBAC enforcement ──────────
-        retrieved: list[SearchResult] = await self._searcher.search(
-            query_text=question,
-            workspace_id=workspace_id,   # always from JWT — never user-supplied
-            user_id=user_id,
-            role=role,
-            limit=retrieval_limit,
-        )
-
-        if not retrieved:
-            logger.info(
-                "No relevant chunks found",
-                extra={
-                    "workspace_id": workspace_id,
-                    "question_length": len(question),
-                },
-            )
-            fallback_answer = "I could not find relevant information in your notes for this query."
-            if db is not None and resolved_thread_id:
-                from ai.memory.service import ThreadService
-                await ThreadService().persist_turn(
-                    db,
-                    thread_id=resolved_thread_id,
-                    user_question=question,
-                    assistant_answer=fallback_answer,
-                    citations=[],
-                )
-            return ChatResult(
-                answer=fallback_answer,
-                citations=[],
-                chunks_retrieved=0,
-                chunks_used=0,
-                latency_ms=round((time.monotonic() - start) * 1000, 2),
-                thread_id=resolved_thread_id or None,
-            )
-
-        context_chunks: list[dict] = [
+        async with rag_trace(
+            "rag.answer",
             {
-                "chunk_id": result.chunk_id,
-                "note_id": result.note_id,
-                "title": result.title,
-                "text": result.chunk_text,
-                "score": result.score,
-            }
-            for result in retrieved
-        ]
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "role": role,
+            },
+        ) as trace:
+            async with rag_span(trace, "retrieval", {"question": question}) as span:
+                retrieved: list[SearchResult] = await self._searcher.search(
+                    query_text=question,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    role=role,
+                    limit=retrieval_limit,
+                )
+                span.update(output={"chunks_retrieved": len(retrieved)})
 
-        from ai.memory.context_builder import ContextBuilder
-        builder = ContextBuilder()
-        built = builder.build(
-            question=question,
-            history_messages=history_messages,
-            retrieved_chunks=context_chunks,
-        )
+            if not retrieved:
+                logger.info(
+                    "No relevant chunks found",
+                    extra={
+                        "workspace_id": workspace_id,
+                        "question_length": len(question),
+                    },
+                )
+                fallback_answer = (
+                    "I could not find relevant information in your notes for this query."
+                )
+                if db is not None and resolved_thread_id:
+                    from ai.memory.service import ThreadService
+                    await ThreadService().persist_turn(
+                        db,
+                        thread_id=resolved_thread_id,
+                        user_question=question,
+                        assistant_answer=fallback_answer,
+                        citations=[],
+                    )
+                return ChatResult(
+                    answer=fallback_answer,
+                    citations=[],
+                    chunks_retrieved=0,
+                    chunks_used=0,
+                    latency_ms=round((time.monotonic() - start) * 1000, 2),
+                    thread_id=resolved_thread_id or None,
+                )
 
-        # ── Step 4: call Gemini via LiteLLM with structured output ──────────
-        try:
-            response = await litellm.acompletion(
-                model=settings.LLM_MODEL,
-                messages=built.messages,
-                temperature=settings.LLM_TEMPERATURE,
-                max_tokens=settings.LLM_MAX_TOKENS,
-                response_format=RAGAnswer,
-            )
-        except Exception as e:
-            logger.error(
-                "LLM completion failed",
-                extra={
-                    "model": settings.LLM_MODEL,
-                    "workspace_id": workspace_id,
-                    "error": str(e),
-                },
-            )
-            raise
+            context_chunks: list[dict] = [
+                {
+                    "chunk_id": result.chunk_id,
+                    "note_id": result.note_id,
+                    "title": result.title,
+                    "text": result.chunk_text,
+                    "score": result.score,
+                }
+                for result in retrieved
+            ]
+
+            async with rag_span(trace, "context_building", {}) as span:
+                from ai.memory.context_builder import ContextBuilder
+                builder = ContextBuilder()
+                built = builder.build(
+                    question=question,
+                    history_messages=history_messages,
+                    retrieved_chunks=context_chunks,
+                )
+                span.update(
+                    output={
+                        "chunks_used": len(built.context_chunks),
+                        "char_budget": settings.TOKEN_BUDGET_PER_REQUEST,
+                    }
+                )
+
+            async with rag_span(
+                trace, "llm_generation", {"model": settings.LLM_MODEL}
+            ) as span:
+                try:
+                    response = await litellm.acompletion(
+                        model=settings.LLM_MODEL,
+                        messages=built.messages,
+                        temperature=settings.LLM_TEMPERATURE,
+                        max_tokens=settings.LLM_MAX_TOKENS,
+                        response_format=RAGAnswer,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "LLM completion failed",
+                        extra={
+                            "model": settings.LLM_MODEL,
+                            "workspace_id": workspace_id,
+                            "error": str(e),
+                        },
+                    )
+                    raise
+                usage_out = _litellm_usage_output(response)
+                if usage_out:
+                    span.update(output=usage_out)
 
         # Parse the structured response
         raw_content = response.choices[0].message.content
@@ -401,132 +451,156 @@ class RagService:
             db=db,
         )
 
-        # ── Step 1: retrieve relevant chunks (same as answer()) ─────────────
-        retrieved: list[SearchResult] = await self._searcher.search(
-            query_text=question,
-            workspace_id=workspace_id,
-            user_id=user_id,
-            role=role,
-            limit=retrieval_limit,
-        )
+        async with rag_trace(
+            "rag.answer",
+            {
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "role": role,
+            },
+        ) as trace:
+            async with rag_span(trace, "retrieval", {"question": question}) as span:
+                retrieved: list[SearchResult] = await self._searcher.search(
+                    query_text=question,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    role=role,
+                    limit=retrieval_limit,
+                )
+                span.update(output={"chunks_retrieved": len(retrieved)})
 
-        if not retrieved:
-            logger.info(
-                "stream_answer: no relevant chunks found",
-                extra={"workspace_id": workspace_id},
-            )
-            fallback_answer = "I could not find relevant information in your notes for this query."
-            if db is not None and resolved_thread_id:
+            if not retrieved:
+                logger.info(
+                    "stream_answer: no relevant chunks found",
+                    extra={"workspace_id": workspace_id},
+                )
+                fallback_answer = (
+                    "I could not find relevant information in your notes for this query."
+                )
+                if db is not None and resolved_thread_id:
+                    from ai.memory.service import ThreadService
+                    await ThreadService().persist_turn(
+                        db,
+                        thread_id=resolved_thread_id,
+                        user_question=question,
+                        assistant_answer=fallback_answer,
+                        citations=[],
+                    )
+                yield StreamToken(content=fallback_answer)
+                yield StreamMetadata(
+                    citations=[],
+                    chunks_retrieved=0,
+                    chunks_used=0,
+                    latency_ms=round((time.monotonic() - start) * 1000, 2),
+                    thread_id=resolved_thread_id or None,
+                )
+                return
+
+            context_chunks: list[dict] = [
+                {
+                    "chunk_id": result.chunk_id,
+                    "note_id": result.note_id,
+                    "title": result.title,
+                    "text": result.chunk_text,
+                    "score": result.score,
+                }
+                for result in retrieved
+            ]
+
+            async with rag_span(trace, "context_building", {}) as span:
+                from ai.memory.context_builder import ContextBuilder
+                builder = ContextBuilder()
+                built = builder.build(
+                    question=question,
+                    history_messages=history_messages,
+                    retrieved_chunks=context_chunks,
+                )
+                span.update(
+                    output={
+                        "chunks_used": len(built.context_chunks),
+                        "char_budget": settings.TOKEN_BUDGET_PER_REQUEST,
+                    }
+                )
+
+            async with rag_span(
+                trace, "llm_generation", {"model": settings.LLM_MODEL}
+            ) as span:
+                try:
+                    response = await litellm.acompletion(
+                        model=settings.LLM_MODEL,
+                        messages=built.messages,
+                        temperature=settings.LLM_TEMPERATURE,
+                        max_tokens=settings.LLM_MAX_TOKENS,
+                        stream=True,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "LLM streaming failed",
+                        extra={
+                            "model": settings.LLM_MODEL,
+                            "workspace_id": workspace_id,
+                            "error": str(e),
+                        },
+                    )
+                    raise
+
+                streamed_answer_parts: list[str] = []
+                last_chunk: object | None = None
+                async for chunk in response:
+                    last_chunk = chunk
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        streamed_answer_parts.append(delta)
+                        yield StreamToken(content=delta)
+
+                usage_out = _litellm_usage_output(last_chunk) if last_chunk else None
+                if usage_out:
+                    span.update(output=usage_out)
+
+            full_answer = "".join(streamed_answer_parts)
+
+            # ── Step 6: ground citations and yield metadata ──────────────────
+            citations: list[Citation] = [
+                Citation(
+                    note_id=c["note_id"],
+                    chunk_id=c["chunk_id"],
+                    title=c["title"],
+                    relevance_score=c["score"],
+                )
+                for c in built.context_chunks[:5]
+            ]
+
+            if db is not None and resolved_thread_id and full_answer:
                 from ai.memory.service import ThreadService
                 await ThreadService().persist_turn(
                     db,
                     thread_id=resolved_thread_id,
                     user_question=question,
-                    assistant_answer=fallback_answer,
-                    citations=[],
+                    assistant_answer=full_answer,
+                    citations=[c.model_dump() for c in citations],
                 )
-            yield StreamToken(content=fallback_answer)
-            yield StreamMetadata(
-                citations=[],
-                chunks_retrieved=0,
-                chunks_used=0,
-                latency_ms=round((time.monotonic() - start) * 1000, 2),
-                thread_id=resolved_thread_id or None,
-            )
-            return
 
-        context_chunks: list[dict] = [
-            {
-                "chunk_id": result.chunk_id,
-                "note_id": result.note_id,
-                "title": result.title,
-                "text": result.chunk_text,
-                "score": result.score,
-            }
-            for result in retrieved
-        ]
+            latency_ms = round((time.monotonic() - start) * 1000, 2)
 
-        from ai.memory.context_builder import ContextBuilder
-        builder = ContextBuilder()
-        built = builder.build(
-            question=question,
-            history_messages=history_messages,
-            retrieved_chunks=context_chunks,
-        )
-
-        # ── Step 4: stream LiteLLM completion ───────────────────────────────
-        try:
-            response = await litellm.acompletion(
-                model=settings.LLM_MODEL,
-                messages=built.messages,
-                temperature=settings.LLM_TEMPERATURE,
-                max_tokens=settings.LLM_MAX_TOKENS,
-                stream=True,
-            )
-        except Exception as e:
-            logger.error(
-                "LLM streaming failed",
+            logger.info(
+                "stream_answer complete",
                 extra={
-                    "model": settings.LLM_MODEL,
                     "workspace_id": workspace_id,
-                    "error": str(e),
+                    "chunks_retrieved": len(retrieved),
+                    "chunks_used": len(built.context_chunks),
+                    "citations_count": len(citations),
+                    "model": settings.LLM_MODEL,
+                    "latency_ms": latency_ms,
                 },
             )
-            raise
 
-        # ── Step 5: yield token events as they arrive ────────────────────────
-        streamed_answer_parts: list[str] = []
-        async for chunk in response:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                streamed_answer_parts.append(delta)
-                yield StreamToken(content=delta)
-
-        full_answer = "".join(streamed_answer_parts)
-
-        # ── Step 6: ground citations and yield metadata ──────────────────────
-        # Citations from retrieval — never from LLM token parsing
-        citations: list[Citation] = [
-            Citation(
-                note_id=c["note_id"],
-                chunk_id=c["chunk_id"],
-                title=c["title"],
-                relevance_score=c["score"],
+            yield StreamMetadata(
+                citations=citations,
+                chunks_retrieved=len(retrieved),
+                chunks_used=len(built.context_chunks),
+                latency_ms=latency_ms,
+                thread_id=resolved_thread_id or None,
             )
-            for c in built.context_chunks[:5]   # top 5 retrieved chunks as citations
-        ]
-
-        if db is not None and resolved_thread_id and full_answer:
-            from ai.memory.service import ThreadService
-            await ThreadService().persist_turn(
-                db,
-                thread_id=resolved_thread_id,
-                user_question=question,
-                assistant_answer=full_answer,
-                citations=[c.model_dump() for c in citations],
-            )
-
-        latency_ms = round((time.monotonic() - start) * 1000, 2)
-
-        logger.info(
-            "stream_answer complete",
-            extra={
-                "workspace_id": workspace_id,
-                "chunks_retrieved": len(retrieved),
-                "chunks_used": len(built.context_chunks),
-                "citations_count": len(citations),
-                "model": settings.LLM_MODEL,
-                "latency_ms": latency_ms,
-            },
-        )
-
-        yield StreamMetadata(
-            citations=citations,
-            chunks_retrieved=len(retrieved),
-            chunks_used=len(built.context_chunks),
-            latency_ms=latency_ms,
-            thread_id=resolved_thread_id or None,
-        )
 
 
 # ── Module-level singleton ───────────────────────────────────────────────────

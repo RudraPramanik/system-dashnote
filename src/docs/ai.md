@@ -1,6 +1,6 @@
 ## DashNoteSystem AI
 
-Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (`notes_chunks`, dim **3072**). API enqueues ARQ jobs; worker indexes vectors. Platform stack: `src/docs/system.md`. Import laws: `src/docs/rules.md`.
+Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (`notes_chunks`, dim **3072**). API enqueues ARQ jobs; worker indexes vectors. Platform stack: `src/docs/system.md`. Import laws: `src/docs/rules.md`. Observability: `docs/observability.md`, `src/docs/observe.md`.
 
 ### Architecture laws (enforce in all AI code)
 
@@ -21,6 +21,7 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | Agent tools | **`get_note_tools()`** (`ai/tools/note_tools.py`) — `StructuredTool` + Pydantic `args_schema`; service layer only |
 | Note mutations (agent) | **`NoteService`** (`notes/service.py`) — `db_session_var` set by graph tool node before create/update |
 | Checkpointer | **`init_checkpointer()`** / **`get_graph_checkpointer()`** (`ai/memory/checkpointer.py`) — psycopg3, separate from SQLAlchemy pool |
+| LLM tracing | **`observability.tracing`** (`rag_trace`, `rag_span`) only — **no** Langfuse SDK in `src/ai/*` |
 | Infra | Append-only to `settings`, `.env`, `docker-compose.yml`, `requirements*.txt` |
 
 ---
@@ -178,8 +179,12 @@ python -m ai.retrieval.indexer
 | `TOKEN_BUDGET_PER_REQUEST` | `8000` | Char budget for retrieved context sent to LLM |
 | `LANGSMITH_API_KEY` | `None` | Wired for Slice 10 |
 | `LANGSMITH_PROJECT` | `dashnote` | LangSmith project name |
-| `LANGSMITH_TRACING_ENABLED` | `False` | Enable in Slice 10 |
+| `LANGSMITH_TRACING_ENABLED` | `False` | Inactive; Langfuse is the active trace path |
 | `langsmith_enabled` | property | `bool(LANGSMITH_API_KEY) and LANGSMITH_TRACING_ENABLED` |
+| `LANGFUSE_PUBLIC_KEY` | `""` | Langfuse project public key |
+| `LANGFUSE_SECRET_KEY` | `""` | Langfuse secret key |
+| `LANGFUSE_HOST` | `https://cloud.langfuse.com` | EU cloud; US: `https://us.cloud.langfuse.com` |
+| `langfuse_enabled` | property | Both Langfuse keys non-empty |
 
 ### Module layout — prompts + service
 
@@ -187,8 +192,9 @@ python -m ai.retrieval.indexer
 |------|------|
 | `ai/prompts/rag.py` | `RAGAnswer` (structured output), `RAG_SYSTEM_INSTRUCTION`, `build_rag_user_message()` |
 | `ai/services/rag_service.py` | `RagService.answer()` — retrieve → budget → LLM → ground citations → `ChatResult` |
+| `observability/tracing.py` | `rag_trace` / `rag_span` wrap `answer()` and `stream_answer()` (Langfuse observations when enabled) |
 
-**Import law**: `rag_service.py` imports only `litellm`, `pydantic`, `config`, `ai.retrieval.*`, `ai.prompts.*`, stdlib — no FastAPI, SQLAlchemy, or `RequestContext`.
+**Import law**: `rag_service.py` imports only `litellm`, `pydantic`, `config`, `ai.retrieval.*`, `ai.prompts.*`, `observability.tracing`, stdlib — no FastAPI, SQLAlchemy, `RequestContext`, or Langfuse SDK.
 
 ### HTTP — `POST /ai/chat` (Sub-step 3.2)
 
@@ -277,7 +283,36 @@ Validated with `docker compose up -d --build api` and fresh `POST /auth/register
 
 ---
 
-## Slice 6 (in progress) — LangGraph workspace assistant
+## Observability (complete) — Langfuse + Prometheus
+
+RAG paths are instrumented without changing public API contracts. Full stack: `docs/observability.md`.
+
+### Langfuse (RAG traces)
+
+| Item | Detail |
+|------|--------|
+| Enable | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` in `.env` |
+| Client | `get_langfuse_client()` — lazy; **not** called from `main.py` lifespan |
+| Instrumentation | `RagService.answer()` / `stream_answer()` via `rag_trace` → spans `retrieval`, `context_building`, `llm_generation` |
+| Root observation | `rag.answer` with metadata `workspace_id`, `user_id`, `role` |
+| Agent tools | `search_notes` / `summarize_workspace` call `RagService.answer()` — traces follow the same path |
+
+**Validate:** `POST /ai/chat` with JWT + keys → Langfuse UI shows `rag.answer` and three child spans (checklist in `src/docs/observe.md` Step 3).
+
+### Prometheus metrics (HTTP)
+
+Exposed at `GET /metrics` (`prometheus-fastapi-instrumentator` in `main.py`). Prefix **`dashnote_api_`**.
+
+| Metric | Use in Grafana |
+|--------|----------------|
+| `dashnote_api_http_requests_total` | Request rate, 5xx error rate |
+| `dashnote_api_http_request_duration_seconds_bucket` | P95/P99 via `histogram_quantile` |
+
+Compose **`prometheus`** scrapes `api:8000`; **`grafana`** dashboard **API Overview** under folder **DashNote**.
+
+---
+
+## Slice 6 (complete) — LangGraph workspace assistant
 
 `POST /ai/chat` and `POST /ai/chat/stream` are **unchanged** — fast RAG path. Slice 6 adds **`POST /ai/agent`** and **`POST /ai/agent/stream`** (wired in sub-steps 6.3–6.4).
 
@@ -477,6 +512,8 @@ python -m ai.services.rag_service   # import/schema validation (no LLM call)
 
 ### Related docs
 
-- `src/docs/system.md` — API wiring, Compose, short AI summary
-- `src/docs/lld.md` — §4.12 retrieval LLD
+- `src/docs/system.md` — API wiring, Compose, observability summary
+- `src/docs/lld.md` — §4.12–4.19 (retrieval, RAG, agent, observability)
+- `src/docs/observe.md` — agent-oriented observability steps
+- `docs/observability.md` — human runbook (validation, troubleshooting)
 - `src/docs/rules.md` — dependency direction

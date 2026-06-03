@@ -28,6 +28,15 @@ It also mounts **`core.health`** for orchestration:
 
 - `GET /health` — deep probe: async `SELECT 1` on PostgreSQL and Redis `PING` when Redis is configured (`REDIS_ENABLED` and `REDIS_URL`). Returns **200** when all required dependencies respond, **503** otherwise, with `timestamp`, `latency_ms`, and a `dependencies` map (`database`, and `redis` when applicable).
 
+**Lifespan** (`lifespan` in `src/main.py`):
+
+- **`setup_logging()`** — first call; JSON logs to stdout (see **Observability**).
+- ARQ Redis pool, Qdrant collection bootstrap, LangGraph checkpointer init (non-fatal on failure).
+
+**Metrics** (end of `create_app()`):
+
+- `GET /metrics` — Prometheus HTTP metrics via `prometheus-fastapi-instrumentator` (prefix `dashnote_api_*`). Scraped by the Compose `prometheus` service, not Nginx.
+
 ### Rate limiting (Nginx + FastAPI)
 Traffic is limited at two layers: **per IP at the edge** (Nginx) and **per identity in the app** (FastAPI + Redis).
 
@@ -236,6 +245,21 @@ Recommended operational practices:
 - **Thread linkage**: route resolves/validates thread via `ThreadService`/`ThreadRepository`, then passes `{"configurable": {"thread_id": thread_id}}` so LangGraph checkpoints align with product `ai_threads.id`.
 - **Coexistence rule**: `POST /ai/chat` and `POST /ai/chat/stream` remain unchanged as fast direct RAG endpoints; `/ai/agent*` is additive for multi-step tool-calling.
 
+### Observability (logging, Langfuse, Prometheus, Grafana)
+Implemented per `src/docs/blueprint/observation-blueprint.md` (complete). **Human runbook:** `docs/observability.md`. **Agent context:** `src/docs/observe.md`.
+
+| Layer | Location | Behavior |
+|-------|----------|----------|
+| JSON logs | `src/observability/logging.py` | `setup_logging()` only in lifespan; structured stdout |
+| LLM traces | `src/observability/tracing.py` | `rag_trace` / `rag_span` in `RagService` only; lazy Langfuse client |
+| Langfuse client | `src/observability/langfuse_client.py` | `get_langfuse_client()` — never called from lifespan |
+| HTTP metrics | `src/main.py` | `Instrumentator` → `/metrics`, namespace `dashnote`, subsystem `api` |
+| Scrape + dashboards | `monitoring/prometheus.yml`, `monitoring/grafana/provisioning/` | Compose services `prometheus` (:9090), `grafana` (:3001) |
+
+**Env (`.env`):** `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`; `GRAFANA_ADMIN_PASSWORD` for Grafana login. LangSmith settings exist but are inactive; Langfuse is the active LLM trace path.
+
+**Grafana:** folder **DashNote** → dashboard **API Overview** (request rate, 5xx rate, P95/P99 latency using `dashnote_api_*` metrics from Step 4).
+
 ### Where to extend next
 If you add new note-like resources or collaboration features:
 
@@ -303,12 +327,17 @@ docker compose up -d --build
 - **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, application rate limits, optional cache-aside for read-heavy routes, ARQ job queue, and embedding vector cache keys `embed:v1:*`).
 - **worker**: same image as `api`; runs `python -m arq src.worker.main.WorkerSettings`. Processes `embed_note_task` (chunk, embed, upsert/delete in Qdrant via `NoteVectorIndexer` when `QDRANT_URL` is set). Logs `qdrant_indexed`, `qdrant_points`, embedding metrics. Depends on `db`, `redis`, and `qdrant`.
 - **qdrant**: vector store for dev (`6333`, collection `notes_chunks`, dim 3072). Set `QDRANT_URL=http://qdrant:6333` in Compose; host dev uses `http://127.0.0.1:6333`. Production: Qdrant Cloud via `.env`.
+- **prometheus**: `prom/prometheus:v2.51.2`, host **9090**, scrapes `api:8000/metrics` every 15s, TSDB retention **7d**, `mem_limit: 256m`.
+- **grafana**: `grafana/grafana:10.4.2`, host **3001** → container 3000; admin password from `GRAFANA_ADMIN_PASSWORD`; provisions datasource + **DashNote/API Overview** dashboard; `mem_limit: 512m`.
 - **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.
 
 #### Verify
 ```powershell
 docker compose ps
 curl.exe -sS --max-time 10 http://127.0.0.1/health
+curl.exe -sS http://localhost:8000/metrics | findstr dashnote_api
+curl.exe -sS http://localhost:9090/api/v1/targets
+# Grafana: http://localhost:3001 (admin + GRAFANA_ADMIN_PASSWORD)
 docker compose logs --tail 50 api
 docker compose logs --tail 50 nginx
 docker compose logs --tail 50 migrate

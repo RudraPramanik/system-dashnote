@@ -353,7 +353,7 @@ On the targets page, **State: UP** means the last scrape succeeded (`health: up`
 
 ## Step 6 — Grafana dashboards + docs
 
-**Human guide:** `docs/observability.md` (architecture, validation, troubleshooting).
+**Human guide:** [`docs/observability.md`](../../docs/observability.md) (architecture, validation, troubleshooting). Also referenced from `src/docs/system.md`, `src/docs/ai.md`, and `src/docs/lld.md` §4.19.
 
 ### Provisioning files
 

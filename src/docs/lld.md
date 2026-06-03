@@ -15,10 +15,13 @@ In scope:
 - AI chat RAG (Slice 3): `ai/prompts/rag.py`, `ai/services/rag_service.py`, `ai_routes/chat.py`
 - AI chat streaming (Slice 4): `RagService.stream_answer()`, `POST /ai/chat/stream` SSE (`ai_routes/chat.py`)
 - AI conversation memory (Slice 5): `ai_memory/*` ORM, `ai/memory/*` services, `ContextBuilder`, thread-aware RAG
+- AI LangGraph agent (Slice 6): `ai/workflows/*`, `ai/tools/*`, `ai_routes/agent.py`, checkpointer lifecycle
+- Observability: `src/observability/*` (JSON logging, Langfuse RAG traces), Prometheus `/metrics`, Compose `prometheus` + `grafana` + `monitoring/*` provisioning
 
 Out of scope:
 - Frontend design
-- Cloud-specific provisioning beyond the provided `docker-compose.yml` and `nginx/default.conf`
+- Cloud-specific provisioning beyond the provided `docker-compose.yml`, `nginx/default.conf`, and `monitoring/` stack
+- Loki, Tempo, Jaeger, OpenTelemetry Collector
 - Non-implemented runtime components
 
 ## 2) Design principles used
@@ -57,11 +60,13 @@ File bytes live in a `StorageBackend` implementation (`core/storage/client.py`: 
 
 ### 3.1 Entry point and composition
 `src/main.py` creates the FastAPI app and registers:
+- **Lifespan**: `setup_logging()` (JSON stdout), ARQ pool, Qdrant collection bootstrap, LangGraph checkpointer init/shutdown (checkpointer failure is non-fatal).
 - `ProxyHeadersMiddleware` (Uvicorn) so `request.client` reflects the proxied client when `X-Forwarded-For` is trusted.
 - CORS middleware
 - **Global application rate limit** dependency (`enforce_global_rate_limit`): Redis fixed-window counter per `user_id` (from JWT when present) or client IP; skipped when Redis is unavailable.
 - module routers
 - global exception handler
+- **Prometheus**: `Instrumentator` at end of `create_app()` → `GET /metrics` (`dashnote_api_*` metrics; scraped by Compose `prometheus`, not Nginx).
 
 Registered routers:
 - `core.health` → `GET /health` (deep probe: `SELECT 1`, Redis `PING` when Redis is configured; **503** if a required dependency fails)
@@ -72,8 +77,9 @@ Registered routers:
 - `/workspaces`
 - `/workspaces/members`
 - `/ai` → `GET /ai/test-search` (internal semantic search validation; `ai_gateway/search.py`)
-- `/ai` → `POST /ai/chat` (RAG chat MVP; `ai_routes/chat.py`)
-- `/ai` → `POST /ai/chat/stream` (SSE streaming RAG; `ai_routes/chat.py`)
+- `/ai` → `POST /ai/chat`, `POST /ai/chat/stream` (`ai_routes/chat.py`)
+- `/ai` → `GET /ai/threads`, `GET /ai/threads/{thread_id}/messages`, `DELETE /ai/threads/{thread_id}` (`ai_routes/threads.py`)
+- `/ai` → `POST /ai/agent`, `POST /ai/agent/stream` (`ai_routes/agent.py`)
 
 ### 3.2 Request flow (protected endpoint)
 1. When behind Nginx, the edge sets `X-Forwarded-For` / `X-Real-IP`; `ProxyHeadersMiddleware` adjusts ASGI `client` so downstream code (including rate limiting) sees the original host.
@@ -664,6 +670,60 @@ POST /ai/agent/stream  (SSE)
 
 **Slice 6.4 gate** (sign-off): checkpointer startup log present; `/ai/chat` unaffected; `/ai/agent` returns `thread_id` + `steps_taken`; streaming emits token/tool/done SSE frames; cross-workspace thread reuse blocked (400); iteration guard enforced by `AGENT_MAX_ITERATIONS`.
 
+### 4.19 Observability — logging, Langfuse, Prometheus, Grafana
+
+```
+FastAPI request
+    ├─► JSON log lines (stdout)     setup_logging() in lifespan only
+    ├─► GET /metrics                Instrumentator → dashnote_api_* counters/histograms
+    └─► RagService path
+            └─► rag_trace / rag_span → get_langfuse_client() (lazy, optional)
+
+Prometheus (Compose)
+    scrape api:8000/metrics every 15s  (monitoring/prometheus.yml)
+    └─► Grafana (Compose :3001)
+            datasource: http://prometheus:9090
+            dashboard: DashNote / API Overview (provisioned JSON)
+```
+
+| Module | Responsibility |
+|--------|----------------|
+| `observability/logging.py` | `setup_logging()`, `get_logger()` — JSON schema to stdout |
+| `observability/langfuse_client.py` | `get_langfuse_client()` singleton; never raises; not called from lifespan |
+| `observability/tracing.py` | `rag_trace`, `rag_span` — async context managers; no-op when Langfuse disabled |
+| `observability/__init__.py` | Public exports for logging + Langfuse + tracing |
+| `ai/services/rag_service.py` | Only RAG instrumentation site (wraps `answer()` / `stream_answer()`) |
+| `main.py` | Lifespan calls `setup_logging()`; `Instrumentator` exposes `/metrics` |
+| `config.py` | `LANGFUSE_*`, `langfuse_enabled`; `LANGSMITH_*` present but inactive |
+| `monitoring/prometheus.yml` | Job `dashnote_api` → `api:8000`, path `/metrics`, 15s interval, 7d retention |
+| `monitoring/grafana/provisioning/` | Datasource + **API Overview** dashboard (4 panels on Step 4 metric names) |
+
+**Langfuse trace contract** (when keys set):
+
+| Observation | Children / outputs |
+|-------------|-------------------|
+| `rag.answer` | metadata: `workspace_id`, `user_id`, `role` |
+| `retrieval` | `chunks_retrieved`, `latency_ms` |
+| `context_building` | `chunks_used`, `char_budget`, `latency_ms` |
+| `llm_generation` | token fields, optional `cost`, `latency_ms` |
+
+**Prometheus metric contract** (HTTP only; prefix `dashnote_api_`):
+
+| Metric | Type | Dashboard use |
+|--------|------|----------------|
+| `dashnote_api_http_requests_total` | counter | `rate(...[5m])`, 5xx filter `status=~"5.."` |
+| `dashnote_api_http_request_duration_seconds_bucket` | histogram | `histogram_quantile(0.95|0.99, sum(rate(..._bucket[5m])) by (le))` |
+
+**Import / wiring invariants**
+
+- Langfuse SDK only in `langfuse_client.py` and `tracing.py`; `RagService` imports `observability.tracing` only.
+- No custom metrics in routers/services; no Loki/Tempo/Jaeger/OTel Collector in Compose.
+- Prometheus scrapes **`api`** directly (port 8000 on Compose network), not Nginx :80.
+
+**Documentation:** `docs/observability.md` (runbook), `src/docs/observe.md` (agent steps).
+
+**Observability gate** (sign-off): JSON logs from `docker compose logs api`; `/metrics` exposes `dashnote_api_*`; Prometheus target `dashnote_api` UP; Grafana **API Overview** shows data after API traffic; Langfuse `rag.answer` trace after `/ai/chat` when keys configured.
+
 ## 5) Data model and persistence design
 
 ### 5.1 Core entities (implemented)
@@ -692,8 +752,13 @@ Repositories currently perform:
 This keeps write semantics explicit and local to repository methods.
 
 ## 6) Dependency and responsibility matrix
-- `main.py`: app composition, module registration, `ProxyHeadersMiddleware`, global rate limit dependency
+- `main.py`: app composition, lifespan (`setup_logging`, ARQ, Qdrant, checkpointer), module registration, `ProxyHeadersMiddleware`, global rate limit dependency, Prometheus `Instrumentator` → `/metrics`
 - `nginx/default.conf` (Compose): edge `limit_req` per `$binary_remote_addr`, reverse proxy to `api:8000`, tracing/proxy headers
+- `monitoring/prometheus.yml` (Compose): scrape config for `dashnote_api` job
+- `monitoring/grafana/provisioning/` (Compose): Prometheus datasource + provisioned dashboards
+- `observability/logging.py`: JSON logging setup
+- `observability/langfuse_client.py`: optional Langfuse client
+- `observability/tracing.py`: RAG trace/spans for Langfuse
 - `core/database/session.py`: async engine/session factory + DI dependency
 - `core/redis/client.py`: shared async Redis client (`get_async_redis`) when `REDIS_URL` is set
 - `core/redis/redis.py`: JWT refresh + access blacklist token store (`get_token_store`)
@@ -725,6 +790,10 @@ This keeps write semantics explicit and local to repository methods.
 - `ai/memory/service.py`: `ThreadService` — thread lifecycle + persist turn
 - `ai/memory/context_builder.py`: `ContextBuilder` — LiteLLM messages array + budget
 - `ai_routes/chat.py`: `POST /ai/chat` (JSON), `POST /ai/chat/stream` (SSE) — HTTP adapters (ctx freeze + `Depends(get_session)`)
+- `ai_routes/threads.py`: thread list, messages, soft delete
+- `ai_routes/agent.py`: `POST /ai/agent`, `POST /ai/agent/stream` — LangGraph HTTP adapters
+- `ai/workflows/workspace_assistant.py`: compiled LangGraph workspace assistant
+- `ai/tools/note_tools.py`: agent `StructuredTool` definitions
 - `<module>/router.py`: HTTP orchestration
 - `<module>/service.py`: domain/business rules (where present)
 - `<module>/repository.py`: DB access + persistence

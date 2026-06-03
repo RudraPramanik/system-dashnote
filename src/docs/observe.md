@@ -1,166 +1,149 @@
-# DashNote Observability
+# DashNote Observability (agent context)
 
-Implementation and operations guide for platform observability. Canonical location for this documentation is **`src/docs/observe.md`**.
+Short reference for humans and AI agents working on observability in this repo.
 
-## Status
-
-| Step | Feature | Status |
-|------|---------|--------|
-| 1 | Structured JSON logging | **Done** |
-| 2 | Langfuse client (lazy) | Planned |
-| 3 | RAG tracing (`RagService`) | Planned |
-| 4 | Prometheus `/metrics` | Planned |
-| 5 | Docker Prometheus + Grafana | Planned |
-| 6 | Grafana dashboards + runbooks | Planned |
+**Code layout:** `src/observability/`  
+**Blueprint (full steps):** `src/docs/blueprint/observation-blueprint.md`
 
 ---
 
-## Step 1 — Structured JSON logging
+## Progress
 
-### Architecture
+| Step | What | Status |
+|------|------|--------|
+| 1 | JSON logging (`setup_logging` in `main.py` lifespan) | Done |
+| 2 | Langfuse lazy client (`get_langfuse_client`) | Done |
+| 3 | RAG traces in `RagService` | Not started |
+| 4 | Prometheus `/metrics` | Not started |
+| 5–6 | Grafana + dashboards | Not started |
 
-```
-API process (uvicorn → src.main:app)
-    │
-    ├─ lifespan startup: setup_logging()  ← only call site
-    │
-    └─ root logger + JsonFormatter (stdout)
-           ↑ propagate
-           uvicorn / uvicorn.error / uvicorn.access
-```
+---
 
-All application modules may keep using `logging.getLogger(__name__)` today; new code should prefer `from observability import get_logger`. Both receive the same JSON formatter after `setup_logging()` runs.
+## Rules (do not break)
 
-### Files
+1. **`setup_logging()`** — only called in `src/main.py` lifespan (first line).
+2. **`get_langfuse_client()`** — lazy only; **never** call from `main.py` lifespan (Step 3 tracing layer calls it).
+3. **Langfuse SDK** — only imported in `src/observability/langfuse_client.py` (and later `tracing.py`). Not in routers, repositories, or `src/ai/*` services yet.
+4. **Imports:** `from config import get_settings` — never `from src.config`.
+5. **LangSmith** — config exists; inactive. Langfuse is the active LLM trace path.
 
-| Path | Role |
+---
+
+## Step 1 — JSON logging
+
+- **Use:** `from observability import get_logger, setup_logging`
+- **Schema:** `timestamp`, `level`, `logger`, `message` (+ optional `extra`: `request_id`, `workspace_id`, `user_id`, `route`, `latency_ms`)
+- **Verify:** `docker compose logs --tail 20 api` → each line is JSON
+
+---
+
+## Step 2 — Langfuse client
+
+### Config (`src/config.py`)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `LANGFUSE_PUBLIC_KEY` | `""` | Project public key (`pk-lf-...`) |
+| `LANGFUSE_SECRET_KEY` | `""` | Secret key (`sk-lf-...`) |
+| `LANGFUSE_HOST` | `https://cloud.langfuse.com` | EU cloud; US: `https://us.cloud.langfuse.com` |
+
+**Enabled when:** both keys are non-empty → `settings.langfuse_enabled` is `True`.
+
+Copy keys from Langfuse UI → Settings → API Keys. Put them in `.env` (not committed).
+
+### Code
+
+| File | Role |
 |------|------|
-| `src/observability/logging.py` | `JsonFormatter`, `setup_logging()`, `get_logger()` |
-| `src/observability/__init__.py` | Public exports |
-| `src/main.py` | Calls `setup_logging()` as the **first** line of `lifespan` |
+| `src/observability/langfuse_client.py` | `get_langfuse_client()` — lazy singleton, never raises |
+| `src/observability/__init__.py` | exports `get_langfuse_client` |
 
-### Import law (`logging.py`)
+**Behaviour:**
 
-- **Allowed:** `logging`, `json`, `datetime`, `sys` (stdlib only)
-- **Forbidden:** FastAPI, SQLAlchemy, `config`, domain modules
+- First call initializes once (`_initialized` flag).
+- Missing keys → `None` + **warning** log (app keeps running).
+- Bad keys / network error on init → `None` + **warning** log.
+- Success → returns `Langfuse` instance + **info** log.
 
-### JSON log schema
+### Log messages (logger: `observability.langfuse_client`)
 
-Each line is one JSON object:
+| Case | Level | Message |
+|------|-------|---------|
+| Keys missing | WARNING | `Langfuse disabled: LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are not both set` |
+| Init failed | WARNING | `Langfuse client init failed; tracing unavailable` (+ `extra.error`, `extra.host`) |
+| Init OK | INFO | `Langfuse client initialized` (+ `extra.host`) |
 
-| Field | Required | Source |
-|-------|----------|--------|
-| `timestamp` | Yes | UTC ISO 8601 |
-| `level` | Yes | Log level name |
-| `logger` | Yes | Logger name (e.g. `ai.services.rag_service`) |
-| `message` | Yes | Log message |
-| `request_id` | No | `extra={"request_id": "..."}` |
-| `workspace_id` | No | `extra={"workspace_id": "..."}` |
-| `user_id` | No | `extra={"user_id": "..."}` |
-| `route` | No | `extra={"route": "..."}` |
-| `latency_ms` | No | `extra={"latency_ms": 123}` |
-| `exception` | No | Present when `exc_info=True` |
+After Step 1 JSON logging is active, these appear as JSON lines with the same `message` string.
 
-Example:
-
-```json
-{"timestamp": "2026-06-03T12:00:00.123456+00:00", "level": "INFO", "logger": "main", "message": "LangGraph checkpointer ready"}
-```
-
-With context:
-
-```python
-from observability import get_logger
-
-logger = get_logger(__name__)
-logger.info(
-    "rag_service.answer complete",
-    extra={
-        "workspace_id": workspace_id,
-        "latency_ms": 842.5,
-    },
-)
-```
-
-### Behaviour
-
-- **Idempotent:** `setup_logging()` is a no-op after the first successful (or fallback) configuration.
-- **Never raises:** On failure, falls back to `logging.basicConfig` with a plain text format so the API still starts.
-- **Uvicorn:** Clears handlers on `uvicorn`, `uvicorn.error`, and `uvicorn.access` and sets `propagate=True` so access and server logs use the same JSON formatter as the app.
-- **Worker:** ARQ worker (`src/worker/main.py`) keeps its own text formatter until a later step; API and worker log formats may differ in Compose.
-
-### Wiring rule
-
-`setup_logging()` must **only** be invoked from `src/main.py` inside the FastAPI `lifespan` context manager, as the first statement before ARQ, Qdrant, or checkpointer init.
-
----
-
-## Validation — Step 1
-
-### Docker (recommended)
-
-From the repository root:
-
-```powershell
-docker compose up -d --build api
-docker compose logs --tail 30 api
-```
-
-Expect lines that parse as JSON with keys `timestamp`, `level`, `logger`, `message`. Startup should include a JSON line for checkpointer readiness or degradation from logger `main`.
-
-Trigger traffic and confirm access logs are JSON:
-
-```powershell
-curl.exe -sS http://127.0.0.1/health
-docker compose logs --tail 10 api
-```
-
-### Local uvicorn (optional)
+### Verify module loads
 
 ```powershell
 cd g:\projects\dashnotesystemv1
 $env:PYTHONPATH = "src"
-python -m uvicorn src.main:app --host 127.0.0.1 --port 8000
+pip install "langfuse>=2.60.0,<4" -q
+
+# Import only (no client call)
+python -c "from observability.langfuse_client import get_langfuse_client; print('PASS: import ok')"
 ```
 
-In another terminal:
+### Verify missing keys
 
 ```powershell
-curl.exe -sS http://127.0.0.1:8000/health
+$env:LANGFUSE_PUBLIC_KEY = ""
+$env:LANGFUSE_SECRET_KEY = ""
+python -c "
+import importlib
+import observability.langfuse_client as lc
+importlib.reload(lc)
+c = lc.get_langfuse_client()
+assert c is None
+print('PASS: client is None when disabled')
+"
 ```
 
-Stdout from the API process should show JSON lines after lifespan runs.
+Expect WARNING with message containing `Langfuse disabled`.
 
-### Quick JSON parse check (PowerShell)
+### Verify with keys (optional)
+
+Set real keys in `.env` or env vars, then:
 
 ```powershell
-docker compose logs --tail 5 api | ForEach-Object {
-  if ($_ -match '^\{') { $_ | ConvertFrom-Json | Format-List timestamp, level, logger, message }
-}
+python -c "
+from observability import setup_logging, get_langfuse_client
+setup_logging()
+client = get_langfuse_client()
+print('client:', type(client).__name__ if client else None)
+"
 ```
 
-If `ConvertFrom-Json` succeeds, the formatter is active.
+Expect INFO `Langfuse client initialized` and a `Langfuse` instance.
+
+### Docker
+
+Rebuild after `requirements/base.txt` change:
+
+```powershell
+docker compose build api
+docker compose up -d api
+```
+
+API must start without calling `get_langfuse_client()` at boot.
 
 ---
 
-## Troubleshooting — logging
+## Next (Step 3)
 
-| Symptom | Likely cause | Action |
-|---------|----------------|--------|
-| Plain text logs, not JSON | Lifespan not run yet, or logs from before `setup_logging()` | Hit `/health` or wait for startup; check lines after "Application startup complete" |
-| Mixed formats | Worker container vs API container | Inspect `api` service only for Step 1 gate |
-| `setup_logging` not applied | Import error before lifespan | Check `docker compose logs api` for tracebacks on boot |
-| Missing `workspace_id` in JSON | Caller did not pass `extra=` | Expected until routes/middleware attach context (future step) |
+- Add `src/observability/tracing.py` (`rag_trace`, `rag_span`).
+- Instrument `src/ai/services/rag_service.py` only.
+- `get_langfuse_client()` first used from tracing layer, not lifespan.
 
 ---
 
-## Planned stack (Steps 2–6)
+## Stack (target)
 
 ```
-Client → Nginx → FastAPI (JSON logs, /metrics)
-                    │
-                    ├─ Langfuse (LLM/RAG traces)
-                    └─ Prometheus → Grafana
+Nginx → FastAPI
+          ├─ JSON logs (stdout)
+          ├─ Langfuse (RAG/agent traces)
+          └─ Prometheus → Grafana
 ```
-
-Details will be appended to this document as each step lands. Blueprint reference: `src/docs/blueprint/observation-blueprint.md`.

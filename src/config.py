@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: str = "dashnote"
     LANGSMITH_TRACING_ENABLED: bool = False
 
+    # ── Observability: Langfuse (lazy client; tracing in Step 3) ───
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+
     # ── AI Slice 5: Memory ──────────────────────────────────────────
     AI_THREAD_MESSAGE_LIMIT: int = 20   # recent messages loaded into context
 
@@ -109,6 +114,11 @@ class Settings(BaseSettings):
     def langsmith_enabled(self) -> bool:
         """True when LangSmith tracing is configured and active."""
         return bool(self.LANGSMITH_API_KEY) and self.LANGSMITH_TRACING_ENABLED
+
+    @property
+    def langfuse_enabled(self) -> bool:
+        """True when Langfuse API keys are configured."""
+        return bool(self.LANGFUSE_PUBLIC_KEY and self.LANGFUSE_SECRET_KEY)
 
     @property
     def psycopg_database_url(self) -> str:

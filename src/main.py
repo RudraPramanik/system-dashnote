@@ -1,6 +1,5 @@
 import os
 import sys
-import logging
 
 # Ensure `src/` is on sys.path so imports like `from auth...` work when running:
 #   uvicorn src.main:app
@@ -20,6 +19,7 @@ from starlette.requests import Request
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from config import settings
+from observability import get_logger, setup_logging
 from core.security.rate_limit import enforce_global_rate_limit
 from auth.router import router as auth_router
 from files.router import router as files_router
@@ -30,7 +30,7 @@ from workspaces.router import router as workspaces_router
 from core.health import router as health_router
 from ai_gateway.search import router as ai_search_router
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Routers
 def register_routes(app: FastAPI) -> None:
@@ -82,6 +82,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
+
     # --- AI Slice 1: ARQ pool ---
     from config import get_settings as _get_settings
 

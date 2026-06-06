@@ -1,6 +1,17 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+
+remote_write:
+  - url: ${GRAFANA_CLOUD_REMOTE_WRITE_URL}
+    basic_auth:
+      username: ${GRAFANA_CLOUD_USER}
+      password: ${GRAFANA_CLOUD_TOKEN}
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards: 200
+      capacity: 2500
+
 scrape_configs:
   - job_name: dashnote_api
     static_configs:

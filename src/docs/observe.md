@@ -188,7 +188,7 @@ curl.exe -sS -X POST http://127.0.0.1/ai/chat/stream `
   --no-buffer
 ```
 
-Replace `<TOKEN>` with a valid workspace JWT (same as Slice 3/4 gates in `src/docs/ai.md`).
+Replace `<TOKEN>` with a valid workspace JWT.
 
 ### Langfuse UI checklist
 
@@ -353,7 +353,7 @@ On the targets page, **State: UP** means the last scrape succeeded (`health: up`
 
 ## Step 6 — Grafana dashboards + docs
 
-**Human guide:** [`docs/observability.md`](../../docs/observability.md) (architecture, validation, troubleshooting). Also referenced from `src/docs/system.md`, `src/docs/ai.md`, and `src/docs/lld.md` §4.19.
+**Human guide:** [`docs/observability.md`](../../docs/observability.md) (architecture, validation, troubleshooting). Also referenced from `src/docs/system.md`, `src/docs/ai.md`, and `src/docs/lld.md` §4.16.
 
 ### Provisioning files
 

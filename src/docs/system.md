@@ -1,363 +1,135 @@
 ## DashNoteSystem backend (system workflow & routing)
 
 ### Overview
-This project is a **multi-tenant Notes backend** built with **FastAPI + async SQLAlchemy**. Authentication is handled by the `auth` service (JWT), and every other service uses the JWT to build a **workspace-aware** `RequestContext`:
 
-- `user_id` (from JWT `sub`)
-- `workspace_id` (from JWT `wid`)
-- `role` (from JWT `role`)
+Multi-tenant **Notes backend**: **FastAPI + async SQLAlchemy**. JWT auth builds workspace-aware **`RequestContext`**:
 
-All tenant-scoped data access is performed through repositories that filter by `workspace_id`.
+- `user_id` (JWT `sub`)
+- `workspace_id` (JWT `wid`)
+- `role` (JWT `role`)
+
+All tenant-scoped data flows through repositories filtered by `workspace_id`. JWT details: `src/docs/auth.md`.
 
 ### Entry point: `src/main.py`
-`src/main.py` creates the FastAPI app and registers routers:
 
-- **Reverse-proxy headers**: `uvicorn.middleware.proxy_headers.ProxyHeadersMiddleware` (trusted hosts `*`) so `request.client` reflects the original client when `X-Forwarded-For` is set by Nginx.
-- **Application rate limits**: a global FastAPI dependency (`core.security.rate_limit.enforce_global_rate_limit`) enforces Redis-backed fixed-window limits when `REDIS_URL` is configured (see **Rate limiting** below).
-- `src/auth/router.py` (prefix: `/auth`)
-- `src/notebooks/router.py` (prefix: `/notebooks`)
-- `src/notes/router.py` (prefix: `/notes`)
-- `src/files/router.py` (mounted at `/files` via `src/main.py`)
-- `src/workspaces/router.py` (prefix: `/workspaces`)
-- `src/membership/router.py` (prefix: `/workspaces/members`)
-- `src/ai_gateway/search.py` (prefix: `/ai` — e.g. `GET /ai/test-search` for semantic note search validation)
-- `src/ai_routes/chat.py` (prefix: `/ai` — `POST /ai/chat` RAG assistant; Slice 3; `POST /ai/chat/stream` SSE; Slice 4)
-- `src/ai_routes/threads.py` (prefix: `/ai` — `GET /ai/threads`, `GET /ai/threads/{thread_id}/messages`, `DELETE /ai/threads/{thread_id}`; Slice 5.3)
+Registers routers and global dependencies:
 
-It also mounts **`core.health`** for orchestration:
+| Router | Prefix | Notes |
+|--------|--------|-------|
+| `core.health` | `/health` | DB + Redis probe |
+| `auth/router.py` | `/auth` | Register, login, tokens |
+| `files/router.py` | `/files` | Upload, download, metadata |
+| `notebooks/router.py` | `/notebooks` | |
+| `notes/router.py` | `/notes` | Enqueues embed jobs when `ai_enabled` |
+| `workspaces/router.py` | `/workspaces` | |
+| `membership/router.py` | `/workspaces/members` | |
+| `ai_gateway/search.py` | `/ai` | `GET /ai/test-search` |
+| `ai_routes/chat.py` | `/ai` | `POST /ai/chat`, `POST /ai/chat/stream` |
+| `ai_routes/threads.py` | `/ai` | Thread list, messages, delete |
+| `ai_routes/agent.py` | `/ai` | `POST /ai/agent`, `POST /ai/agent/stream` |
 
-- `GET /health` — deep probe: async `SELECT 1` on PostgreSQL and Redis `PING` when Redis is configured (`REDIS_ENABLED` and `REDIS_URL`). Returns **200** when all required dependencies respond, **503** otherwise, with `timestamp`, `latency_ms`, and a `dependencies` map (`database`, and `redis` when applicable).
+**Middleware:** `ProxyHeadersMiddleware` (trusted `*`) for `X-Forwarded-For`; global `enforce_global_rate_limit` when Redis configured.
 
-**Lifespan** (`lifespan` in `src/main.py`):
+**Lifespan:** `setup_logging()` → ARQ pool → Qdrant collection bootstrap → LangGraph checkpointer init (non-fatal on failure).
 
-- **`setup_logging()`** — first call; JSON logs to stdout (see **Observability**).
-- ARQ Redis pool, Qdrant collection bootstrap, LangGraph checkpointer init (non-fatal on failure).
+**Metrics:** `GET /metrics` — Prometheus via `prometheus-fastapi-instrumentator` (`dashnote_api_*`); scraped by Compose `prometheus`, not Nginx.
 
-**Metrics** (end of `create_app()`):
-
-- `GET /metrics` — Prometheus HTTP metrics via `prometheus-fastapi-instrumentator` (prefix `dashnote_api_*`). Scraped by the Compose `prometheus` service, not Nginx.
+**Health:** `GET /health` — `SELECT 1` + Redis `PING` when configured. **200** ok / **503** degraded; returns `timestamp`, `latency_ms`, `dependencies`.
 
 ### Rate limiting (Nginx + FastAPI)
-Traffic is limited at two layers: **per IP at the edge** (Nginx) and **per identity in the app** (FastAPI + Redis).
 
-#### Layer 1 — Nginx (`nginx/default.conf`)
-- Compose runs **`nginx:alpine`** in front of the **`api`** service (host port **80** → container **80**).
-- `limit_req_zone $binary_remote_addr zone=api_per_ip:10m rate=10r/s;` with `limit_req zone=api_per_ip burst=20 nodelay;` on proxied traffic.
-- Nginx forwards to `http://api:8000`, sets **`X-Real-IP`**, appends the client to **`X-Forwarded-For`**, forwards **`X-Forwarded-Proto`**, and sets **`X-Request-ID`** (`$request_id`) for tracing.
+**Layer 1 — Nginx** (`nginx/default.conf`): host **80** → `api:8000`; `limit_req` 10r/s burst 20; sets `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Request-ID`.
 
-#### Layer 2 — FastAPI (`core/security/rate_limit.py`)
-- **`RateLimiter`**: fixed-window counters in Redis (`INCR` + `EXPIRE` on first hit in the window). Keys follow `rate_limit:{scope}:{user_id|ip}:{window_index}` so each window is isolated without scanning.
-- **Redis**: `core/redis/deps.py` (`get_redis_connection`) supplies the async client. When Redis is not configured, checks are skipped (fail-open) so local/dev without Redis keeps working.
-- **Identity**: `get_optional_current_context` in `core/security/dependency.py` uses the same access-token validation path as `get_current_context` (via `_context_from_access_token`). If a valid access token is present, the counter is keyed by **`user_id`**; otherwise by **client IP** (after `ProxyHeadersMiddleware`).
-- **Global limit**: **100 requests per minute** per identity, applied as an app-level dependency in `main.py`.
-- **`POST /auth/login`**: stricter limit **5 requests per minute** per identity (`enforce_auth_login_rate_limit` on the route).
-- **429 responses**: `HTTPException` with status **429** and a **`Retry-After`** header (seconds), derived from Redis `TTL` when possible.
+**Layer 2 — FastAPI** (`core/security/rate_limit.py`): Redis fixed-window counters; keyed by `user_id` (valid JWT) or client IP. Global **100/min**; `POST /auth/login` **5/min**. **429** + `Retry-After`. Fail-open when Redis unset.
 
-### Request lifecycle (workflow)
-Most endpoints follow the same flow:
+### Request lifecycle
 
-1. **Client authenticates** using `POST /auth/login` and obtains an `access_token`.
-2. Client calls any protected route with:
-   - header: `Authorization: Bearer <access_token>`
-3. Router dependency `core.security.dependency.get_current_context` decodes the JWT and returns `core.security.context.RequestContext`.
-4. Router uses:
-   - `ctx.workspace_id` to scope repository queries
-   - `ctx.user_id` to enforce ownership rules (when needed)
-   - `ctx.role` to enforce RBAC (via `core.security.permissions.require_roles(...)` or per-entity permission helpers)
-5. Repository executes an **async SQLAlchemy** query and returns DB models.
-6. Router maps models to response schemas (Pydantic).
+1. `POST /auth/login` → `access_token`
+2. Protected routes: `Authorization: Bearer <token>`
+3. `get_current_context` → `RequestContext`
+4. Router scopes by `ctx.workspace_id`, ownership by `ctx.user_id`, RBAC by `ctx.role` (`require_roles` or entity helpers)
+5. Repository → async SQLAlchemy
+6. Router → Pydantic response
 
-### Auth-to-context injection (how it works everywhere)
-The shared injection mechanism is:
+Injection: `core/security/dependency.py` + `auth/dependency.py` (`oauth2_scheme`). Role-gated: `Depends(require_roles("owner", "admin"))`.
 
-- `core/security/dependency.py` provides `get_current_context(ctx=Depends(oauth2_scheme))`
-- `auth/dependency.py` defines `oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")`
+### Core modules (summary)
 
-Routers typically add:
+| Area | Key paths |
+|------|-----------|
+| DB session | `core/database/session.py` — `get_session()` |
+| Tenant filter | `core/database/utils.py` — `tenant_filter()`; `WorkspaceTenantMixin` in `mixins.py` |
+| Security | `core/security/context.py`, `dependency.py`, `permissions.py`, `rate_limit.py` |
+| Redis | `core/redis/client.py`, `deps.py` — shared client; JWT state (`auth.md`); cache-aside on notes/notebooks reads |
+| Storage | `core/storage/client.py`, `utils.py` — see **Storage system** below |
 
-- `ctx: RequestContext = Depends(get_current_context)`
-- OR role-gated: `ctx: RequestContext = Depends(require_roles("owner", "admin"))`
+**Redis cache-aside:** keys prefixed with JWT `workspace_id`; notes list variant (`staff` vs `u{user_id}`). Invalidation via generation counters (`app:cache:gen:notes:{wid}`), not key scans. TTL `CACHE_TTL_SECONDS` (default 60). Disabled Redis → cache miss, API unchanged.
 
-### Dependency map (which files depend on what)
+### Tenancy & RBAC
 
-#### App wiring
-- `src/main.py`
-  - depends on `config.settings`
-  - registers `ProxyHeadersMiddleware` and `CORSMiddleware`
-  - applies global `Depends(enforce_global_rate_limit)` on the FastAPI app
-  - registers `core.health` (`GET /health`) before feature routers
-  - depends on each module’s `router` (`auth/router.py`, `notes/router.py`, etc.)
+- JWT `wid` → `RequestContext.workspace_id`; entities use `workspace_id` column
+- Roles: `owner`, `admin`, `member`
+- Router: `require_roles(...)`; entity logic: `notes/permissions.py`, `files/permissions.py`
 
-#### Health / readiness
-- `core/health.py`
-  - `check_database(db)` runs `SELECT 1` via SQLAlchemy
-  - `check_redis(redis)` runs `PING` when Redis is required
-  - `GET /health` uses `Depends(get_db)` and `Depends(get_redis)` (`core/redis/deps.py`)
-- `core/database/session.py`
-  - depends on `config.settings.DATABASE_URL`
-  - provides `get_session()` used by routers via `Depends(get_session)`
+**Notes:** owner/admin CRUD any note; member CRUD own notes, view all public + own private.
 
-- `core/database/utils.py`
-  - provides `tenant_filter(model, workspace_id)`
-  - used by tenant-scoped repositories (e.g. `notes/repository.py`, `notebooks/repository.py`)
-
-- `core/database/mixins.py`
-  - provides `TimestampMixin`, `WorkspaceTenantMixin`, etc.
-
-#### Tenant scoping and RBAC
-- `core/security/context.py`
-  - defines `RequestContext(user_id, workspace_id, role)`
-
-- `core/security/dependency.py`
-  - decodes JWT and builds `RequestContext`
-  - optional bearer: `get_optional_current_context` (same decode path as `get_current_context`, used for rate-limit identity without forcing auth on public routes)
-
-- `core/security/rate_limit.py`
-  - `RateLimiter` (fixed window) + `enforce_global_rate_limit` / `enforce_auth_login_rate_limit`
-
-- `core/security/permissions.py`
-  - provides `require_roles(*allowed_roles)` dependency factory
-
-#### Module specifics
-- `src/auth/*`
-  - issues JWTs in `auth/router.py`
-  - stores/validates users and memberships in `auth/models.py` and `auth/service.py`
-
-- `src/workspaces/*`
-  - reads/updates `workspaces.models.Workspace` using `RequestContext.workspace_id`
-
-- `src/membership/*`
-  - uses existing `auth.models.WorkspaceUser` table (`workspace_users`) to list/invite/update/remove members
-
-- `src/files/*`
-  - tenant-scoped file metadata, upload/download orchestration, and permissions; details in **Storage system** below.
-
-- `src/notes/*`
-  - note ownership + visibility rules live in `notes/permissions.py`
-  - note persistence lives in `notes/repository.py`
-
-#### Redis (shared client, auth state, and cache-aside)
-Redis is optional at runtime (`REDIS_ENABLED`, `REDIS_URL` in `config.settings`). When configured, the process uses **one shared async Redis client** (`core/redis/client.py`: `get_async_redis`) for:
-- **JWT operational state** (refresh-token presence, access-token logout blacklist) via `get_token_store()` / `core/redis/redis.py` (see `src/docs/auth.md`).
-- **Application reads** using **cache-aside** in selected routers (`GET /notes`, `GET /notes/{id}`, `GET /notebooks/`).
-
-Tenant safety for cached reads:
-- Keys are always prefixed with `workspace_id` from `RequestContext` (JWT `wid`), plus a **list variant** for notes (`staff` for owner/admin vs `u{user_id}` for members) so member-visible subsets cannot leak across users.
-- **Invalidation** does not scan keys: each workspace keeps monotonic **generation counters** (`INCR` on `app:cache:gen:notes:{wid}` and `app:cache:gen:notebooks:{wid}`). Any note write bumps the notes generation; notebook create bumps the notebooks generation, so stale list/detail entries age out immediately when Redis is enabled.
-
-FastAPI wiring (no change to how JWT context is produced):
-- `core/redis/deps.py` exposes `get_redis_connection` (alias `get_redis`), and `get_workspace_cache`. Routers that need caching add `cache: WorkspaceRedisCache = Depends(get_workspace_cache)` alongside existing `get_current_context` / `get_session` dependencies. FastAPI deduplicates nested `Depends(get_current_context)` per request.
-- **TTL**: cached JSON entries use `settings.CACHE_TTL_SECONDS` (default 60) as the Redis `SETEX` lifetime; generations provide correctness, TTL bounds recovery if a bump is missed.
-
-When Redis is disabled, `WorkspaceRedisCache` receives `redis=None`: every read is a cache miss and mutations still succeed (no-op bump), preserving existing API behavior without Redis.
-
-### Tenancy model (current implementation)
-Multi-tenancy is implemented using:
-
-- JWT claim `wid` -> `RequestContext.workspace_id`
-- DB columns:
-  - tenant-aware entities include `workspace_id` (via `WorkspaceTenantMixin`)
-
-Tenant filtering is standardized through:
-
-- `core/database/utils.tenant_filter(...)`
-
-### RBAC rules (current implementation)
-Roles come from `RequestContext.role` which is populated from JWT.
-
-Common meaning:
-
-- `owner`: workspace creator / highest privileges
-- `admin`: admin privileges for the workspace
-- `member`: standard member privileges
-
-General enforcement patterns:
-
-- Router-level role enforcement: `core.security.permissions.require_roles(...)`
-- Entity-specific permission logic: `src/notes/permissions.py`
-
-Notes RBAC/visibility (important):
-
-- `owner/admin`: can CRUD any note in the workspace
-- `member`:
-  - can CRUD only their own notes
-  - can view:
-    - all public notes (`is_private = false`)
-    - their own private notes (`created_by == ctx.user_id`)
+**Files:** owner/admin see all; member sees non-private + own (`created_by`).
 
 ### Storage system (current implementation)
-Binary objects are stored **outside PostgreSQL** behind a small backend abstraction; the database holds **metadata**, **`workspace_id`**, and fields used for RBAC—same tenancy story as notes and notebooks.
 
-**Backend selection**
-- `core/storage/client.py`: `get_storage()` reads `config.settings.STORAGE_BACKEND` (`local`, `minio`, or `r2`) and returns a `StorageBackend` (`upload`, `download`, `delete`, `presigned_url`).
-- **Local** (`LocalStorageBackend`): files under `LOCAL_STORAGE_PATH`; `presigned_url` returns `None` so clients typically use the app’s download route.
-- **MinIO / R2** (`MinIOStorageBackend`, `R2StorageBackend`): S3-compatible endpoints via `aioboto3` / `boto3`; `presigned_url` may be used for direct client downloads depending on router/service behavior.
+Bytes in object storage; metadata in PostgreSQL with `workspace_id`.
 
-**Upload validation**
-- `core/storage/utils.py`: MIME sniffing (`detect_mime_type`), `validate_file`, allowed extensions, and size limits so uploads stay consistent with detected type.
+- `get_storage()` — `STORAGE_BACKEND`: `local`, `minio`, or `r2`
+- Local: `LOCAL_STORAGE_PATH`; no presigned URL → app download route
+- MinIO/R2: S3-compatible via `aioboto3`/`boto3`
+- Upload validation: `core/storage/utils.py` (MIME sniff, size, extensions)
+- Note attachments: `core/database/associations.py` (`note_attachments` only — no cross-package imports)
 
-**Tenancy**
-- `files.models.File` uses `WorkspaceTenantMixin`; repositories scope queries with `workspace_id` like other tenant modules (`tenant_filter` pattern).
+### AI features
 
-**RBAC and visibility**
-- `files/permissions.py`: `owner` and `admin` see all files in the workspace; `member` sees non-private files and any file they created (`created_by` matches `ctx.user_id`).
+All AI module layout, RBAC filters, HTTP contracts, and agent laws: **`src/docs/ai.md`**. Import/modification laws: **`src/docs/rules.md`**.
 
-**Note ↔ file association**
-- `core/database/associations.py` defines `note_attachments` only; `notes/` and `files/` do not import each other’s packages beyond this shared table.
+Surface summary: embeddings → Qdrant (`notes_chunks`); RAG at `/ai/chat*`; threads at `/ai/threads*`; LangGraph agent at `/ai/agent*`. Fast RAG and agent paths coexist.
 
-**HTTP surface**
-- `files/router.py` is mounted in `main.py` at prefix `/files` (upload, list, get, streamed download, patch, delete, attach to note, admin-oriented listing as implemented in code).
+### Observability
 
-### Production-grade notes / operational concerns
-Recommended operational practices:
+JSON logs (`observability/logging.py`), Langfuse RAG traces (`observability/tracing.py`), Prometheus `/metrics`, Compose `prometheus` (:9090) + `grafana` (:3001, folder **DashNote**).
 
-- Treat `core/security/dependency.py` as the **single source of truth** for JWT claim names (`sub`, `wid`, `role`).
-- Keep permission logic out of routers:
-  - routers should call dedicated helpers (for example `notes/permissions.py`, `files/permissions.py`).
-- When adding new tenant-scoped entities:
-  - include a `workspace_id` column (use `WorkspaceTenantMixin`)
-  - always scope queries via repository + `tenant_filter`.
-- For file-like features, keep bytes in object storage and metadata in SQL; extend `StorageBackend` or settings rather than embedding secrets in code.
+**Details:** `src/docs/observe.md` (agent) · `docs/observability.md` (human runbook)
 
-### AI vector search (Slice 2)
-- Indexed note chunks live in Qdrant collection `notes_chunks` (see `src/docs/ai.md`).
-- **Search** is only through `ai.retrieval.wrapper.WorkspaceVectorSearch` with `build_rbac_filter()` (`ai.retrieval.filters`) — same rules as `notes/permissions.py`. `workspace_id` is always from JWT `RequestContext`, never from query parameters.
-- **Indexing** (worker) uses `ai.retrieval.workspace_search.WorkspaceVectorIndex` + `NoteVectorIndexer`.
-- Diagnostic route: `GET /ai/test-search` (`ai_gateway/search.py`) — requires `ai_enabled` and `qdrant_enabled`; quality gate: relevance score > 0.4, workspace isolation verified.
+### Operational practices
 
-### AI chat and thread APIs (Slice 3–5.3)
-- Product route: `POST /ai/chat` (`ai_routes/chat.py`) — JWT required; router freezes `RequestContext` to plain strings before calling `RagService.answer()`. Optional body field `thread_id` continues a conversation; response includes `thread_id` for follow-up turns.
-- Streaming route: `POST /ai/chat/stream` (`ai_routes/chat.py`) — same auth/freeze pattern; `StreamingResponse` with `text/event-stream`; `Cache-Control: no-cache` and `X-Accel-Buffering: no` so Nginx does not buffer the full response before forwarding. Final `metadata` event includes `thread_id`.
-- Thread routes: `GET /ai/threads`, `GET /ai/threads/{thread_id}/messages`, `DELETE /ai/threads/{thread_id}` (`ai_routes/threads.py`) for conversation management in UI.
-- Core engine: `ai/services/rag_service.py` — `answer()` (JSON) and `stream_answer()` (SSE events); no HTTP imports — reusable from LangGraph tools in Slice 6. Accepts optional `thread_id` and `db` (injected from route layer only).
-- Memory ORM: `ai_memory/models.py` — `ai_threads`, `ai_messages` (Alembic migration `d3339fc62797`).
-- Memory data access: `ai_memory/repository.py` — stateless `ThreadRepository` (workspace filter on every query).
-- Memory services: `ai/memory/service.py` (`ThreadService`), `ai/memory/context_builder.py` (`ContextBuilder` — history + retrieval budget).
-- Prompts: `ai/prompts/rag.py` only (one system instruction for both streaming and non-streaming).
+- JWT claim names (`sub`, `wid`, `role`): single source in `core/security/dependency.py`
+- Permission logic in dedicated helpers, not routers
+- New tenant entities: `workspace_id` + repository + `tenant_filter`
+- File features: bytes in storage, metadata in SQL
 
-### AI agent system path (Slice 6.1–6.4)
-- **Checkpointer** (`ai/memory/checkpointer.py`): LangGraph `AsyncPostgresSaver` on dedicated psycopg3 async connection; initialized in `main.py` lifespan startup and closed in shutdown. Failure is non-fatal (agent degrades gracefully).
-- **Graph state + workflow** (`ai/workflows/state.py`, `ai/workflows/workspace_assistant.py`): lazy-compiled singleton graph (`get_workspace_assistant()`), LiteLLM `tools=` calling, tool loop routing with `AGENT_MAX_ITERATIONS` guard.
-- **Agent tools** (`ai/tools/note_tools.py`, `ai/tools/schemas.py`): four `StructuredTool` definitions (`search_notes`, `create_note`, `update_note`, `summarize_workspace`); mutation tools use `db_session_var`.
-- **Agent routes** (`ai_routes/agent.py`): mounted under `/ai`:
-  - `POST /ai/agent` (final answer response model `AgentResponse`)
-  - `POST /ai/agent/stream` (SSE event stream from `graph.astream_events`)
-- **Thread linkage**: route resolves/validates thread via `ThreadService`/`ThreadRepository`, then passes `{"configurable": {"thread_id": thread_id}}` so LangGraph checkpoints align with product `ai_threads.id`.
-- **Coexistence rule**: `POST /ai/chat` and `POST /ai/chat/stream` remain unchanged as fast direct RAG endpoints; `/ai/agent*` is additive for multi-step tool-calling.
+### Extending the codebase
 
-### Observability (logging, Langfuse, Prometheus, Grafana)
-Implemented per `src/docs/blueprint/observation-blueprint.md` (complete). **Human runbook:** `docs/observability.md`. **Agent context:** `src/docs/observe.md`.
+New module under `src/<name>/`: `models.py`, `schemas.py`, `repository.py`, `router.py`, permission helper if needed. Auth injection: `src/docs/auth.md`.
 
-| Layer | Location | Behavior |
-|-------|----------|----------|
-| JSON logs | `src/observability/logging.py` | `setup_logging()` only in lifespan; structured stdout |
-| LLM traces | `src/observability/tracing.py` | `rag_trace` / `rag_span` in `RagService` only; lazy Langfuse client |
-| Langfuse client | `src/observability/langfuse_client.py` | `get_langfuse_client()` — never called from lifespan |
-| HTTP metrics | `src/main.py` | `Instrumentator` → `/metrics`, namespace `dashnote`, subsystem `api` |
-| Scrape + dashboards | `monitoring/prometheus.yml`, `monitoring/grafana/provisioning/` | Compose services `prometheus` (:9090), `grafana` (:3001) |
-
-**Env (`.env`):** `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`; `GRAFANA_ADMIN_PASSWORD` for Grafana login. LangSmith settings exist but are inactive; Langfuse is the active LLM trace path.
-
-**Grafana:** folder **DashNote** → dashboard **API Overview** (request rate, 5xx rate, P95/P99 latency using `dashnote_api_*` metrics from Step 4).
-
-### Where to extend next
-If you add new note-like resources or collaboration features:
-
-- create a new module under `src/<module_name>/`
-- implement:
-  - `models.py`, `schemas.py`, `repository.py`, `router.py`
-  - permission helper(s) if RBAC is non-trivial
-- inject auth as described in `src/docs/auth.md`.
-
-### Automated testing (files module)
-Tests under `tests/files/` exercise the files flow with **pytest** and **pytest-asyncio**. Storage and IO boundaries (`aioboto3`, `pathlib.Path`, and related calls) are **mocked** so the suite does not require a live PostgreSQL instance or real object storage.
-
-**Rate limiting (`core/security/rate_limit.py`)** is covered by `tests/core/test_rate_limit.py` (mocked async Redis).
-
-**Fixtures and environment**
-- `tests/conftest.py` wires `Settings` (database URL and JWT secret placeholders) for imports and dependencies used by file tests.
-- On hosts without **libmagic** (typical on Windows), conftest provides a minimal **`magic` import stub** so `core.storage.utils` loads; production Docker images install **`libmagic1`** for real MIME detection.
-
-**Command** (repository root):
+### Testing
 
 ```powershell
-python -m pytest tests/files -q
+python -m pytest tests/files -q          # files module (mocked storage)
+python -m pytest tests/core/test_rate_limit.py -q
 ```
 
-**Pytest configuration**
-- `pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`, `addopts = --import-mode=importlib` (avoids duplicate `test_*.py` basenames across folders).
+`pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`. Windows dev: conftest stubs `magic` if libmagic missing; Docker uses `libmagic1`.
 
-### Smoke testing (file upload, live API)
-Use this after the stack is healthy (`docker compose up -d --build`, then `GET /health` → HTTP **200** with `"status":"ok"` and dependency details) to validate `files/router.py` end-to-end.
-
-**Steps**
-1. `POST /auth/register` (or login) to obtain `access_token`.
-2. `POST /files/upload` as `multipart/form-data` with file part name `file`, form fields `is_private` and optional `description`.
-3. Use an allowed extension consistent with sniffed MIME (example: `.txt` with `text/plain` body).
-
-**Example** (repo root; requires `httpx`):
+### Docker Compose
 
 ```powershell
-python -c "import uuid, httpx; b='http://127.0.0.1'; e=f'test_{uuid.uuid4().hex[:8]}@exame.com'; t=httpx.post(f'{b}/auth/register', json={'email':e,'password':'Test123!','workspace_name':'ws'}, timeout=30).json()['access_token']; r=httpx.post(f'{b}/files/upload', headers={'Authorization':f'Bearer {t}'}, files={'file':('requirement.txt',b'req line\n','text/plain')}, data={'is_private':'false','description':'smoke'}, timeout=30); print(r.status_code, r.json())"
-```
-
-For **local uvicorn** without Docker (direct port **8000**), use `http://127.0.0.1:8000` as the base URL; Nginx and edge limits apply only when using the Compose stack as documented.
-
-**Expected success**
-- HTTP **200** and JSON including `id`, `name`, `mime_type`, `size_bytes`, and `download_url` (often a relative `/files/{id}/download` when the backend does not return a presigned URL).
-
-### Docker Compose (Nginx, API, database, Redis, migrations)
-Compose starts PostgreSQL and Redis, runs **`alembic upgrade head`** once via a **`migrate`** service after the database is healthy, then starts the **API** (listens on **8000** inside the Compose network). **`nginx`** publishes host port **80** and reverse-proxies to **`api:8000`** with the rate limit and tracing headers described under **Rate limiting**.
-
-#### Prerequisites
-- Docker Desktop running
-- Host ports **80**, **5432**, and **6379** free (or change mappings in compose)
-
-#### Start the stack
-From the repository root:
-
-```powershell
-docker compose up -d --build
-```
-
-**Services**
-- **nginx**: `nginx:alpine`, binds **80:80**, mounts `nginx/default.conf` (edge `limit_req` + proxy headers including `X-Request-ID`).
-- **api**: built from `Dockerfile`, including **`libmagic1`** for `python-magic` during upload validation; also mapped **`8000:8000`** on the host for direct access to `/docs` and debugging (bypasses Nginx edge limits). Uses `env_file: .env` plus Compose `environment` overrides (`DATABASE_URL`, `ARQ_REDIS_URL`, etc.) so `settings.ai_enabled` and ARQ enqueue work in Docker. Prefer **`http://127.0.0.1/`** (port **80**) when testing the full proxy + Nginx `limit_req` path. After recreating `api`, restart **nginx** if `/health` returns 502 (stale upstream).
-- **db**: `postgres:16-alpine` with healthcheck.
-- **redis**: `redis:7-alpine` (JWT token state when the API is given `REDIS_URL`, application rate limits, optional cache-aside for read-heavy routes, ARQ job queue, and embedding vector cache keys `embed:v1:*`).
-- **worker**: same image as `api`; runs `python -m arq src.worker.main.WorkerSettings`. Processes `embed_note_task` (chunk, embed, upsert/delete in Qdrant via `NoteVectorIndexer` when `QDRANT_URL` is set). Logs `qdrant_indexed`, `qdrant_points`, embedding metrics. Depends on `db`, `redis`, and `qdrant`.
-- **qdrant**: vector store for dev (`6333`, collection `notes_chunks`, dim 3072). Set `QDRANT_URL=http://qdrant:6333` in Compose; host dev uses `http://127.0.0.1:6333`. Production: Qdrant Cloud via `.env`.
-- **prometheus**: `prom/prometheus:v2.51.2`, host **9090**, scrapes `api:8000/metrics` every 15s, TSDB retention **7d**, `mem_limit: 256m`.
-- **grafana**: `grafana/grafana:10.4.2`, host **3001** → container 3000; admin password from `GRAFANA_ADMIN_PASSWORD`; provisions datasource + **DashNote/API Overview** dashboard; `mem_limit: 512m`.
-- **migrate**: one-shot job; exits after `alembic upgrade head` succeeds.
-
-#### Verify
-```powershell
+docker compose up -d --build    # start
 docker compose ps
-curl.exe -sS --max-time 10 http://127.0.0.1/health
-curl.exe -sS http://localhost:8000/metrics | findstr dashnote_api
-curl.exe -sS http://localhost:9090/api/v1/targets
-# Grafana: http://localhost:3001 (admin + GRAFANA_ADMIN_PASSWORD)
-docker compose logs --tail 50 api
-docker compose logs --tail 50 nginx
-docker compose logs --tail 50 migrate
-docker compose logs --tail 50 worker
+curl.exe -sS http://127.0.0.1/health
+docker compose down             # stop
+docker compose down -v          # reset volumes
+docker compose run --rm migrate # migrations only
 ```
 
-**Health check**: expect HTTP **200** and JSON including `status`, `timestamp`, `latency_ms`, and `dependencies` (each dependency reports `reachable`; Redis may include `configured: false` when Redis is not enabled in settings).
+**Services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed jobs), `qdrant` (:6333), `prometheus` (:9090), `grafana` (:3001), `migrate` (one-shot Alembic).
 
-#### Stop
-```powershell
-docker compose down
-```
+Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recreating `api`, restart `nginx` if `/health` returns 502.
 
-#### Reset including volumes
-```powershell
-docker compose down -v
-```
-
-#### Re-run migrations only
-```powershell
-docker compose run --rm migrate
-```
-
+**File upload smoke test:** register → `POST /files/upload` multipart (`file`, `is_private`, optional `description`). Expect **200** with `id`, `mime_type`, `download_url`.

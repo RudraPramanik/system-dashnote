@@ -13,7 +13,7 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | `src/worker/*` | Only `config`, `ai.*`, `shared.*` — no raw Qdrant in tasks |
 | Qdrant | `workspace_id` **must** filter on every search query; inject from `RequestContext` / `IndexingRequest` only |
 | Qdrant search | **`WorkspaceVectorSearch`** in `ai/retrieval/wrapper.py` only — never `AsyncQdrantClient` in routers |
-| Qdrant writes | `WorkspaceVectorIndex` + `NoteVectorIndexer` — worker/indexer path only |
+| Qdrant writes | `WorkspaceVectorIndex` + `NoteVectorIndexer` (notes); `WorkspaceFileVectorIndex` + `FileVectorIndexer` (files) — worker/indexer path only |
 | RBAC filter | `build_rbac_filter()` in `ai/retrieval/filters.py` — mirrors `notes/permissions.py` exactly |
 | Routers | Test: **`GET /ai/test-search`**; chat: **`POST /ai/chat`**, **`POST /ai/chat/stream`**; agent: **`POST /ai/agent`**, **`POST /ai/agent/stream`** |
 | Services | **`RagService.answer()`** / **`stream_answer()`** — plain `workspace_id` / `user_id` / `role` strings only |
@@ -34,7 +34,8 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | `EMBEDDING_MODEL` | `gemini/gemini-embedding-2` | Embeddings via LiteLLM |
 | `EMBEDDING_DIMENSION` | `3072` | Must match Qdrant collection |
 | `QDRANT_URL` | `None` | Enables Qdrant when set; `qdrant_enabled` property |
-| `QDRANT_NOTES_COLLECTION` | `notes_chunks` | Single collection |
+| `QDRANT_NOTES_COLLECTION` | `notes_chunks` | Note chunk vectors |
+| `QDRANT_FILES_COLLECTION` | `files_chunks` | File chunk vectors (Slice 7) |
 | `LLM_MODEL` | `gemini/gemini-2.5-flash` | Chat via LiteLLM |
 | `LLM_TEMPERATURE` | `0.0` | Deterministic answers |
 | `LLM_MAX_TOKENS` | `2048` | Max completion tokens |
@@ -57,9 +58,43 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | `ai/services/cache.py` | Redis `embed:v1:{sha256(text)}` |
 | `ai/workflows/pipeline.py` | `EmbeddingPipeline.process_note` → `EmbeddedChunk[]` |
 | `worker/ingestion/tasks.py` | `embed_note_task` |
-| `notes/router.py` | Enqueue after commit when `ai_enabled` |
+| `notes/router.py` | Enqueue `embed_note_task` + emit `NoteCreatedEvent` after commit when `ai_enabled` |
+| `files/router.py` | Emit `FileUploadedEvent` after upload when `ai_enabled` |
 
 **Worker flow:** `IndexingRequest` → delete note vectors (if `qdrant_enabled`) → embed → upsert. When `QDRANT_URL` unset, embeddings still run; `qdrant_indexed=false`.
+
+---
+
+## Slice 7 — event-driven automation (7.0–7.1)
+
+| Path | Role |
+|------|------|
+| `shared/events/definitions.py` | Frozen Pydantic event schemas (`NoteCreatedEvent`, `FileUploadedEvent`, …) — **extend payloads only** |
+| `shared/events/bus.py` | `emit_event()` — maps `EventType` → ARQ task name; never raises |
+| `worker/automation/tasks.py` | Stub handlers: `handle_file_uploaded`, `handle_note_created`, … |
+| `worker/main.py` | Registers automation tasks; `ctx["arq_pool"]` for fan-out (7.2+) |
+
+**Event → task routing:**
+
+| Event | ARQ task |
+|-------|----------|
+| `file.uploaded` | `handle_file_uploaded` |
+| `note.created` | `handle_note_created` |
+| `note.updated` | `handle_note_updated` |
+| `file.deleted` | `handle_file_deleted` |
+
+**Coexistence:** Slice 1 `embed_note_task` enqueue in `notes/router.py` is unchanged. Slice 7 adds a second `emit_event()` call after note create. File upload emits `FileUploadedEvent` only (no direct embed enqueue).
+
+**Worker context:** `ctx["redis"]` (Slice 1 cache) + `ctx["arq_pool"]` (Slice 7 fan-out). Worker DB access uses `AsyncSessionLocal` directly — never `get_session()`.
+
+**Validation (Compose):**
+
+```powershell
+docker compose up -d --build api worker
+docker compose logs worker --tail 20
+# After POST /files/upload → "handle_file_uploaded received"
+# After POST /notes → "handle_note_created received" + embed_note_task complete
+```
 
 ---
 
@@ -70,11 +105,11 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | File | Role |
 |------|------|
 | `client.py` | `get_async_qdrant_client()` singleton (retrieval package only) |
-| `collection.py` | `ensure_notes_collection()` — cosine, `EMBEDDING_DIMENSION` |
+| `collection.py` | `ensure_notes_collection()`, `ensure_files_collection()` — cosine, `EMBEDDING_DIMENSION` |
 | `filters.py` | **`build_rbac_filter(workspace_id, user_id, role)`** |
 | `wrapper.py` | **`WorkspaceVectorSearch`** + **`get_workspace_vector_search()`** |
-| `workspace_search.py` | **`WorkspaceVectorIndex`** — upsert/delete-by-note |
-| `indexer.py` | `NoteVectorIndexer` — delete-then-upsert per note |
+| `workspace_search.py` | **`WorkspaceVectorIndex`** (notes), **`WorkspaceFileVectorIndex`** (files) |
+| `indexer.py` | `NoteVectorIndexer`, `FileVectorIndexer` — delete-then-upsert per source |
 
 ### RBAC filter (mirrors `notes/permissions.py`)
 

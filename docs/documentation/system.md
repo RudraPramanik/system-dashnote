@@ -18,9 +18,9 @@ Registers routers and global dependencies:
 |--------|--------|-------|
 | `core.health` | `/health` | DB + Redis probe |
 | `auth/router.py` | `/auth` | Register, login, tokens |
-| `files/router.py` | `/files` | Upload, download, metadata |
+| `files/router.py` | `/files` | Upload, download, metadata; emits `FileUploadedEvent` on upload |
 | `notebooks/router.py` | `/notebooks` | |
-| `notes/router.py` | `/notes` | Enqueues embed jobs when `ai_enabled` |
+| `notes/router.py` | `/notes` | Enqueues embed jobs + emits `NoteCreatedEvent` when `ai_enabled` |
 | `workspaces/router.py` | `/workspaces` | |
 | `membership/router.py` | `/workspaces/members` | |
 | `ai_gateway/search.py` | `/ai` | `GET /ai/test-search` |
@@ -30,7 +30,9 @@ Registers routers and global dependencies:
 
 **Middleware:** `ProxyHeadersMiddleware` (trusted `*`) for `X-Forwarded-For`; global `enforce_global_rate_limit` when Redis configured.
 
-**Lifespan:** `setup_logging()` → ARQ pool → Qdrant collection bootstrap → LangGraph checkpointer init (non-fatal on failure).
+**Lifespan:** `setup_logging()` → ARQ pool (`app.state.arq_pool`) → Qdrant collection bootstrap → LangGraph checkpointer init (non-fatal on failure).
+
+**Event bus (Slice 7):** `shared/events/bus.py` — `emit_event()` maps domain events to ARQ automation tasks. Never raises; failures logged only. Routers call `emit_event` after successful DB commit alongside existing Slice 1 embed enqueue.
 
 **Metrics:** `GET /metrics` — Prometheus via `prometheus-fastapi-instrumentator` (`dashnote_api_*`); scraped by Compose `prometheus`, not Nginx.
 
@@ -128,7 +130,7 @@ docker compose down -v          # reset volumes
 docker compose run --rm migrate # migrations only
 ```
 
-**Services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed jobs), `qdrant` (:6333), `prometheus` (:9090), `grafana` (:3001), `migrate` (one-shot Alembic).
+**Services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `grafana` (:3001), `migrate` (one-shot Alembic).
 
 Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recreating `api`, restart `nginx` if `/health` returns 502.
 

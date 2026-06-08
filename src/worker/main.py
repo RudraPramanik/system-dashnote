@@ -26,10 +26,13 @@ from arq.connections import RedisSettings
 
 from config import get_settings
 from worker.automation.tasks import (
+    generate_file_metadata,
+    generate_note_tags,
     handle_file_deleted,
     handle_file_uploaded,
     handle_note_created,
     handle_note_updated,
+    index_file_chunks,
 )
 from worker.tasks import embed_note_task
 
@@ -161,6 +164,9 @@ class WorkerSettings:
         handle_note_created,
         handle_note_updated,
         handle_file_deleted,
+        index_file_chunks,
+        generate_file_metadata,
+        generate_note_tags,
     ]
     on_startup = startup
     on_shutdown = shutdown

@@ -65,14 +65,15 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 
 ---
 
-## Slice 7 — event-driven automation (7.0–7.1)
+## Slice 7 — event-driven automation (7.0–7.2)
 
 | Path | Role |
 |------|------|
 | `shared/events/definitions.py` | Frozen Pydantic event schemas (`NoteCreatedEvent`, `FileUploadedEvent`, …) — **extend payloads only** |
 | `shared/events/bus.py` | `emit_event()` — maps `EventType` → ARQ task name; never raises |
-| `worker/automation/tasks.py` | Stub handlers: `handle_file_uploaded`, `handle_note_created`, … |
-| `worker/main.py` | Registers automation tasks; `ctx["arq_pool"]` for fan-out (7.2+) |
+| `shared/utils/parsers.py` | `FileParsingEngine` — sync text extraction (PDF, DOCX, HTML, text/*); CPU-bound, no DB/FastAPI |
+| `worker/automation/tasks.py` | `handle_file_uploaded` extracts text + saves `extracted_text`; other handlers stubbed until 7.3 |
+| `worker/main.py` | Registers automation tasks; `ctx["arq_pool"]` for fan-out; imports all ORM models at startup |
 
 **Event → task routing:**
 
@@ -83,17 +84,26 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | `note.updated` | `handle_note_updated` |
 | `file.deleted` | `handle_file_deleted` |
 
+**File upload pipeline (7.2):** upload → `FileUploadedEvent` → worker downloads via `get_storage()` → `FileParsingEngine.extract_text()` (executor) → persist `files.extracted_text`. Fan-out to indexing + metadata in **7.3**.
+
+**Files model (7.2):** `extracted_text`, `summary` (nullable `Text`); `tags` (`JSONB`, default `[]`). Migration: `95fb65156e52`. Deps: `pypdf`, `python-docx`, `beautifulsoup4`, `lxml`.
+
 **Coexistence:** Slice 1 `embed_note_task` enqueue in `notes/router.py` is unchanged. Slice 7 adds a second `emit_event()` call after note create. File upload emits `FileUploadedEvent` only (no direct embed enqueue).
 
-**Worker context:** `ctx["redis"]` (Slice 1 cache) + `ctx["arq_pool"]` (Slice 7 fan-out). Worker DB access uses `AsyncSessionLocal` directly — never `get_session()`.
+**Worker context:** `ctx["redis"]` (Slice 1 cache) + `ctx["arq_pool"]` (Slice 7 fan-out). Worker DB: `AsyncSessionLocal` directly — never `get_session()`. Storage download: `get_storage().download(storage_key)`.
 
 **Validation (Compose):**
 
 ```powershell
 docker compose up -d --build api worker
+docker compose exec -e PYTHONPATH=/app/src api python -m shared.utils.parsers
+python -m pytest tests/shared/test_parsers.py -q
+# POST /files/upload (.txt or .pdf) → wait ~10s
+docker compose exec db psql -U dashuser -d dashnotes \
+  -c "SELECT name, length(extracted_text) FROM files ORDER BY created_at DESC LIMIT 3;"
+# Expect length(extracted_text) > 0
 docker compose logs worker --tail 20
-# After POST /files/upload → "handle_file_uploaded received"
-# After POST /notes → "handle_note_created received" + embed_note_task complete
+# Expect: handle_file_uploaded: extracted_text saved
 ```
 
 ---

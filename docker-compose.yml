@@ -71,6 +71,9 @@ services:
       ARQ_REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       DEBUG: "true"
+      LOCAL_STORAGE_PATH: storage
+    volumes:
+      - local_storage:/app/storage
     ports:
       # Direct API (docs, OpenAPI) for local dev. Production-style traffic uses nginx on :80 only.
       - "8000:8000"
@@ -81,9 +84,13 @@ services:
     command: python -m arq src.worker.main.WorkerSettings
     env_file: .env
     environment:
+      DATABASE_URL: postgresql+asyncpg://dashuser:dashpass@db:5432/dashnotes
       REDIS_URL: redis://redis:6379/0
       ARQ_REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
+      LOCAL_STORAGE_PATH: storage
+    volumes:
+      - local_storage:/app/storage
     depends_on:
       - db
       - redis
@@ -119,3 +126,4 @@ volumes:
   postgres_data:
   qdrant_data:
   prometheus_data:
+  local_storage:

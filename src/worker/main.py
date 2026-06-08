@@ -13,6 +13,15 @@ _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+# Register ORM models before worker tasks query relationships (File ↔ Note, etc.)
+import auth.models  # noqa: F401
+import workspaces.models  # noqa: F401
+import pages.models  # noqa: F401
+import notebooks.models  # noqa: F401
+import notes.models  # noqa: F401
+import files.models  # noqa: F401
+from ai_memory.models import AIThread, AIMessage  # noqa: F401
+
 from arq.connections import RedisSettings
 
 from config import get_settings

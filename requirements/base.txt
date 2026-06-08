@@ -83,6 +83,12 @@ langgraph-checkpoint-postgres>=0.1.0
 psycopg[async]>=3.1.0   # required by AsyncPostgresSaver (psycopg3, not asyncpg)
 psycopg-binary>=3.1.0   # libpq wheels for slim Docker (psycopg3, not psycopg2-binary)
 
+# --- AI Slice 7: File parsing ---
+pypdf>=4.2.0            # PDF text extraction
+python-docx>=1.1.2      # Word document extraction
+beautifulsoup4>=4.12.3  # HTML/text extraction
+lxml>=5.2.0             # HTML parser backend for beautifulsoup4
+
 # --- Observability: Langfuse ---
 langfuse >= 2.60.0,<4
 

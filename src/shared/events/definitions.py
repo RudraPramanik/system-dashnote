@@ -26,27 +26,45 @@ class NoteCreatedEvent(BaseEvent):
     model_config = ConfigDict(frozen=True)
 
     event_type: EventType = EventType.NOTE_CREATED
+    note_id: str
+    created_by: str
+    is_private: bool
+    title: str
+    content: str
 
 
 class NoteUpdatedEvent(BaseEvent):
     model_config = ConfigDict(frozen=True)
 
     event_type: EventType = EventType.NOTE_UPDATED
+    note_id: str
+    created_by: str
+    is_private: bool
+    title: str
+    content: str
 
 
 class NoteDeletedEvent(BaseEvent):
     model_config = ConfigDict(frozen=True)
 
     event_type: EventType = EventType.NOTE_DELETED
+    note_id: str
 
 
 class FileUploadedEvent(BaseEvent):
     model_config = ConfigDict(frozen=True)
 
     event_type: EventType = EventType.FILE_UPLOADED
+    file_id: str
+    uploaded_by: str
+    file_name: str
+    mime_type: str
+    size_bytes: int
+    is_private: bool
 
 
 class FileDeletedEvent(BaseEvent):
     model_config = ConfigDict(frozen=True)
 
     event_type: EventType = EventType.FILE_DELETED
+    file_id: str

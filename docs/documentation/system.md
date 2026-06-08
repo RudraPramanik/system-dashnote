@@ -18,9 +18,9 @@ Registers routers and global dependencies:
 |--------|--------|-------|
 | `core.health` | `/health` | DB + Redis probe |
 | `auth/router.py` | `/auth` | Register, login, tokens |
-| `files/router.py` | `/files` | Upload, download, metadata |
+| `files/router.py` | `/files` | Upload, download, metadata; emits `FileUploadedEvent` → worker extracts `extracted_text` |
 | `notebooks/router.py` | `/notebooks` | |
-| `notes/router.py` | `/notes` | Enqueues embed jobs when `ai_enabled` |
+| `notes/router.py` | `/notes` | Enqueues embed jobs + emits `NoteCreatedEvent` when `ai_enabled` |
 | `workspaces/router.py` | `/workspaces` | |
 | `membership/router.py` | `/workspaces/members` | |
 | `ai_gateway/search.py` | `/ai` | `GET /ai/test-search` |
@@ -30,7 +30,9 @@ Registers routers and global dependencies:
 
 **Middleware:** `ProxyHeadersMiddleware` (trusted `*`) for `X-Forwarded-For`; global `enforce_global_rate_limit` when Redis configured.
 
-**Lifespan:** `setup_logging()` → ARQ pool → Qdrant collection bootstrap → LangGraph checkpointer init (non-fatal on failure).
+**Lifespan:** `setup_logging()` → ARQ pool (`app.state.arq_pool`) → Qdrant collection bootstrap → LangGraph checkpointer init (non-fatal on failure).
+
+**Event bus (Slice 7):** `shared/events/bus.py` — `emit_event()` maps domain events to ARQ automation tasks. Never raises; failures logged only. Routers call `emit_event` after successful DB commit alongside existing Slice 1 embed enqueue.
 
 **Metrics:** `GET /metrics` — Prometheus via `prometheus-fastapi-instrumentator` (`dashnote_api_*`); scraped by Compose `prometheus`, not Nginx.
 
@@ -57,11 +59,12 @@ Injection: `core/security/dependency.py` + `auth/dependency.py` (`oauth2_scheme`
 
 | Area | Key paths |
 |------|-----------|
-| DB session | `core/database/session.py` — `get_session()` |
+| DB session | `core/database/session.py` — `get_session()` (API); `AsyncSessionLocal` (worker) |
 | Tenant filter | `core/database/utils.py` — `tenant_filter()`; `WorkspaceTenantMixin` in `mixins.py` |
 | Security | `core/security/context.py`, `dependency.py`, `permissions.py`, `rate_limit.py` |
 | Redis | `core/redis/client.py`, `deps.py` — shared client; JWT state (`auth.md`); cache-aside on notes/notebooks reads |
 | Storage | `core/storage/client.py`, `utils.py` — see **Storage system** below |
+| Shared utils | `shared/utils/parsers.py` — `FileParsingEngine` (file text extraction; no FastAPI/DB) |
 
 **Redis cache-aside:** keys prefixed with JWT `workspace_id`; notes list variant (`staff` vs `u{user_id}`). Invalidation via generation counters (`app:cache:gen:notes:{wid}`), not key scans. TTL `CACHE_TTL_SECONDS` (default 60). Disabled Redis → cache miss, API unchanged.
 
@@ -77,11 +80,12 @@ Injection: `core/security/dependency.py` + `auth/dependency.py` (`oauth2_scheme`
 
 ### Storage system (current implementation)
 
-Bytes in object storage; metadata in PostgreSQL with `workspace_id`.
+Bytes in object storage; metadata in PostgreSQL (`files` table: `storage_key`, `mime_type`, `extracted_text`, `summary`, `tags`).
 
 - `get_storage()` — `STORAGE_BACKEND`: `local`, `minio`, or `r2`
-- Local: `LOCAL_STORAGE_PATH`; no presigned URL → app download route
-- MinIO/R2: S3-compatible via `aioboto3`/`boto3`
+- Local: `LOCAL_STORAGE_PATH` (default `storage`); no presigned URL → app download route
+- **Compose local dev:** `api` + `worker` share volume `local_storage:/app/storage` so worker can read uploaded bytes
+- MinIO/R2: S3-compatible via `aioboto3`/`boto3` (no shared volume needed)
 - Upload validation: `core/storage/utils.py` (MIME sniff, size, extensions)
 - Note attachments: `core/database/associations.py` (`note_attachments` only — no cross-package imports)
 
@@ -89,7 +93,7 @@ Bytes in object storage; metadata in PostgreSQL with `workspace_id`.
 
 All AI module layout, RBAC filters, HTTP contracts, and agent laws: **`src/docs/ai.md`**. Import/modification laws: **`src/docs/rules.md`**.
 
-Surface summary: embeddings → Qdrant (`notes_chunks`); RAG at `/ai/chat*`; threads at `/ai/threads*`; LangGraph agent at `/ai/agent*`. Fast RAG and agent paths coexist.
+Surface summary: embeddings → Qdrant (`notes_chunks`, `files_chunks`); file upload → text extraction → `extracted_text` (7.2); RAG at `/ai/chat*`; threads at `/ai/threads*`; LangGraph agent at `/ai/agent*`. Fast RAG and agent paths coexist.
 
 ### Observability
 
@@ -112,6 +116,7 @@ New module under `src/<name>/`: `models.py`, `schemas.py`, `repository.py`, `rou
 
 ```powershell
 python -m pytest tests/files -q          # files module (mocked storage)
+python -m pytest tests/shared/test_parsers.py -q
 python -m pytest tests/core/test_rate_limit.py -q
 ```
 
@@ -128,8 +133,10 @@ docker compose down -v          # reset volumes
 docker compose run --rm migrate # migrations only
 ```
 
-**Services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed jobs), `qdrant` (:6333), `prometheus` (:9090), `grafana` (:3001), `migrate` (one-shot Alembic).
+**Services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `grafana` (:3001), `migrate` (one-shot Alembic).
+
+**Local dev overrides (Compose):** `api` and `worker` get explicit `DATABASE_URL` (local Postgres, not `.env` remote). Both mount `local_storage` for `STORAGE_BACKEND=local`. Worker imports all ORM models at startup (same pattern as `alembic/env.py`).
 
 Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recreating `api`, restart `nginx` if `/health` returns 502.
 
-**File upload smoke test:** register → `POST /files/upload` multipart (`file`, `is_private`, optional `description`). Expect **200** with `id`, `mime_type`, `download_url`.
+**File upload smoke test:** register → `POST /files/upload` multipart (`file`, `is_private`, optional `description`). Expect **200** with `id`, `mime_type`, `download_url`. After ~10s, worker should populate `extracted_text` in DB.

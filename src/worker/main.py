@@ -13,9 +13,24 @@ _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+# Register ORM models before worker tasks query relationships (File ↔ Note, etc.)
+import auth.models  # noqa: F401
+import workspaces.models  # noqa: F401
+import pages.models  # noqa: F401
+import notebooks.models  # noqa: F401
+import notes.models  # noqa: F401
+import files.models  # noqa: F401
+from ai_memory.models import AIThread, AIMessage  # noqa: F401
+
 from arq.connections import RedisSettings
 
 from config import get_settings
+from worker.automation.tasks import (
+    handle_file_deleted,
+    handle_file_uploaded,
+    handle_note_created,
+    handle_note_updated,
+)
 from worker.tasks import embed_note_task
 
 logger = logging.getLogger(__name__)
@@ -89,13 +104,25 @@ async def startup(ctx: dict) -> None:
 
     ctx["redis"] = aioredis.from_url(url, decode_responses=True)
 
+    # --- AI Slice 7: arq_pool for fan-out job enqueuing ---
+    from arq import create_pool
+
+    ctx["arq_pool"] = await create_pool(
+        RedisSettings.from_dsn(settings.effective_arq_redis_url)
+    )
+    logger.info("ARQ fan-out pool initialized in worker context")
+
     if settings.qdrant_enabled:
-        from ai.retrieval.collection import ensure_notes_collection
+        from ai.retrieval.collection import ensure_files_collection, ensure_notes_collection
 
         await ensure_notes_collection()
+        await ensure_files_collection()
         logger.info(
-            "Qdrant notes collection ready",
-            extra={"collection": settings.QDRANT_NOTES_COLLECTION},
+            "Qdrant collections ready",
+            extra={
+                "notes_collection": settings.QDRANT_NOTES_COLLECTION,
+                "files_collection": settings.QDRANT_FILES_COLLECTION,
+            },
         )
 
     logger.info(
@@ -106,6 +133,8 @@ async def startup(ctx: dict) -> None:
 
 async def shutdown(ctx: dict) -> None:
     """Called once when worker shuts down. Clean up resources."""
+    if "arq_pool" in ctx:
+        await ctx["arq_pool"].close()
     redis = ctx.get("redis")
     if redis is not None:
         await redis.aclose()
@@ -126,7 +155,13 @@ class WorkerSettings:
     Add task functions here as slices are implemented.
     """
 
-    functions = [embed_note_task]
+    functions = [
+        embed_note_task,
+        handle_file_uploaded,
+        handle_note_created,
+        handle_note_updated,
+        handle_file_deleted,
+    ]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _get_redis_settings()

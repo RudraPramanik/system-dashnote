@@ -82,6 +82,29 @@ async def create_note(
                 extra={"note_id": str(note.id)},
             )
 
+    # --- AI Slice 7: emit note created event for automation ---
+    if settings.ai_enabled:
+        try:
+            from shared.events.bus import emit_event
+            from shared.events.definitions import NoteCreatedEvent
+
+            await emit_event(
+                NoteCreatedEvent(
+                    workspace_id=str(ctx.workspace_id),
+                    note_id=str(note.id),
+                    created_by=str(ctx.user_id),
+                    is_private=note.is_private,
+                    title=note.title,
+                    content=data.content,
+                ),
+                request.app.state.arq_pool,
+            )
+        except Exception:
+            logger.warning(
+                "NoteCreatedEvent emission failed",
+                extra={"note_id": str(note.id)},
+            )
+
     return NoteRead.from_orm(note)
 
 

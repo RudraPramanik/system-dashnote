@@ -1,7 +1,8 @@
 from uuid import uuid4
 
+import sqlalchemy as sa
 from sqlalchemy import Boolean, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database.associations import note_attachments
@@ -20,6 +21,25 @@ class File(Base, WorkspaceTenantMixin, TimestampMixin):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     is_private: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- AI Slice 7: text extraction and metadata ---
+    extracted_text: Mapped[str | None] = mapped_column(
+        sa.Text,
+        nullable=True,
+        comment="Raw extracted text from file binary — populated by worker",
+    )
+    summary: Mapped[str | None] = mapped_column(
+        sa.Text,
+        nullable=True,
+        comment="AI-generated summary — populated by generate_file_metadata worker",
+    )
+    tags: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=sa.text("'[]'::jsonb"),
+        comment="AI-generated tags — populated by generate_file_metadata worker",
+    )
 
     notes = relationship(
         "Note",

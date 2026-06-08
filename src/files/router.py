@@ -1,6 +1,8 @@
+import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from config import settings
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +28,7 @@ from notes.repository import NoteRepository
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _to_response(file: FileModel, storage: StorageBackend) -> FileResponse:
@@ -36,6 +39,7 @@ def _to_response(file: FileModel, storage: StorageBackend) -> FileResponse:
 
 @router.post("/upload", response_model=FileResponse)
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     is_private: bool = Form(True),
     description: str = Form(""),
@@ -64,6 +68,31 @@ async def upload_file(
         ),
         storage_key=key,
     )
+
+    # --- AI Slice 7: emit file uploaded event ---
+    if settings.ai_enabled:
+        try:
+            from shared.events.bus import emit_event
+            from shared.events.definitions import FileUploadedEvent
+
+            await emit_event(
+                FileUploadedEvent(
+                    workspace_id=str(ctx.workspace_id),
+                    file_id=str(record.id),
+                    uploaded_by=str(ctx.user_id),
+                    file_name=record.name,
+                    mime_type=record.mime_type,
+                    size_bytes=record.size_bytes,
+                    is_private=record.is_private,
+                ),
+                request.app.state.arq_pool,
+            )
+        except Exception:
+            logger.warning(
+                "FileUploadedEvent emission failed",
+                extra={"file_id": str(record.id)},
+            )
+
     return _to_response(record, storage)
 
 

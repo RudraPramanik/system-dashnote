@@ -97,9 +97,10 @@ async def lifespan(app: FastAPI):
         app.state.arq_pool = None
 
     if _s.qdrant_enabled:
-        from ai.retrieval.collection import ensure_notes_collection
+        from ai.retrieval.collection import ensure_files_collection, ensure_notes_collection
 
         await ensure_notes_collection()
+        await ensure_files_collection()
     # --- AI Slice 6: LangGraph checkpointer ---
     try:
         from ai.memory.checkpointer import init_checkpointer

@@ -21,7 +21,7 @@ from qdrant_client.models import (
 
 from ai.embeddings.base import EmbeddedChunk
 from ai.retrieval.client import get_async_qdrant_client
-from ai.retrieval.collection import ensure_notes_collection
+from ai.retrieval.collection import ensure_files_collection, ensure_notes_collection
 from ai.retrieval.errors import VectorStoreError
 from config import get_settings
 
@@ -157,6 +157,137 @@ class WorkspaceVectorIndex:
                 "note_id": note_id,
             },
         )
+
+
+class WorkspaceFileVectorIndex:
+    """
+    Qdrant upsert/delete for file chunks in one workspace (indexing only).
+
+    EmbeddedChunk.note_id carries file_id when indexing files (Slice 7).
+    """
+
+    def __init__(
+        self,
+        workspace_id: str,
+        *,
+        client: AsyncQdrantClient | None = None,
+    ) -> None:
+        if not str(workspace_id).strip():
+            raise ValueError("workspace_id is required for WorkspaceFileVectorIndex")
+        self._workspace_id = str(workspace_id)
+        self._client = client
+
+    async def _client_or_get(self) -> AsyncQdrantClient:
+        if self._client is not None:
+            return self._client
+        return await get_async_qdrant_client()
+
+    @property
+    def workspace_id(self) -> str:
+        return self._workspace_id
+
+    async def upsert_chunks(self, chunks: list[EmbeddedChunk]) -> int:
+        """Replace vectors for file chunks; caller should delete stale file points first."""
+        if not chunks:
+            return 0
+
+        for chunk in chunks:
+            if str(chunk.workspace_id) != self._workspace_id:
+                raise ValueError(
+                    f"chunk workspace_id {chunk.workspace_id!r} does not match "
+                    f"search scope {self._workspace_id!r}"
+                )
+
+        settings = get_settings()
+        await ensure_files_collection()
+        client = await self._client_or_get()
+
+        points: list[PointStruct] = []
+        for chunk in chunks:
+            point_id = str(uuid.UUID(chunk.chunk_id))
+            visibility = "private" if chunk.is_private else "public"
+            title = str((chunk.metadata or {}).get("title", ""))
+            payload: dict[str, Any] = {
+                "workspace_id": self._workspace_id,
+                "file_id": chunk.note_id,
+                "chunk_id": chunk.chunk_id,
+                "chunk_index": chunk.chunk_index,
+                "chunk_text": chunk.chunk_text,
+                "text": chunk.chunk_text,
+                "title": title,
+                "created_by": chunk.created_by,
+                "visibility": visibility,
+                "is_private": chunk.is_private,
+                "token_count": chunk.token_count,
+                **(chunk.metadata or {}),
+            }
+            points.append(
+                PointStruct(
+                    id=point_id,
+                    vector=chunk.vector,
+                    payload=payload,
+                )
+            )
+
+        try:
+            await client.upsert(
+                collection_name=settings.QDRANT_FILES_COLLECTION,
+                points=points,
+                wait=True,
+            )
+        except Exception as e:
+            raise VectorStoreError(
+                f"Qdrant upsert failed: {e}", retryable=True
+            ) from e
+
+        logger.info(
+            "Qdrant file upsert complete",
+            extra={
+                "workspace_id": self._workspace_id,
+                "points": len(points),
+                "collection": settings.QDRANT_FILES_COLLECTION,
+            },
+        )
+        return len(points)
+
+    async def delete_file_vectors(self, file_id: str) -> None:
+        """Remove all chunk points for a file within this workspace."""
+        settings = get_settings()
+        await ensure_files_collection()
+        client = await self._client_or_get()
+
+        file_filter = Filter(
+            must=[
+                FieldCondition(
+                    key="workspace_id",
+                    match=MatchValue(value=self._workspace_id),
+                ),
+                FieldCondition(
+                    key="file_id",
+                    match=MatchValue(value=file_id),
+                ),
+            ]
+        )
+
+        try:
+            await client.delete(
+                collection_name=settings.QDRANT_FILES_COLLECTION,
+                points_selector=FilterSelector(filter=file_filter),
+                wait=True,
+            )
+        except Exception as e:
+            raise VectorStoreError(
+                f"Qdrant delete failed: {e}", retryable=True
+            ) from e
+
+        logger.info(
+            "Qdrant file vectors deleted",
+            extra={
+                "workspace_id": self._workspace_id,
+                "file_id": file_id,
+            },
+        )
+
 
 if __name__ == "__main__":
     import asyncio

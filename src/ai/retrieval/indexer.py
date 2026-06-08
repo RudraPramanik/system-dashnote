@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 
 from ai.embeddings.base import EmbeddedChunk
-from ai.retrieval.workspace_search import WorkspaceVectorIndex
+from ai.retrieval.workspace_search import WorkspaceFileVectorIndex, WorkspaceVectorIndex
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,34 @@ class NoteVectorIndexer:
 
     async def delete_note(self, note_id: str) -> None:
         await self._search.delete_note_vectors(note_id)
+
+
+class FileVectorIndexer:
+    """Index or remove file chunk vectors for one workspace."""
+
+    def __init__(self, workspace_id: str) -> None:
+        self._search = WorkspaceFileVectorIndex(workspace_id)
+
+    @property
+    def workspace_id(self) -> str:
+        return self._search.workspace_id
+
+    async def index_file_chunks(
+        self,
+        file_id: str,
+        chunks: list[EmbeddedChunk],
+    ) -> int:
+        """
+        Re-index a file: delete existing vectors, then upsert new chunks.
+        Returns number of points written.
+        """
+        await self._search.delete_file_vectors(file_id)
+        if not chunks:
+            return 0
+        return await self._search.upsert_chunks(chunks)
+
+    async def delete_file(self, file_id: str) -> None:
+        await self._search.delete_file_vectors(file_id)
 
 
 if __name__ == "__main__":

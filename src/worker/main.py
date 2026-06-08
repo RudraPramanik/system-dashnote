@@ -90,12 +90,16 @@ async def startup(ctx: dict) -> None:
     ctx["redis"] = aioredis.from_url(url, decode_responses=True)
 
     if settings.qdrant_enabled:
-        from ai.retrieval.collection import ensure_notes_collection
+        from ai.retrieval.collection import ensure_files_collection, ensure_notes_collection
 
         await ensure_notes_collection()
+        await ensure_files_collection()
         logger.info(
-            "Qdrant notes collection ready",
-            extra={"collection": settings.QDRANT_NOTES_COLLECTION},
+            "Qdrant collections ready",
+            extra={
+                "notes_collection": settings.QDRANT_NOTES_COLLECTION,
+                "files_collection": settings.QDRANT_FILES_COLLECTION,
+            },
         )
 
     logger.info(

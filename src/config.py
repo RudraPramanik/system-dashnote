@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     QDRANT_URL: str | None = None
     QDRANT_API_KEY: str | None = None
     QDRANT_NOTES_COLLECTION: str = "notes_chunks"
+    QDRANT_FILES_COLLECTION: str = "files_chunks"
     QDRANT_TIMEOUT: int = 30
 
     # ── AI Slice 3: LLM ────────────────────────────────────────────

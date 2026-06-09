@@ -65,15 +65,16 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 
 ---
 
-## Slice 7 — event-driven automation (7.0–7.2)
+## Slice 7 — event-driven automation (7.0–7.4)
 
 | Path | Role |
 |------|------|
 | `shared/events/definitions.py` | Frozen Pydantic event schemas (`NoteCreatedEvent`, `FileUploadedEvent`, …) — **extend payloads only** |
 | `shared/events/bus.py` | `emit_event()` — maps `EventType` → ARQ task name; never raises |
 | `shared/utils/parsers.py` | `FileParsingEngine` — sync text extraction (PDF, DOCX, HTML, text/*); CPU-bound, no DB/FastAPI |
-| `worker/automation/tasks.py` | `handle_file_uploaded` extracts text + saves `extracted_text`; other handlers stubbed until 7.3 |
-| `worker/main.py` | Registers automation tasks; `ctx["arq_pool"]` for fan-out; imports all ORM models at startup |
+| `worker/automation/tasks.py` | Extraction, fan-out indexing/metadata/tagging tasks |
+| `worker/automation/decision.py` | `AutomationDecisionEngine` — governance gate for destructive AI-initiated actions |
+| `worker/main.py` | Registers 8 ARQ tasks; `ctx["arq_pool"]` for fan-out; imports all ORM models at startup |
 
 **Event → task routing:**
 
@@ -84,9 +85,31 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | `note.updated` | `handle_note_updated` |
 | `file.deleted` | `handle_file_deleted` |
 
-**File upload pipeline (7.2):** upload → `FileUploadedEvent` → worker downloads via `get_storage()` → `FileParsingEngine.extract_text()` (executor) → persist `files.extracted_text`. Fan-out to indexing + metadata in **7.3**.
+**Fan-out tasks (7.3):**
 
-**Files model (7.2):** `extracted_text`, `summary` (nullable `Text`); `tags` (`JSONB`, default `[]`). Migration: `95fb65156e52`. Deps: `pypdf`, `python-docx`, `beautifulsoup4`, `lxml`.
+| Task | Purpose | Governance |
+|------|---------|------------|
+| `index_file_chunks` | Embed `extracted_text` → `files_chunks` via `EmbeddingPipeline` + `FileVectorIndexer` | **None** — idempotent upsert |
+| `generate_file_metadata` | LLM summary + tags → `files.summary`, `files.tags` | **None** — additive metadata |
+| `generate_note_tags` | LLM tags → `notes.tags` | **None** — additive metadata |
+
+**File upload pipeline:** upload → `FileUploadedEvent` → worker downloads via `get_storage()` → `FileParsingEngine.extract_text()` (executor) → persist `files.extracted_text` → fan-out `index_file_chunks` + `generate_file_metadata`.
+
+**Note create pipeline:** commit → `embed_note_task` (Slice 1) + `NoteCreatedEvent` → `handle_note_created` → fan-out `generate_note_tags`.
+
+**Models:** `files`: `extracted_text`, `summary`, `tags` (migration `95fb65156e52`). `notes`: `tags` (`JSONB`, default `[]`, migration `6ee79b0f52a3`). Deps: `pypdf`, `python-docx`, `beautifulsoup4`, `lxml`.
+
+**Governance (7.4) — `AutomationDecisionEngine`:**
+
+| Use | Do not use |
+|-----|------------|
+| Auto-delete duplicates, auto-merge, auto-archive, external notifications | `generate_note_tags`, `generate_file_metadata`, `index_file_chunks` |
+
+- `evaluate_action(context)` → `AutomationDecision` via `litellm.acompletion(response_format=AutomationDecision)`
+- `should_execute_immediately(decision)` → `True` **only** if `confidence >= 0.95` **and** `is_destructive=False`
+- Otherwise: log **`[AUTOMATION_GOVERNANCE_BLOCK]`** (exact marker) and hold for human review (future slice)
+- LLM failure → fail-safe block (`is_destructive=True`, `confidence=0.0`)
+- Import law: `litellm`, `pydantic`, `config`, stdlib only — no FastAPI, SQLAlchemy, repositories
 
 **Coexistence:** Slice 1 `embed_note_task` enqueue in `notes/router.py` is unchanged. Slice 7 adds a second `emit_event()` call after note create. File upload emits `FileUploadedEvent` only (no direct embed enqueue).
 
@@ -96,14 +119,17 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 
 ```powershell
 docker compose up -d --build api worker
-docker compose exec -e PYTHONPATH=/app/src api python -m shared.utils.parsers
-python -m pytest tests/shared/test_parsers.py -q
-# POST /files/upload (.txt or .pdf) → wait ~10s
+python -m pytest tests/worker/test_automation_decision.py -q
+docker compose exec -e PYTHONPATH=/app/src worker python -m worker.automation.decision
+# POST /files/upload (.txt) → wait ~15s
+docker compose logs worker --tail 50
+# Expect: extracted_text saved → fan-out enqueued → index_file_chunks complete → generate_file_metadata complete
 docker compose exec db psql -U dashuser -d dashnotes \
-  -c "SELECT name, length(extracted_text) FROM files ORDER BY created_at DESC LIMIT 3;"
-# Expect length(extracted_text) > 0
-docker compose logs worker --tail 20
-# Expect: handle_file_uploaded: extracted_text saved
+  -c "SELECT name, length(extracted_text), summary, tags FROM files ORDER BY created_at DESC LIMIT 1;"
+curl.exe -sS "http://127.0.0.1:6333/collections/files_chunks"
+# POST /notes/ → wait ~10s → generate_note_tags complete
+docker compose exec db psql -U dashuser -d dashnotes \
+  -c "SELECT id, title, tags FROM notes ORDER BY created_at DESC LIMIT 3;"
 ```
 
 ---

@@ -10,7 +10,7 @@
 
 Implementation-level design for the backend in this repository, aligned with code that exists today.
 
-**In scope:** Auth/JWT context · multi-tenant repositories · RBAC · storage backends · modules `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files` · AI slices 1–6 · observability (`observability/*`, Prometheus, Grafana)
+**In scope:** Auth/JWT context · multi-tenant repositories · RBAC · storage backends · modules `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files` · AI slices 1–7 · observability (`observability/*`, Prometheus, Grafana)
 
 **Out of scope:** Frontend · cloud provisioning beyond Compose/nginx/monitoring · Loki/Tempo/Jaeger/OTel Collector · non-implemented runtime components
 
@@ -194,7 +194,27 @@ embed_note_task
     └─► IndexingResult
 ```
 
-Import law: stdlib, arq, pydantic, `config`, `ai.*`, `shared.*` — no FastAPI, SQLAlchemy, domain repos.
+**Automation tasks (Slice 7)**
+
+```
+FileUploadedEvent → handle_file_uploaded
+    ├─► get_storage().download(storage_key)
+    ├─► FileParsingEngine.extract_text (executor)
+    ├─► persist files.extracted_text
+    └─► fan-out: index_file_chunks, generate_file_metadata
+
+NoteCreatedEvent → handle_note_created
+    └─► fan-out: generate_note_tags
+
+index_file_chunks
+    ├─► EmbeddingPipeline.process_note (file_id as source)
+    └─► FileVectorIndexer → files_chunks
+
+generate_file_metadata / generate_note_tags
+    └─► litellm.acompletion(response_format=Schema) → persist tags/summary
+```
+
+Import law: stdlib, arq, pydantic, `config`, `ai.*`, `shared.*` — no FastAPI in `decision.py`; worker tasks use `AsyncSessionLocal` for DB.
 
 ### 4.12 AI retrieval (Slice 2)
 
@@ -313,6 +333,25 @@ HTTP → Instrumentator → dashnote_api_* → Prometheus → Grafana (API Overv
 
 Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Validation: **`src/docs/observe.md`**.
 
+### 4.17 Automation governance (Slice 7.4)
+
+```
+Proposed destructive AI action (future tasks: auto-delete, auto-merge, …)
+    ├─► AutomationDecisionEngine.evaluate_action(context)
+    │       └─► litellm.acompletion(response_format=AutomationDecision)
+    ├─► should_execute_immediately(decision)
+    │       ├─► True  (confidence >= 0.95 AND is_destructive=False) → execute
+    │       └─► False → log [AUTOMATION_GOVERNANCE_BLOCK] → pending review (future)
+    └─► LLM failure → fail-safe block (is_destructive=True, confidence=0.0)
+```
+
+| Task | Governance |
+|------|------------|
+| `generate_note_tags`, `generate_file_metadata`, `index_file_chunks` | **Skipped** — additive/idempotent |
+| Future destructive automation | **Required** — `evaluate_and_gate()` before side effects |
+
+`worker/automation/decision.py`: `litellm`, `pydantic`, `config`, stdlib only — no FastAPI, SQLAlchemy, repositories.
+
 ---
 
 ## 5) Data model
@@ -340,7 +379,7 @@ Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Valida
 | AI routes | `ai_gateway/search.py`, `ai_routes/*` | HTTP adapters; freeze ctx |
 | AI memory | `ai_memory/*`, `ai/memory/*` | Threads ORM + services |
 | AI agent | `ai/workflows/*`, `ai/tools/*`, `ai/memory/checkpointer.py` | LangGraph + tools |
-| Worker | `worker/*` | ARQ embed + Qdrant indexing |
+| Worker | `worker/*` | ARQ embed, automation fan-out, governance gate |
 | Observability | `observability/*`, `monitoring/*` | Logs, traces, metrics, dashboards |
 
 ---
@@ -368,6 +407,7 @@ Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Valida
 | Redis cache-aside | `tests/core/test_workspace_redis_cache.py` |
 | Files (mocked storage) | `tests/files/` |
 | Auth token flows | auth tests |
+| Automation governance | `tests/worker/test_automation_decision.py` |
 
 **Rule for new modules:** tenant-scope tests + RBAC tests + happy-path CRUD; mock `StorageBackend` for file IO.
 

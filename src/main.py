@@ -85,10 +85,11 @@ def register_exception_handlers(app: FastAPI) -> None:
 async def lifespan(app: FastAPI):
     setup_logging()
 
-    # --- AI Slice 1: ARQ pool ---
     from config import get_settings as _get_settings
+    from shared.llm.env import configure_litellm_env
 
     _s = _get_settings()
+    configure_litellm_env(_s)
     if _s.effective_arq_redis_url:
         app.state.arq_pool = await create_pool(
             RedisSettings.from_dsn(_s.effective_arq_redis_url)

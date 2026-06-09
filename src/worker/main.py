@@ -99,6 +99,9 @@ async def startup(ctx: dict) -> None:
 
     _configure_worker_logging()
     settings = get_settings()
+    from shared.llm.env import configure_litellm_env
+
+    configure_litellm_env(settings)
     url = settings.effective_arq_redis_url
     if not url:
         logger.warning("ARQ Redis URL not configured — embedding cache disabled in worker")

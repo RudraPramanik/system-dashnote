@@ -80,9 +80,10 @@ flowchart TB
     subgraph AI["AI stack"]
         ROUTES[ai_routes ai_gateway]
         CORE[ai embeddings retrieval rag]
+        SLLM[shared/llm retry structured]
         MEM[ai_memory ai/memory]
         AGENT[workflows tools checkpointer]
-        WRK[worker ARQ]
+        WRK[worker ARQ automation]
     end
 
     subgraph Infra["Infrastructure"]
@@ -99,8 +100,11 @@ flowchart TB
     RT --> Domain
     RT --> ROUTES
     ROUTES --> CORE
+    ROUTES --> SLLM
     CORE --> MEM
     ROUTES --> AGENT
+    AGENT --> SLLM
+    WRK --> SLLM
     Domain --> PG
     Domain --> RD
     Domain --> ST
@@ -387,7 +391,7 @@ sequenceDiagram
     participant C as Client
     participant RT as ai_routes/agent
     participant G as workspace_assistant graph
-    participant M as call_model LiteLLM
+    participant M as call_model acompletion_with_retry
     participant TN as tool_node
     participant T as StructuredTools
     participant RS as RagService
@@ -400,7 +404,7 @@ sequenceDiagram
     G->>CP: load checkpoint optional
 
     loop until END or AGENT_MAX_ITERATIONS
-        G->>M: acompletion tools function defs
+        G->>M: acompletion_with_retry tools function defs
         alt tool_calls
             M-->>G: assistant message + tools
             G->>TN: execute_tools
@@ -417,7 +421,11 @@ sequenceDiagram
 
     G->>CP: save checkpoint
     RT->>RT: db_session_var.reset
-    RT-->>C: AgentResponse steps_taken tool_calls_made
+    alt LLM retries exhausted
+        RT-->>C: 503 LLM temporarily unavailable
+    else success
+        RT-->>C: AgentResponse steps_taken tool_calls_made
+    end
 ```
 
 ---
@@ -460,4 +468,130 @@ flowchart LR
     note1[notes router enqueues embed jobs to Redis]
     API -.-> note1
     note1 -.-> WRK
+```
+
+---
+
+## 11. Automation fan-out (Slice 7)
+
+File upload and note create event pipelines through the ARQ worker.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant API as files/notes router
+    participant BUS as emit_event
+    participant ARQ as ARQ Redis
+    participant W as worker
+    participant ST as StorageBackend
+    participant PAR as FileParsingEngine
+    participant DB as PostgreSQL
+    participant LLM as acompletion_structured
+    participant EP as EmbeddingPipeline
+    participant QD as Qdrant
+
+    alt FileUploadedEvent
+        API->>BUS: FileUploadedEvent
+        BUS->>ARQ: handle_file_uploaded
+        ARQ->>W: dequeue
+        W->>ST: download storage_key
+        W->>PAR: extract_text mime
+        PAR-->>W: extracted_text
+        W->>DB: UPDATE files.extracted_text
+        W->>ARQ: enqueue index_file_chunks
+        W->>ARQ: enqueue generate_file_metadata
+        ARQ->>W: index_file_chunks
+        W->>EP: process_note file content
+        W->>QD: FileVectorIndexer upsert files_chunks
+        ARQ->>W: generate_file_metadata
+        W->>LLM: FileMetadataAnalysis schema
+        LLM-->>W: summary + tags
+        W->>DB: UPDATE files.summary tags
+    else NoteCreatedEvent
+        API->>BUS: NoteCreatedEvent
+        BUS->>ARQ: handle_note_created
+        ARQ->>W: dequeue
+        W->>ARQ: enqueue generate_note_tags
+        ARQ->>W: generate_note_tags
+        W->>LLM: NoteTagAnalysis schema
+        LLM-->>W: tags
+        W->>DB: UPDATE notes.tags
+    end
+
+    Note over W,LLM: Transient LLM failure re-raises for ARQ retry
+```
+
+---
+
+## 12. Shared LLM layer (Slice 7.5)
+
+Class collaboration for structured and retry-wrapped completions.
+
+```mermaid
+classDiagram
+    direction TB
+
+    class acompletion_structured {
+        +messages list
+        +schema BaseModel
+        +max_tokens int
+        +returns BaseModel
+    }
+
+    class acompletion_with_retry {
+        +kwargs litellm params
+        +returns ModelResponse
+    }
+
+    class parse_structured_response {
+        +raw str
+        +schema type
+        +returns BaseModel
+    }
+
+    class extract_json_blob {
+        +raw str
+        +returns str JSON
+    }
+
+    class StructuredLLMParseError {
+        <<ValueError>>
+    }
+
+    class RETRYABLE_EXCEPTIONS {
+        RateLimitError
+        Timeout
+        ServiceUnavailableError
+        APIConnectionError
+    }
+
+    class generate_note_tags {
+        worker task
+    }
+
+    class generate_file_metadata {
+        worker task
+    }
+
+    class AutomationDecisionEngine {
+        evaluate_action
+    }
+
+    class call_model {
+        workspace_assistant
+    }
+
+    acompletion_structured --> parse_structured_response
+    parse_structured_response --> extract_json_blob
+    parse_structured_response ..> StructuredLLMParseError : raises
+    acompletion_structured ..> RETRYABLE_EXCEPTIONS : retries
+    acompletion_with_retry ..> RETRYABLE_EXCEPTIONS : retries
+
+    generate_note_tags --> acompletion_structured
+    generate_file_metadata --> acompletion_structured
+    AutomationDecisionEngine --> acompletion_structured
+    call_model --> acompletion_with_retry
+
+    note for acompletion_structured "Used by worker automation + governance"
+    note for acompletion_with_retry "Used by agent call_model only"
 ```

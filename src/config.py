@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "nvidia_nim/mistralai/mistral-medium-3.5-128b"
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2048
+    LLM_MAX_RETRIES: int = 4
+    LLM_RETRY_MIN_WAIT: float = 2.0
+    LLM_RETRY_MAX_WAIT: float = 60.0
+    LLM_STRUCTURED_MAX_TOKENS_TAGS: int = 256
+    LLM_STRUCTURED_MAX_TOKENS_METADATA: int = 512
     TOKEN_BUDGET_PER_REQUEST: int = 8000   # max chars of context sent to LLM
 
     # ── AI Slice 3: LangSmith (wired now, enabled in Slice 10) ─────

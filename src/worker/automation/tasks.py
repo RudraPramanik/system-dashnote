@@ -329,7 +329,6 @@ async def generate_file_metadata(
     """
     import uuid
 
-    import litellm
     import sqlalchemy as sa
 
     from config import get_settings
@@ -364,9 +363,11 @@ async def generate_file_metadata(
 
     context_text = extracted_text[:6000]
 
+    from shared.llm.retry import FATAL_EXCEPTIONS, is_retryable
+    from shared.llm.structured import StructuredLLMParseError, acompletion_structured
+
     try:
-        response = await litellm.acompletion(
-            model=settings.LLM_MODEL,
+        parsed = await acompletion_structured(
             messages=[
                 {
                     "role": "system",
@@ -381,14 +382,20 @@ async def generate_file_metadata(
                     "content": f"Document content:\n\n{context_text}\n\nGenerate summary and tags.",
                 },
             ],
-            response_format=FileMetadataAnalysis,
-            temperature=0.0,
-            max_tokens=512,
+            schema=FileMetadataAnalysis,
+            max_tokens=settings.LLM_STRUCTURED_MAX_TOKENS_METADATA,
         )
-        parsed = FileMetadataAnalysis.model_validate_json(
-            response.choices[0].message.content
+    except FATAL_EXCEPTIONS as e:
+        logger.error(
+            "[AUTOMATION_LLM_AUTH_FAIL] generate_file_metadata: permanent LLM error",
+            extra={"error": str(e)},
         )
+        return
+    except StructuredLLMParseError:
+        raise
     except Exception as e:
+        if is_retryable(e):
+            raise
         logger.error(
             "generate_file_metadata: LLM call failed",
             extra={"error": str(e)},
@@ -432,11 +439,12 @@ async def generate_note_tags(
     Non-destructive — safe to retry. No governance check needed.
     Triggered by handle_note_created fan-out.
     """
-    import litellm
     import sqlalchemy as sa
 
     from config import get_settings
     from core.database.session import AsyncSessionLocal
+    from shared.llm.retry import FATAL_EXCEPTIONS, is_retryable
+    from shared.llm.structured import StructuredLLMParseError, acompletion_structured
 
     settings = get_settings()
     if not settings.ai_enabled:
@@ -445,8 +453,7 @@ async def generate_note_tags(
     context_text = f"Title: {title}\n\n{content[:3000]}"
 
     try:
-        response = await litellm.acompletion(
-            model=settings.LLM_MODEL,
+        parsed = await acompletion_structured(
             messages=[
                 {
                     "role": "system",
@@ -457,14 +464,20 @@ async def generate_note_tags(
                 },
                 {"role": "user", "content": context_text},
             ],
-            response_format=NoteTagAnalysis,
-            temperature=0.0,
-            max_tokens=128,
+            schema=NoteTagAnalysis,
+            max_tokens=settings.LLM_STRUCTURED_MAX_TOKENS_TAGS,
         )
-        parsed = NoteTagAnalysis.model_validate_json(
-            response.choices[0].message.content
+    except FATAL_EXCEPTIONS as e:
+        logger.error(
+            "[AUTOMATION_LLM_AUTH_FAIL] generate_note_tags: permanent LLM error",
+            extra={"error": str(e)},
         )
+        return
+    except StructuredLLMParseError:
+        raise
     except Exception as e:
+        if is_retryable(e):
+            raise
         logger.error("generate_note_tags: LLM call failed", extra={"error": str(e)})
         return
 

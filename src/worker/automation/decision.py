@@ -30,10 +30,11 @@ from __future__ import annotations
 import logging
 from typing import ClassVar
 
-import litellm
 from pydantic import BaseModel, Field, field_validator
 
 from config import get_settings
+from shared.llm.retry import FATAL_EXCEPTIONS
+from shared.llm.structured import acompletion_structured
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +106,7 @@ class AutomationDecisionEngine:
         settings = get_settings()
 
         try:
-            response = await litellm.acompletion(
-                model=settings.LLM_MODEL,
+            return await acompletion_structured(
                 messages=[
                     {
                         "role": "system",
@@ -122,25 +122,31 @@ class AutomationDecisionEngine:
                         "content": f"Evaluate this proposed action:\n\n{context}",
                     },
                 ],
-                response_format=AutomationDecision,
-                temperature=0.0,
+                schema=AutomationDecision,
                 max_tokens=256,
             )
-            return AutomationDecision.model_validate_json(
-                response.choices[0].message.content
+        except FATAL_EXCEPTIONS as e:
+            logger.error(
+                "[AUTOMATION_LLM_AUTH_FAIL] AutomationDecisionEngine.evaluate_action failed",
+                extra={"error": str(e)},
             )
+            return cls._fail_safe_decision(str(e))
         except Exception as e:
             logger.error(
                 "AutomationDecisionEngine.evaluate_action failed",
                 extra={"error": str(e)},
             )
-            # Fail safe — unknown = block
-            return AutomationDecision(
-                action_type="unknown",
-                is_destructive=True,
-                confidence=0.0,
-                reasoning=f"Evaluation failed: {str(e)}. Blocking for safety.",
-            )
+            return cls._fail_safe_decision(str(e))
+
+    @staticmethod
+    def _fail_safe_decision(error: str) -> AutomationDecision:
+        """Fail safe — unknown = block."""
+        return AutomationDecision(
+            action_type="unknown",
+            is_destructive=True,
+            confidence=0.0,
+            reasoning=f"Evaluation failed: {error}. Blocking for safety.",
+        )
 
     @classmethod
     async def should_execute_immediately(cls, decision: AutomationDecision) -> bool:

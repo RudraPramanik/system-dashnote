@@ -75,7 +75,7 @@ def test_automation_decision_rounds_confidence():
 @pytest.mark.asyncio
 async def test_evaluate_action_fails_safe_on_llm_error():
     with patch(
-        "worker.automation.decision.litellm.acompletion",
+        "worker.automation.decision.acompletion_structured",
         new_callable=AsyncMock,
         side_effect=RuntimeError("LLM unavailable"),
     ):
@@ -96,13 +96,10 @@ async def test_evaluate_and_gate_blocks_destructive():
         '{"action_type":"delete_duplicate_note","is_destructive":true,'
         '"confidence":0.98,"reasoning":"Irreversible deletion."}'
     )
-    mock_response = AsyncMock()
-    mock_response.choices = [AsyncMock(message=AsyncMock(content=blocked_json))]
-
     with patch(
-        "worker.automation.decision.litellm.acompletion",
+        "worker.automation.decision.acompletion_structured",
         new_callable=AsyncMock,
-        return_value=mock_response,
+        return_value=AutomationDecision.model_validate_json(blocked_json),
     ):
         should_run, decision = await AutomationDecisionEngine.evaluate_and_gate(
             context="Found 2 duplicate notes. Proposed: delete duplicates.",
@@ -119,13 +116,10 @@ async def test_evaluate_and_gate_allows_safe_non_destructive():
         '{"action_type":"notify_owner","is_destructive":false,'
         '"confidence":0.96,"reasoning":"Read-only notification."}'
     )
-    mock_response = AsyncMock()
-    mock_response.choices = [AsyncMock(message=AsyncMock(content=safe_json))]
-
     with patch(
-        "worker.automation.decision.litellm.acompletion",
+        "worker.automation.decision.acompletion_structured",
         new_callable=AsyncMock,
-        return_value=mock_response,
+        return_value=AutomationDecision.model_validate_json(safe_json),
     ):
         should_run, decision = await AutomationDecisionEngine.evaluate_and_gate(
             context="Proposed: send in-app notification to workspace owner.",

@@ -26,10 +26,13 @@ from arq.connections import RedisSettings
 
 from config import get_settings
 from worker.automation.tasks import (
+    generate_file_metadata,
+    generate_note_tags,
     handle_file_deleted,
     handle_file_uploaded,
     handle_note_created,
     handle_note_updated,
+    index_file_chunks,
 )
 from worker.tasks import embed_note_task
 
@@ -96,6 +99,9 @@ async def startup(ctx: dict) -> None:
 
     _configure_worker_logging()
     settings = get_settings()
+    from shared.llm.env import configure_litellm_env
+
+    configure_litellm_env(settings)
     url = settings.effective_arq_redis_url
     if not url:
         logger.warning("ARQ Redis URL not configured — embedding cache disabled in worker")
@@ -161,6 +167,9 @@ class WorkerSettings:
         handle_note_created,
         handle_note_updated,
         handle_file_deleted,
+        index_file_chunks,
+        generate_file_metadata,
+        generate_note_tags,
     ]
     on_startup = startup
     on_shutdown = shutdown

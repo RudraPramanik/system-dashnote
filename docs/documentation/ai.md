@@ -36,13 +36,19 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | `QDRANT_URL` | `None` | Enables Qdrant when set; `qdrant_enabled` property |
 | `QDRANT_NOTES_COLLECTION` | `notes_chunks` | Note chunk vectors |
 | `QDRANT_FILES_COLLECTION` | `files_chunks` | File chunk vectors (Slice 7) |
-| `LLM_MODEL` | `gemini/gemini-2.5-flash` | Chat via LiteLLM |
+| `LLM_MODEL` | `nvidia_nim/mistralai/mistral-medium-3.5-128b` | Chat + automation via LiteLLM (prefix selects provider) |
 | `LLM_TEMPERATURE` | `0.0` | Deterministic answers |
 | `LLM_MAX_TOKENS` | `2048` | Max completion tokens |
+| `LLM_MAX_RETRIES` | `4` | Tenacity attempts for completion calls (Slice 7.5) |
+| `LLM_RETRY_MIN_WAIT` | `2.0` | Exponential backoff floor (seconds) |
+| `LLM_RETRY_MAX_WAIT` | `60.0` | Exponential backoff ceiling (seconds) |
+| `LLM_STRUCTURED_MAX_TOKENS_TAGS` | `256` | `generate_note_tags` completion cap |
+| `LLM_STRUCTURED_MAX_TOKENS_METADATA` | `512` | `generate_file_metadata` completion cap |
+| `NVIDIA_NIM_API_KEY` | `None` | NVIDIA NIM provider key (alias: `NVIDIA_API_KEY`) |
 | `TOKEN_BUDGET_PER_REQUEST` | `8000` | Char budget for retrieved context |
 | `AI_THREAD_MESSAGE_LIMIT` | `20` | History loaded per turn |
 | `AGENT_MAX_ITERATIONS` | (see `config.py`) | Tool loop guard |
-| `ai_enabled` | property | `OPENAI_API_KEY` or `GEMINI_API_KEY` set |
+| `ai_enabled` | property | Any of `OPENAI_API_KEY`, `GEMINI_API_KEY`, `NVIDIA_NIM_API_KEY` / `NVIDIA_API_KEY` |
 | Langfuse | `LANGFUSE_*` keys | Active LLM trace path when both keys set (LangSmith inactive) |
 
 ---
@@ -65,15 +71,18 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 
 ---
 
-## Slice 7 — event-driven automation (7.0–7.2)
+## Slice 7 — event-driven automation (7.0–7.4)
 
 | Path | Role |
 |------|------|
 | `shared/events/definitions.py` | Frozen Pydantic event schemas (`NoteCreatedEvent`, `FileUploadedEvent`, …) — **extend payloads only** |
 | `shared/events/bus.py` | `emit_event()` — maps `EventType` → ARQ task name; never raises |
 | `shared/utils/parsers.py` | `FileParsingEngine` — sync text extraction (PDF, DOCX, HTML, text/*); CPU-bound, no DB/FastAPI |
-| `worker/automation/tasks.py` | `handle_file_uploaded` extracts text + saves `extracted_text`; other handlers stubbed until 7.3 |
-| `worker/main.py` | Registers automation tasks; `ctx["arq_pool"]` for fan-out; imports all ORM models at startup |
+| `shared/llm/structured.py` | `acompletion_structured()` — tenacity retry + JSON salvage + Pydantic validation |
+| `shared/llm/retry.py` | `acompletion_with_retry()` — shared retry policy for agent + automation LLM calls |
+| `worker/automation/tasks.py` | Extraction, fan-out indexing/metadata/tagging tasks |
+| `worker/automation/decision.py` | `AutomationDecisionEngine` — governance gate for destructive AI-initiated actions |
+| `worker/main.py` | Registers 8 ARQ tasks; `ctx["arq_pool"]` for fan-out; imports all ORM models at startup |
 
 **Event → task routing:**
 
@@ -84,9 +93,31 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | `note.updated` | `handle_note_updated` |
 | `file.deleted` | `handle_file_deleted` |
 
-**File upload pipeline (7.2):** upload → `FileUploadedEvent` → worker downloads via `get_storage()` → `FileParsingEngine.extract_text()` (executor) → persist `files.extracted_text`. Fan-out to indexing + metadata in **7.3**.
+**Fan-out tasks (7.3):**
 
-**Files model (7.2):** `extracted_text`, `summary` (nullable `Text`); `tags` (`JSONB`, default `[]`). Migration: `95fb65156e52`. Deps: `pypdf`, `python-docx`, `beautifulsoup4`, `lxml`.
+| Task | Purpose | Governance |
+|------|---------|------------|
+| `index_file_chunks` | Embed `extracted_text` → `files_chunks` via `EmbeddingPipeline` + `FileVectorIndexer` | **None** — idempotent upsert |
+| `generate_file_metadata` | LLM summary + tags → `files.summary`, `files.tags` | **None** — additive metadata |
+| `generate_note_tags` | LLM tags → `notes.tags` | **None** — additive metadata |
+
+**File upload pipeline:** upload → `FileUploadedEvent` → worker downloads via `get_storage()` → `FileParsingEngine.extract_text()` (executor) → persist `files.extracted_text` → fan-out `index_file_chunks` + `generate_file_metadata`.
+
+**Note create pipeline:** commit → `embed_note_task` (Slice 1) + `NoteCreatedEvent` → `handle_note_created` → fan-out `generate_note_tags`.
+
+**Models:** `files`: `extracted_text`, `summary`, `tags` (migration `95fb65156e52`). `notes`: `tags` (`JSONB`, default `[]`, migration `6ee79b0f52a3`). Deps: `pypdf`, `python-docx`, `beautifulsoup4`, `lxml`.
+
+**Governance (7.4) — `AutomationDecisionEngine`:**
+
+| Use | Do not use |
+|-----|------------|
+| Auto-delete duplicates, auto-merge, auto-archive, external notifications | `generate_note_tags`, `generate_file_metadata`, `index_file_chunks` |
+
+- `evaluate_action(context)` → `AutomationDecision` via `shared.llm.acompletion_structured` (retry + JSON salvage)
+- `should_execute_immediately(decision)` → `True` **only** if `confidence >= 0.95` **and** `is_destructive=False`
+- Otherwise: log **`[AUTOMATION_GOVERNANCE_BLOCK]`** (exact marker) and hold for human review (future slice)
+- LLM failure → fail-safe block (`is_destructive=True`, `confidence=0.0`)
+- Import law: `litellm`, `pydantic`, `config`, stdlib only — no FastAPI, SQLAlchemy, repositories
 
 **Coexistence:** Slice 1 `embed_note_task` enqueue in `notes/router.py` is unchanged. Slice 7 adds a second `emit_event()` call after note create. File upload emits `FileUploadedEvent` only (no direct embed enqueue).
 
@@ -96,15 +127,47 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 
 ```powershell
 docker compose up -d --build api worker
-docker compose exec -e PYTHONPATH=/app/src api python -m shared.utils.parsers
-python -m pytest tests/shared/test_parsers.py -q
-# POST /files/upload (.txt or .pdf) → wait ~10s
+python -m pytest tests/shared/test_llm_structured.py tests/worker/test_automation_decision.py tests/worker/test_automation_llm_tasks.py -q
+docker compose exec -e PYTHONPATH=/app/src worker python -m worker.automation.decision
+# POST /files/upload (.txt) → wait ~45s (NVIDIA NIM latency)
+docker compose logs worker --tail 50
+# Expect: extracted_text saved → fan-out enqueued → index_file_chunks complete → generate_file_metadata complete
 docker compose exec db psql -U dashuser -d dashnotes \
-  -c "SELECT name, length(extracted_text) FROM files ORDER BY created_at DESC LIMIT 3;"
-# Expect length(extracted_text) > 0
-docker compose logs worker --tail 20
-# Expect: handle_file_uploaded: extracted_text saved
+  -c "SELECT name, length(extracted_text), summary, tags FROM files ORDER BY created_at DESC LIMIT 1;"
+curl.exe -sS "http://127.0.0.1:6333/collections/files_chunks"
+# POST /notes/ → wait ~45s → generate_note_tags complete
+docker compose exec db psql -U dashuser -d dashnotes \
+  -c "SELECT id, title, tags FROM notes ORDER BY created_at DESC LIMIT 3;"
+python scripts/e2e_agent_test.py   # register → notes → file → POST /ai/agent
 ```
+
+---
+
+## Slice 7.5 — LLM hardening (shared completion layer)
+
+Resilience for automation LLM calls and agent `call_model`. Blueprint: `docs/documentation/blueprint/slice7-llm-hardening.md`.
+
+| Path | Role |
+|------|------|
+| `shared/llm/env.py` | `configure_litellm_env()` — push provider keys into `os.environ` at API/worker startup |
+| `shared/llm/retry.py` | `RETRYABLE_EXCEPTIONS`, `FATAL_EXCEPTIONS`, `acompletion_with_retry()` |
+| `shared/llm/structured.py` | `extract_json_blob()`, `parse_structured_response()`, `acompletion_structured()`, `StructuredLLMParseError` |
+
+**Import law:** `shared/llm/*` may import `config`, `litellm`, `pydantic`, `tenacity`, stdlib only. Both `src/worker/*` and `src/ai/*` import from `shared/llm/` — never `worker` from `ai`.
+
+**Consumers:**
+
+| Caller | Function | On transient failure |
+|--------|----------|----------------------|
+| `generate_note_tags`, `generate_file_metadata` | `acompletion_structured` | Re-raise → ARQ job retry |
+| `AutomationDecisionEngine.evaluate_action` | `acompletion_structured` | Fail-safe block (`is_destructive=True`) |
+| `workspace_assistant.call_model` | `acompletion_with_retry` | Re-raise → route maps to **503** |
+
+**Log markers:** `[AUTOMATION_LLM_RETRY_EXHAUSTED]`, `[AUTOMATION_LLM_PARSE_FAIL]`, `[AUTOMATION_LLM_AUTH_FAIL]`
+
+**Embedding retry** stays in `ai/embeddings/litellm_provider.py` — not merged into `shared/llm/`.
+
+**Agent HTTP:** `ai_routes/agent.py` maps exhausted `RateLimitError` / `ServiceUnavailableError` to **503** `"LLM temporarily unavailable; retry shortly"` (not opaque 500).
 
 ---
 
@@ -224,7 +287,7 @@ Adds **`POST /ai/agent`** and **`POST /ai/agent/stream`**. **`/ai/chat*`** uncha
 | `update_note` | `NoteService.update_note(db, ...)` |
 | `summarize_workspace` | `RagService.answer(..., retrieval_limit=12)` |
 
-**Agent contract:** `POST /ai/agent` → `AgentResponse` (`answer`, `thread_id`, `steps_taken`, `tool_calls_made`). Stream: SSE from `graph.astream_events` (`token`, `tool_start`, `tool_end`, `done`, `[DONE]`). LangGraph config: `{"configurable": {"thread_id": thread_id}}`. LiteLLM `tools=` with OpenAI function defs — not LangChain `.bind_tools()`.
+**Agent contract:** `POST /ai/agent` → `AgentResponse` (`answer`, `thread_id`, `steps_taken`, `tool_calls_made`). Stream: SSE from `graph.astream_events` (`token`, `tool_start`, `tool_end`, `done`, `[DONE]`). LangGraph config: `{"configurable": {"thread_id": thread_id}}`. LiteLLM `tools=` with OpenAI function defs — not LangChain `.bind_tools()`. `call_model` uses `shared.llm.acompletion_with_retry` (Slice 7.5).
 
 Slice 6 invariants: see `src/docs/rules.md`.
 
@@ -242,6 +305,7 @@ RAG instrumentation via `observability.tracing` (`rag_trace` → spans `retrieva
 |-----|---------|
 | `src/docs/system.md` | Routers, tenancy, Compose, rate limits |
 | `src/docs/rules.md` | Import direction, Slice 6 modification laws |
-| `src/docs/lld.md` | §4.12–4.16 (flows, retrieval, RAG, agent, observability) |
+| `src/docs/lld.md` | §4.12–4.18 (flows, retrieval, RAG, agent, automation, shared LLM) |
 | `src/docs/observe.md` | Validation commands, observability steps |
 | `src/docs/blueprint/slice*.md` | Per-slice build history and sign-off gates |
+| `docs/documentation/blueprint/slice7-llm-hardening.md` | Slice 7.5 recovery blueprint and gate criteria |

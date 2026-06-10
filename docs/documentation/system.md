@@ -93,7 +93,11 @@ Bytes in object storage; metadata in PostgreSQL (`files` table: `storage_key`, `
 
 All AI module layout, RBAC filters, HTTP contracts, and agent laws: **`src/docs/ai.md`**. Import/modification laws: **`src/docs/rules.md`**.
 
-Surface summary: embeddings → Qdrant (`notes_chunks`, `files_chunks`); file upload → text extraction → `extracted_text` (7.2); RAG at `/ai/chat*`; threads at `/ai/threads*`; LangGraph agent at `/ai/agent*`. Fast RAG and agent paths coexist.
+Surface summary: embeddings → Qdrant (`notes_chunks`, `files_chunks`); file upload → text extraction → `extracted_text` (7.2) → fan-out indexing + metadata (7.3); note create → auto-tagging (7.3); destructive AI automation gated by `AutomationDecisionEngine` (7.4); shared LLM retry/structured layer (7.5); RAG at `/ai/chat*`; threads at `/ai/threads*`; LangGraph agent at `/ai/agent*`. Fast RAG and agent paths coexist.
+
+**Shared LLM layer (7.5):** `shared/llm/` — `acompletion_structured` for automation tasks + governance; `acompletion_with_retry` for agent `call_model`. Transient LLM failures in worker tasks re-raise for ARQ retry; agent maps exhausted retries to **503**.
+
+**Automation governance (7.4):** `worker/automation/decision.py` evaluates ambiguous/destructive AI-initiated actions only. Additive tasks (`generate_note_tags`, `generate_file_metadata`, `index_file_chunks`) skip governance. Blocked actions log `[AUTOMATION_GOVERNANCE_BLOCK]` for monitoring.
 
 ### Observability
 
@@ -116,7 +120,9 @@ New module under `src/<name>/`: `models.py`, `schemas.py`, `repository.py`, `rou
 
 ```powershell
 python -m pytest tests/files -q          # files module (mocked storage)
-python -m pytest tests/shared/test_parsers.py -q
+python -m pytest tests/shared/test_parsers.py tests/shared/test_llm_structured.py -q
+python -m pytest tests/worker/test_automation_decision.py tests/worker/test_automation_llm_tasks.py -q
+python -m pytest tests/ai/test_agent_retry.py -q
 python -m pytest tests/core/test_rate_limit.py -q
 ```
 
@@ -139,4 +145,8 @@ docker compose run --rm migrate # migrations only
 
 Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recreating `api`, restart `nginx` if `/health` returns 502.
 
-**File upload smoke test:** register → `POST /files/upload` multipart (`file`, `is_private`, optional `description`). Expect **200** with `id`, `mime_type`, `download_url`. After ~10s, worker should populate `extracted_text` in DB.
+**File upload smoke test:** register → `POST /files/upload` multipart (`file`, `is_private`, optional `description`). Expect **200** with `id`, `mime_type`, `download_url`. After ~45s, worker should populate `extracted_text`, `summary`, `tags` in DB and index vectors to `files_chunks`.
+
+**Note create smoke test:** `POST /notes/` → after ~45s worker should log `generate_note_tags complete` and populate `notes.tags` in DB.
+
+**Agent smoke test:** `POST /ai/agent` with Bearer token → expect **200** with tool calls, or **503** when LLM quota exhausted (never silent empty response). Full E2E: `python scripts/e2e_agent_test.py`.

@@ -17,7 +17,28 @@ from __future__ import annotations
 
 import logging
 
+from pydantic import BaseModel, Field as PydanticField
+
 logger = logging.getLogger(__name__)
+
+
+class FileMetadataAnalysis(BaseModel):
+    """Structured output for file metadata generation."""
+
+    summary: str = PydanticField(
+        description="Concise, informative summary of the document content. 2-4 sentences."
+    )
+    tags: list[str] = PydanticField(
+        description="Up to 5 lowercase keyword tags. Single words or short phrases."
+    )
+
+
+class NoteTagAnalysis(BaseModel):
+    """Structured output for note auto-tagging."""
+
+    tags: list[str] = PydanticField(
+        description="Up to 5 lowercase keyword tags for the note. Single words or short phrases."
+    )
 
 
 async def handle_file_uploaded(ctx: dict, *, event_data: dict) -> None:
@@ -140,8 +161,31 @@ async def handle_file_uploaded(ctx: dict, *, event_data: dict) -> None:
             )
             return
 
-    # Step 5: Fan-out to indexing + metadata (added in Sub-step 7.3)
-    # TODO 7.3: enqueue index_file_chunks + generate_file_metadata
+    # --- AI Slice 7.3: fan-out to indexing and metadata ---
+    arq_pool = ctx.get("arq_pool")
+    if arq_pool and extracted_text:
+        try:
+            await arq_pool.enqueue_job(
+                "index_file_chunks",
+                file_id=file_id,
+                workspace_id=workspace_id,
+                created_by=event_data.get("uploaded_by", ""),
+                is_private=event_data.get("is_private", False),
+            )
+            await arq_pool.enqueue_job(
+                "generate_file_metadata",
+                file_id=file_id,
+                workspace_id=workspace_id,
+            )
+            logger.info(
+                "handle_file_uploaded: fan-out jobs enqueued",
+                extra={"file_id": file_id},
+            )
+        except Exception as e:
+            logger.error(
+                "handle_file_uploaded: fan-out enqueue failed",
+                extra={"error": str(e)},
+            )
 
 
 async def handle_note_created(ctx: dict, *, event_data: dict) -> None:
@@ -157,7 +201,25 @@ async def handle_note_created(ctx: dict, *, event_data: dict) -> None:
             "workspace_id": event_data.get("workspace_id"),
         },
     )
-    # TODO 7.3: auto-tag note
+    # --- AI Slice 7.3: fan-out to note tagging ---
+    from config import get_settings
+
+    settings = get_settings()
+    arq_pool = ctx.get("arq_pool")
+    if arq_pool and settings.ai_enabled:
+        try:
+            await arq_pool.enqueue_job(
+                "generate_note_tags",
+                note_id=event_data.get("note_id"),
+                workspace_id=event_data.get("workspace_id"),
+                content=event_data.get("content", ""),
+                title=event_data.get("title", ""),
+            )
+        except Exception as e:
+            logger.error(
+                "handle_note_created: fan-out enqueue failed",
+                extra={"error": str(e)},
+            )
 
 
 async def handle_note_updated(ctx: dict, *, event_data: dict) -> None:
@@ -169,3 +231,275 @@ async def handle_file_deleted(ctx: dict, *, event_data: dict) -> None:
     """Triggered when a file is deleted. Stub for Qdrant vector cleanup."""
     logger.info("handle_file_deleted received", extra={"event_data": event_data})
     # TODO: delete file vectors from QDRANT_FILES_COLLECTION
+
+
+async def index_file_chunks(
+    ctx: dict,
+    *,
+    file_id: str,
+    workspace_id: str,
+    created_by: str,
+    is_private: bool,
+) -> None:
+    """
+    Embed and index file extracted_text into QDRANT_FILES_COLLECTION.
+    Reuses EmbeddingPipeline (Slice 1) + FileVectorIndexer (7.0) — no raw Qdrant in task.
+    """
+    import uuid
+
+    import sqlalchemy as sa
+
+    from ai.embeddings.factory import get_embedding_provider
+    from ai.retrieval.indexer import FileVectorIndexer
+    from ai.workflows.pipeline import EmbeddingPipeline
+    from config import get_settings
+    from core.database.session import AsyncSessionLocal
+
+    settings = get_settings()
+    if not settings.ai_enabled or not settings.qdrant_enabled:
+        return
+
+    file_name = "Untitled File"
+    extracted_text = None
+    async with AsyncSessionLocal() as db:
+        try:
+            from files.models import File
+
+            result = await db.execute(
+                sa.select(File.extracted_text, File.name).where(
+                    File.id == uuid.UUID(file_id),
+                    File.workspace_id == int(workspace_id),
+                )
+            )
+            row = result.first()
+            if row:
+                extracted_text = row.extracted_text
+                file_name = row.name or file_name
+        except Exception as e:
+            logger.error("index_file_chunks: DB load failed", extra={"error": str(e)})
+            return
+
+    if not extracted_text or not extracted_text.strip():
+        logger.info("index_file_chunks: no text to index", extra={"file_id": file_id})
+        return
+
+    try:
+        provider = await get_embedding_provider()
+        pipeline = EmbeddingPipeline(provider=provider, redis=ctx.get("redis"))
+        result = await pipeline.process_note(
+            note_id=file_id,
+            workspace_id=workspace_id,
+            created_by=created_by,
+            is_private=is_private,
+            title=file_name,
+            content=extracted_text,
+            metadata={"source_type": "file", "title": file_name},
+        )
+        if not result.embedded_chunks:
+            return
+
+        indexer = FileVectorIndexer(workspace_id)
+        count = await indexer.index_file_chunks(file_id, result.embedded_chunks)
+        logger.info(
+            "index_file_chunks complete",
+            extra={
+                "file_id": file_id,
+                "chunks_indexed": count,
+                "collection": settings.QDRANT_FILES_COLLECTION,
+            },
+        )
+    except Exception as e:
+        logger.error(
+            "index_file_chunks failed",
+            extra={"file_id": file_id, "error": str(e)},
+        )
+        raise
+
+
+async def generate_file_metadata(
+    ctx: dict,
+    *,
+    file_id: str,
+    workspace_id: str,
+) -> None:
+    """
+    Generate AI summary and tags for a file using structured LLM output.
+    Non-destructive — safe to retry. No governance check needed.
+    Triggered by handle_file_uploaded fan-out.
+    """
+    import uuid
+
+    import sqlalchemy as sa
+
+    from config import get_settings
+    from core.database.session import AsyncSessionLocal
+
+    settings = get_settings()
+    if not settings.ai_enabled:
+        return
+
+    async with AsyncSessionLocal() as db:
+        try:
+            from files.models import File
+
+            result = await db.execute(
+                sa.select(File.extracted_text).where(
+                    File.id == uuid.UUID(file_id),
+                    File.workspace_id == int(workspace_id),
+                )
+            )
+            row = result.first()
+            extracted_text = row.extracted_text if row else None
+        except Exception as e:
+            logger.error(
+                "generate_file_metadata: DB load failed",
+                extra={"error": str(e)},
+            )
+            return
+
+    if not extracted_text or not extracted_text.strip():
+        logger.info("generate_file_metadata: no text", extra={"file_id": file_id})
+        return
+
+    context_text = extracted_text[:6000]
+
+    from shared.llm.retry import FATAL_EXCEPTIONS, is_retryable
+    from shared.llm.structured import StructuredLLMParseError, acompletion_structured
+
+    try:
+        parsed = await acompletion_structured(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a document analyst. Generate a concise summary and "
+                        "relevant keyword tags for the provided document content. "
+                        "Base everything strictly on the provided text. No external knowledge."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Document content:\n\n{context_text}\n\nGenerate summary and tags.",
+                },
+            ],
+            schema=FileMetadataAnalysis,
+            max_tokens=settings.LLM_STRUCTURED_MAX_TOKENS_METADATA,
+        )
+    except FATAL_EXCEPTIONS as e:
+        logger.error(
+            "[AUTOMATION_LLM_AUTH_FAIL] generate_file_metadata: permanent LLM error",
+            extra={"error": str(e)},
+        )
+        return
+    except StructuredLLMParseError:
+        raise
+    except Exception as e:
+        if is_retryable(e):
+            raise
+        logger.error(
+            "generate_file_metadata: LLM call failed",
+            extra={"error": str(e)},
+        )
+        return
+
+    async with AsyncSessionLocal() as db:
+        try:
+            from files.models import File
+
+            await db.execute(
+                sa.update(File)
+                .where(
+                    File.id == uuid.UUID(file_id),
+                    File.workspace_id == int(workspace_id),
+                )
+                .values(summary=parsed.summary, tags=parsed.tags)
+            )
+            await db.commit()
+            logger.info(
+                "generate_file_metadata complete",
+                extra={"file_id": file_id, "tags": parsed.tags},
+            )
+        except Exception as e:
+            logger.error(
+                "generate_file_metadata: DB update failed",
+                extra={"error": str(e)},
+            )
+
+
+async def generate_note_tags(
+    ctx: dict,
+    *,
+    note_id: str,
+    workspace_id: str,
+    content: str,
+    title: str,
+) -> None:
+    """
+    Auto-tag a note using structured LLM output.
+    Non-destructive — safe to retry. No governance check needed.
+    Triggered by handle_note_created fan-out.
+    """
+    import sqlalchemy as sa
+
+    from config import get_settings
+    from core.database.session import AsyncSessionLocal
+    from shared.llm.retry import FATAL_EXCEPTIONS, is_retryable
+    from shared.llm.structured import StructuredLLMParseError, acompletion_structured
+
+    settings = get_settings()
+    if not settings.ai_enabled:
+        return
+
+    context_text = f"Title: {title}\n\n{content[:3000]}"
+
+    try:
+        parsed = await acompletion_structured(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Generate relevant keyword tags for the note. "
+                        "Base tags strictly on content provided."
+                    ),
+                },
+                {"role": "user", "content": context_text},
+            ],
+            schema=NoteTagAnalysis,
+            max_tokens=settings.LLM_STRUCTURED_MAX_TOKENS_TAGS,
+        )
+    except FATAL_EXCEPTIONS as e:
+        logger.error(
+            "[AUTOMATION_LLM_AUTH_FAIL] generate_note_tags: permanent LLM error",
+            extra={"error": str(e)},
+        )
+        return
+    except StructuredLLMParseError:
+        raise
+    except Exception as e:
+        if is_retryable(e):
+            raise
+        logger.error("generate_note_tags: LLM call failed", extra={"error": str(e)})
+        return
+
+    async with AsyncSessionLocal() as db:
+        try:
+            from notes.models import Note
+
+            await db.execute(
+                sa.update(Note)
+                .where(
+                    Note.id == int(note_id),
+                    Note.workspace_id == int(workspace_id),
+                )
+                .values(tags=parsed.tags)
+            )
+            await db.commit()
+            logger.info(
+                "generate_note_tags complete",
+                extra={"note_id": note_id, "tags": parsed.tags},
+            )
+        except Exception as e:
+            logger.error(
+                "generate_note_tags: DB update failed",
+                extra={"error": str(e)},
+            )

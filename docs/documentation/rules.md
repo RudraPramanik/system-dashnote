@@ -1,61 +1,73 @@
 ARCHITECTURE LAW — DashNoteSystem. Enforce in ALL generated code.
 
-CRITICAL FOR SLICE 6:
-  POST /ai/chat is NEVER replaced or modified — it remains the fast RAG path.
-  POST /ai/chat/stream is NEVER replaced or modified.
-  LangGraph adds NEW endpoints: POST /ai/agent and POST /ai/agent/stream.
-  Users choose: fast RAG (/ai/chat) or agentic (/ai/agent).
+CRITICAL FOR SLICE 7:
+  shared/events/definitions.py defines EventType, BaseEvent, and event class shells.
+  Sub-step 7.0 APPENDS payload fields to each event class — do not rename EventType
+  values or BaseEvent. Import event classes from here only.
+  shared/events/bus.py is NEW — contains only the emit_event() dispatcher.
+
+EXISTING CODE THAT MUST NOT CHANGE:
+  src/shared/events/definitions.py    ← extend payload fields in 7.0 only; no EventType renames
+  src/ai/workflows/pipeline.py        ← reuse EmbeddingPipeline, never duplicate
+  core/storage/client.py              ← use get_storage() for file downloads
+  src/notes/router.py Slice 1 block   ← embed_note_task enqueue stays intact
+                                         Slice 7 adds a SECOND enqueue alongside it
+
+ARQ WORKER CONTEXT LAW:
+  ctx["redis"] exists (set in worker startup from Slice 1)
+  ctx["arq_pool"] does NOT exist by default
+  To enqueue fan-out jobs from inside a worker task:
+    from arq import create_pool
+    from arq.connections import RedisSettings
+    pool = await create_pool(RedisSettings.from_dsn(settings.effective_arq_redis_url))
+    await pool.enqueue_job(...)
+    await pool.close()
+  OR: create arq_pool once in worker startup, store on ctx["arq_pool"]
+  Use the startup pattern — create once, reuse across all tasks
+
+STORAGE LAW:
+  File binary download: use get_storage() from core.storage.client
+  Never hardcode file paths or invent a new download mechanism
+  Storage returns bytes via .download(storage_key) — File model field is storage_key, not storage_path
+
+WORKER DB LAW:
+  Routers use Depends(get_session). Workers use AsyncSessionLocal directly:
+    from core.database.session import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        ...
+  Never call get_session() inside worker tasks — it is a FastAPI generator dependency.
+
+QDRANT WRITE LAW (files):
+  Notes: NoteVectorIndexer → WorkspaceVectorIndex (notes_chunks) — existing Slice 2 path.
+  Files: add FileVectorIndexer (mirror NoteVectorIndexer) targeting QDRANT_FILES_COLLECTION.
+  Worker tasks must NOT call AsyncQdrantClient.upsert directly — same law as embed_note_task.
+
+MIGRATION LAW:
+  Every model column addition requires an Alembic migration
+  Never add columns without the corresponding migration command
+
+QDRANT COLLECTION LAW:
+  Notes index to: settings.QDRANT_NOTES_COLLECTION ("notes_chunks")
+  Files index to: settings.QDRANT_FILES_COLLECTION ("files_chunks")
+  Never mix collections
+
+GOVERNANCE LAW:
+  AutomationDecision gate applies to: destructive, external, irreversible actions
+  Auto-tagging and auto-summarizing are NON-destructive — skip governance check
+  Governance check = extra LLM call = extra cost — use only where warranted
+
+WORKER TASK LAW:
+  All worker task functions: async def task_name(ctx: dict, ...) -> None
+  Never raise unhandled exceptions — all tasks wrapped in try/except
+  Log success AND failure with structured extra={} fields
+  Fan-out pattern: one task does one job, enqueues next task on success
 
 MODULE PATHS:
   Import as: from config import settings, get_settings
-             from ai.tools.note_tools import get_note_tools
-             from ai.workflows.workspace_assistant import get_workspace_assistant
-             from ai.memory.checkpointer import init_checkpointer, get_graph_checkpointer
-             from notes.service import NoteService
+             from shared.events.definitions import NoteCreatedEvent, FileUploadedEvent
+             from shared.events.bus import emit_event
+             from core.storage.client import get_storage
+             from ai.workflows.pipeline import EmbeddingPipeline
   NEVER as:  from src.config import ...
-             from src.ai.tools import ...
-
-TOOL CHAIN LAW:
-  Tools MUST call existing service layer only:
-    search_notes_tool → RagService.answer()
-    create_note_tool  → NoteService.create_note()
-    update_note_tool  → NoteService.update_note()
-    summarize_workspace_tool → RagService.answer() with broad query
-  Tools NEVER call repositories directly.
-  Tools accept (workspace_id, user_id, role) as plain strings ONLY.
-  Tools NEVER accept RequestContext, FastAPI objects, or SQLAlchemy sessions.
-
-LANGGRAPH CONNECTION LAW:
-  AsyncPostgresSaver uses psycopg3 async — NOT SQLAlchemy.
-  It does NOT share connection pool with SQLAlchemy engine.
-  Use a single async psycopg connection for checkpointer only.
-  Never pass DATABASE_URL to SQLAlchemy AND psycopg simultaneously in same pool.
-
-GRAPH COMPILATION LAW:
-  graph.compile() is NEVER called at module import time.
-  It is called once inside an async init function, result cached.
-  get_workspace_assistant() returns the cached compiled graph.
-  Checkpointer must be initialized (init_checkpointer()) before compile().
-
-TOOL FORMAT LAW:
-  Tools use StructuredTool with explicit args_schema Pydantic models.
-  Plain @tool decorator on async functions loses type safety.
-  LiteLLM tool calling uses OpenAI function definition format — not
-  LangChain .bind_tools() which is for LangChain LLM objects only.
-
-MODIFICATION LAW:
-  src/ai_routes/chat.py — NEVER modified in Slice 6
-  src/ai/services/rag_service.py — NEVER modified in Slice 6
-  src/main.py — append only (init_checkpointer + new router)
-
-NEW FILES ONLY:
-  src/notes/service.py         ← thin service over notes repository
-  src/ai/tools/__init__.py
-  src/ai/tools/note_tools.py   ← StructuredTool definitions
-  src/ai/tools/schemas.py      ← Pydantic args_schema models for tools
-  src/ai/memory/checkpointer.py
-  src/ai/workflows/state.py
-  src/ai/workflows/workspace_assistant.py
-  src/ai_routes/agent.py       ← NEW endpoints only
 
 Acknowledge these laws before writing any code.

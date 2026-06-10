@@ -14,5 +14,7 @@ Mermaid diagrams derived from [`src/docs/lld.md`](../../src/docs/lld.md). Render
 | 8 | [Conversation memory layers](diagrams.md#8-conversation-memory-layers) | Class | §4.14 |
 | 9 | [LangGraph agent loop](diagrams.md#9-langgraph-agent-loop) | State + Sequence | §4.15 |
 | 10 | [Compose deployment](diagrams.md#10-docker-compose-deployment) | Deployment | §3.1, system.md |
+| 11 | [Automation fan-out](diagrams.md#11-automation-fan-out-slice-7) | Sequence | §4.11 |
+| 12 | [Shared LLM layer](diagrams.md#12-shared-llm-layer-slice-75) | Class | §4.18 |
 
 All diagrams: [`diagrams.md`](diagrams.md)

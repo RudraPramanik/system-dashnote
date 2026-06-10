@@ -1,4 +1,6 @@
+import sqlalchemy as sa
 from sqlalchemy import Boolean, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database.associations import note_attachments
@@ -15,6 +17,15 @@ class Note(Base, WorkspaceTenantMixin, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # --- AI Slice 7: auto-tagging ---
+    tags: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=sa.text("'[]'::jsonb"),
+        comment="AI-generated tags — populated by generate_note_tags worker",
+    )
 
     attachments = relationship(
         "File",

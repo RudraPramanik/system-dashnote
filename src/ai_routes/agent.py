@@ -34,6 +34,7 @@ from ai_memory.repository import ThreadRepository
 from core.database.session import get_session
 from core.security.context import RequestContext
 from core.security.dependency import get_current_context
+from shared.llm.retry import RETRYABLE_EXCEPTIONS
 
 router = APIRouter(prefix="/ai", tags=["ai-agent"])
 logger = logging.getLogger(__name__)
@@ -172,6 +173,15 @@ async def agent_chat(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Agent unavailable: {str(e)}",
+        ) from e
+    except RETRYABLE_EXCEPTIONS as e:
+        logger.error(
+            "Agent LLM temporarily unavailable",
+            extra={"workspace_id": workspace_id, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM temporarily unavailable; retry shortly",
         ) from e
     except Exception as e:
         logger.error(

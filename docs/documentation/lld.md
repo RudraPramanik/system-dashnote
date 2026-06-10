@@ -10,7 +10,7 @@
 
 Implementation-level design for the backend in this repository, aligned with code that exists today.
 
-**In scope:** Auth/JWT context · multi-tenant repositories · RBAC · storage backends · modules `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files` · AI slices 1–6 · observability (`observability/*`, Prometheus, Grafana)
+**In scope:** Auth/JWT context · multi-tenant repositories · RBAC · storage backends · modules `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files` · AI slices 1–7.5 · observability (`observability/*`, Prometheus, Grafana)
 
 **Out of scope:** Frontend · cloud provisioning beyond Compose/nginx/monitoring · Loki/Tempo/Jaeger/OTel Collector · non-implemented runtime components
 
@@ -194,7 +194,29 @@ embed_note_task
     └─► IndexingResult
 ```
 
-Import law: stdlib, arq, pydantic, `config`, `ai.*`, `shared.*` — no FastAPI, SQLAlchemy, domain repos.
+**Automation tasks (Slice 7)**
+
+```
+FileUploadedEvent → handle_file_uploaded
+    ├─► get_storage().download(storage_key)
+    ├─► FileParsingEngine.extract_text (executor)
+    ├─► persist files.extracted_text
+    └─► fan-out: index_file_chunks, generate_file_metadata
+
+NoteCreatedEvent → handle_note_created
+    └─► fan-out: generate_note_tags
+
+index_file_chunks
+    ├─► EmbeddingPipeline.process_note (file_id as source)
+    └─► FileVectorIndexer → files_chunks
+
+generate_file_metadata / generate_note_tags
+    └─► shared.llm.acompletion_structured(schema=...) → persist tags/summary
+        ├─► transient / parse error → re-raise (ARQ retry)
+        └─► auth / not-found → log [AUTOMATION_LLM_AUTH_FAIL] → return
+```
+
+Import law: stdlib, arq, pydantic, `config`, `ai.*`, `shared.*` — no FastAPI in `decision.py`; worker tasks use `AsyncSessionLocal` for DB.
 
 ### 4.12 AI retrieval (Slice 2)
 
@@ -287,6 +309,8 @@ create_note / update_note            → NoteService.*(db from db_session_var)
 POST /ai/agent { message, thread_id? }
     ├─► freeze ctx, resolve thread, db_session_var.set(db)
     ├─► get_workspace_assistant().ainvoke(state, config={thread_id})
+    │       └─► call_model → shared.llm.acompletion_with_retry(tools=...)
+    ├─► RateLimitError / ServiceUnavailableError after retries → 503
     └─► AgentResponse(answer, thread_id, steps_taken, tool_calls_made)
 ```
 
@@ -312,6 +336,47 @@ HTTP → Instrumentator → dashnote_api_* → Prometheus → Grafana (API Overv
 | `llm_generation` | tokens, cost, latency_ms |
 
 Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Validation: **`src/docs/observe.md`**.
+
+### 4.17 Automation governance (Slice 7.4)
+
+```
+Proposed destructive AI action (future tasks: auto-delete, auto-merge, …)
+    ├─► AutomationDecisionEngine.evaluate_action(context)
+    │       └─► shared.llm.acompletion_structured(schema=AutomationDecision)
+    ├─► should_execute_immediately(decision)
+    │       ├─► True  (confidence >= 0.95 AND is_destructive=False) → execute
+    │       └─► False → log [AUTOMATION_GOVERNANCE_BLOCK] → pending review (future)
+    └─► LLM failure → fail-safe block (is_destructive=True, confidence=0.0)
+```
+
+| Task | Governance |
+|------|------------|
+| `generate_note_tags`, `generate_file_metadata`, `index_file_chunks` | **Skipped** — additive/idempotent |
+| Future destructive automation | **Required** — `evaluate_and_gate()` before side effects |
+
+`worker/automation/decision.py`: `shared.llm`, `pydantic`, `config`, stdlib only — no FastAPI, SQLAlchemy, repositories.
+
+### 4.18 Shared LLM layer (Slice 7.5)
+
+```
+acompletion_structured(messages, schema, max_tokens)
+    ├─► tenacity retry on RETRYABLE_EXCEPTIONS (RateLimit, Timeout, 503, connection)
+    ├─► litellm.acompletion(response_format=schema)
+    ├─► parse_structured_response(raw, schema)
+    │       ├─► model_validate_json(raw)
+    │       └─► extract_json_blob(raw) → salvage markdown fences / preamble
+    └─► StructuredLLMParseError → re-raise (ARQ retry in worker tasks)
+
+acompletion_with_retry(**kwargs)
+    └─► tenacity-wrapped litellm.acompletion (agent call_model; non-structured)
+```
+
+| Module | May import |
+|--------|------------|
+| `shared/llm/*` | `config`, `litellm`, `pydantic`, `tenacity`, stdlib |
+| Must **not** | FastAPI, SQLAlchemy, `worker/*`, `ai/*` (shared is imported by both) |
+
+**Coexistence:** embedding retry remains in `ai/embeddings/litellm_provider.py` (`EMBEDDING_MAX_RETRIES`); completion retry uses `LLM_MAX_RETRIES`.
 
 ---
 
@@ -340,7 +405,8 @@ Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Valida
 | AI routes | `ai_gateway/search.py`, `ai_routes/*` | HTTP adapters; freeze ctx |
 | AI memory | `ai_memory/*`, `ai/memory/*` | Threads ORM + services |
 | AI agent | `ai/workflows/*`, `ai/tools/*`, `ai/memory/checkpointer.py` | LangGraph + tools |
-| Worker | `worker/*` | ARQ embed + Qdrant indexing |
+| Shared LLM | `shared/llm/*` | Retry policy, structured completion, JSON salvage |
+| Worker | `worker/*` | ARQ embed, automation fan-out, governance gate |
 | Observability | `observability/*`, `monitoring/*` | Logs, traces, metrics, dashboards |
 
 ---
@@ -355,7 +421,7 @@ Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Valida
 | 404 | Entity not found (includes cross-workspace thread) |
 | 429 | Rate limit (`Retry-After`) |
 | 500 | Unhandled (global handler; generic body) |
-| 503 | Health probe failure; AI disabled (`ai_enabled` / `qdrant_enabled`) |
+| 503 | Health probe failure; AI disabled (`ai_enabled` / `qdrant_enabled`); agent LLM retries exhausted (`RateLimitError` / `ServiceUnavailableError`) |
 
 ---
 
@@ -368,6 +434,10 @@ Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Valida
 | Redis cache-aside | `tests/core/test_workspace_redis_cache.py` |
 | Files (mocked storage) | `tests/files/` |
 | Auth token flows | auth tests |
+| Automation governance | `tests/worker/test_automation_decision.py` |
+| Shared LLM structured | `tests/shared/test_llm_structured.py` |
+| Automation LLM tasks | `tests/worker/test_automation_llm_tasks.py` |
+| Agent LLM retry mapping | `tests/ai/test_agent_retry.py` |
 
 **Rule for new modules:** tenant-scope tests + RBAC tests + happy-path CRUD; mock `StorageBackend` for file IO.
 
@@ -401,6 +471,8 @@ Mermaid diagrams (sequence, component, class, state, deployment) live in **`docs
 | §4.13 | [RAG chat JSON](../../docs/uml/diagrams.md#6-rag-chat-json) · [RAG SSE](../../docs/uml/diagrams.md#7-rag-streaming-sse) |
 | §4.14 | [Conversation memory classes](../../docs/uml/diagrams.md#8-conversation-memory-layers) |
 | §4.15 | [LangGraph agent loop](../../docs/uml/diagrams.md#9-langgraph-agent-loop) |
+| §4.11 | [Automation fan-out](../../docs/uml/diagrams.md#11-automation-fan-out-slice-7) |
+| §4.18 | [Shared LLM layer](../../docs/uml/diagrams.md#12-shared-llm-layer-slice-75) |
 | §3.1 / Compose | [Docker deployment](../../docs/uml/diagrams.md#10-docker-compose-deployment) |
 
 Index: [`docs/uml/README.md`](../../docs/uml/README.md)

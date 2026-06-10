@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # LiteLLM uses these for hosted provider calls (model prefix selects provider)
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
+    # NVIDIA NIM — LLM via nvidia_nim/<model> (see docs/nvidia.md)
+    NVIDIA_NIM_API_KEY: str | None = None
+    NVIDIA_API_KEY: str | None = None  # alias used in NVIDIA docs / .env
+    NVIDIA_NIM_API_BASE: str = "https://integrate.api.nvidia.com/v1"
 
     # ──  LiteLLM Embedding ──────────────────────────────
     # Format: "provider/model" — e.g. "openai/text-embedding-3-small"
@@ -68,11 +72,15 @@ class Settings(BaseSettings):
     QDRANT_TIMEOUT: int = 30
 
     # ── AI Slice 3: LLM ────────────────────────────────────────────
-    # gemini/gemini-2.5-flash: fast, high-context, low-latency
-    # Change this string to swap LLM providers — no code change needed
-    LLM_MODEL: str = "gemini/gemini-2.5-flash"
+    # Provider prefix selects backend — e.g. nvidia_nim/mistralai/mistral-medium-3.5-128b
+    LLM_MODEL: str = "nvidia_nim/mistralai/mistral-medium-3.5-128b"
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2048
+    LLM_MAX_RETRIES: int = 4
+    LLM_RETRY_MIN_WAIT: float = 2.0
+    LLM_RETRY_MAX_WAIT: float = 60.0
+    LLM_STRUCTURED_MAX_TOKENS_TAGS: int = 256
+    LLM_STRUCTURED_MAX_TOKENS_METADATA: int = 512
     TOKEN_BUDGET_PER_REQUEST: int = 8000   # max chars of context sent to LLM
 
     # ── AI Slice 3: LangSmith (wired now, enabled in Slice 10) ─────
@@ -93,13 +101,22 @@ class Settings(BaseSettings):
     AGENT_TOOL_TIMEOUT: int = 30      # seconds per tool call
 
     @property
+    def effective_nvidia_nim_api_key(self) -> str | None:
+        """NVIDIA NIM key — accepts NVIDIA_NIM_API_KEY or NVIDIA_API_KEY alias."""
+        return self.NVIDIA_NIM_API_KEY or self.NVIDIA_API_KEY
+
+    @property
     def ai_enabled(self) -> bool:
         """
         Global AI feature toggle.
         False = all embedding/LLM paths are skipped safely.
-        Set OPENAI_API_KEY and/or GEMINI_API_KEY for the configured EMBEDDING_MODEL.
+        Requires a key for the configured LLM/embedding providers (any of the below).
         """
-        return bool(self.OPENAI_API_KEY or self.GEMINI_API_KEY)
+        return bool(
+            self.OPENAI_API_KEY
+            or self.GEMINI_API_KEY
+            or self.effective_nvidia_nim_api_key
+        )
 
     @property
     def effective_arq_redis_url(self) -> str:

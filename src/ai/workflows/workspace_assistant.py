@@ -34,7 +34,6 @@ import json
 import logging
 from typing import Any
 
-import litellm
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -157,8 +156,10 @@ async def call_model(state: AgentState) -> dict[str, Any]:
         state["messages"]
     )
 
+    from shared.llm.retry import acompletion_with_retry
+
     try:
-        response = await litellm.acompletion(
+        response = await acompletion_with_retry(
             model=settings.LLM_MODEL,
             messages=messages,
             tools=openai_tools,

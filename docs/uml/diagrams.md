@@ -484,7 +484,7 @@ sequenceDiagram
     participant ARQ as ARQ Redis
     participant W as worker
     participant ST as StorageBackend
-    participant PAR as FileParsingEngine
+    participant FPE as FileParsingEngine
     participant DB as PostgreSQL
     participant LLM as acompletion_structured
     participant EP as EmbeddingPipeline
@@ -495,8 +495,8 @@ sequenceDiagram
         BUS->>ARQ: handle_file_uploaded
         ARQ->>W: dequeue
         W->>ST: download storage_key
-        W->>PAR: extract_text mime
-        PAR-->>W: extracted_text
+        W->>FPE: extract_text mime
+        FPE-->>W: extracted_text
         W->>DB: UPDATE files.extracted_text
         W->>ARQ: enqueue index_file_chunks
         W->>ARQ: enqueue generate_file_metadata

@@ -1849,8 +1849,7 @@ What 7.0 extended (schemas/infra only — no behavior change to existing routes)
 
 ---
 
-> **Next:** Slice 7P — Production Platform (`slice-platform.md`)
-> Prod compose, env contract, CI/CD, VPS deploy. Run **before** Slice 8+ unless you only need local dev.
-> If LLM automation flakes on 429/503: run `slice7-llm-hardening.md` first.
+> **Next:** Slice 7.5 — LLM Hardening (`slice7-llm-hardening.md`) ✅ **complete**
+> **Then:** Slice 7P — Production Platform (`slice-platform.md`) — prod compose, CI/CD, VPS deploy.
 >
 > **After 7P gate:** Slice 8 — GraphRAG with Neo4j (Optional), or Slice 10 — Observability.

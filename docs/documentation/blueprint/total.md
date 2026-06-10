@@ -130,6 +130,7 @@ Slice 4   Polish              Streaming + citations + better prompts.
 Slice 5   Memory              Conversation threads. Continue where you left off.
 Slice 6   Workflows           LangGraph enters. Tool calling. Agent actions.
 Slice 7   Automation          File upload → auto-summarize. Event-driven intelligence.
+Slice 7.5 LLM hardening       Shared retry/structured LLM layer. ✅ Complete — slice7-llm-hardening.md
 Slice 7P  Platform            Prod compose, env contract, CI/CD, VPS deploy. See slice-platform.md.
 Slice 8   GraphRAG (optional) Neo4j relationship intelligence. Only if needed.
 Slice 9   Multi-agent (later) Supervisor + specialized agents. Late stage only.
@@ -1007,7 +1008,7 @@ SMOKE_BASE_URL=https://api.yourdomain.com python scripts/smoke_prod.py   # PASS
 - `docker-compose.prod.yml` — NEW; api, worker, nginx, migrate only; `env_file: .env` without URL overrides
 - Resume Slice 8+ only after production gate passes
 
-**Related:** `slice7-llm-hardening.md` (LLM quota fixes — run before prod if automation flakes)
+**Prerequisite:** Slice 7.5 LLM hardening ✅ complete (`shared/llm/`, `slice7-llm-hardening.md`).
 
 ---
 

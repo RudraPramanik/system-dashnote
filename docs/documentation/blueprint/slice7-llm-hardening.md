@@ -1,9 +1,12 @@
 # Slice 7.5 — Automation LLM Hardening (Recovery Blueprint)
 ## Cursor prompts to fix flaky `generate_note_tags`, `generate_file_metadata`, and agent tool loops
 
-> **Context:** Slice 7 wiring is correct (events → worker fan-out → DB/Qdrant). Live failures are **LLM reliability**, not missing tasks or broken pipelines.
-> **Prerequisite:** Slices 1–7 implemented per `ai.md` / `system.md`. Slice 8 skipped. Slice 10 deferred until this gate passes.
-> **Related:** `slice7.md` (original automation build) · `ai.md` §Slice 7 · `observe.md`
+> **Status: ✅ COMPLETE** — implemented in `src/shared/llm/` (`structured.py`, `retry.py`, `env.py`). Kept as historical reference and gate criteria.
+> **Next slice:** [Slice 7P — Production Platform](slice-platform.md) (prod compose, CI/CD, VPS deploy).
+
+> **Context:** Slice 7 wiring is correct (events → worker fan-out → DB/Qdrant). Live failures were **LLM reliability**, not missing tasks or broken pipelines.
+> **Prerequisite:** Slices 1–7 implemented per `ai.md` / `system.md`.
+> **Related:** `slice7.md` (original automation build) · `ai.md` §Slice 7.5 · `observe.md`
 
 ---
 

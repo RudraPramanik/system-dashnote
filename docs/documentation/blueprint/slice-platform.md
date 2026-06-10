@@ -1,8 +1,8 @@
 # Slice Platform — Production Deployment & CI/CD
 ## Final Cursor Prompts (8 Sub-steps, Dev-Safe, Hosted Data Plane)
 
-> **When to run:** After Slice 7 gate passes (automation working in local Docker).
-> **Not the same as:** `slice7-llm-hardening.md` (LLM quota/retry fixes) — run that first if automation flakes on Gemini 429/503.
+> **When to run:** After Slices 7 **and 7.5** are complete (automation + LLM hardening in local Docker).
+> **Prerequisite done:** Slice 7.5 (`slice7-llm-hardening.md`) — `shared/llm/` retries, structured calls, agent `call_model` hardening ✅
 > **Goal:** Shape the repo for production **without breaking local Docker**. Separate prod compose profile. CI/CD and VPS deploy come last, only when the repo is ready.
 > **Philosophy (from `total.md`):** Hosted data plane (Postgres, Redis, Qdrant, R2, Grafana Cloud). Thin compute on VPS (api + worker + nginx). Same Dockerfile everywhere.
 
@@ -36,6 +36,7 @@ Phase C — CI/CD (run when repo + secrets are ready)
 | Prerequisite | Expected state | Action if missing |
 |--------------|----------------|-------------------|
 | Slices 1–7 implemented | `docker compose up` works; file upload automation completes | Finish `slice7.md` |
+| Slice 7.5 LLM hardening | `src/shared/llm/` exists; automation uses `acompletion_structured` | ✅ Done — see `slice7-llm-hardening.md` |
 | Local health | `curl http://127.0.0.1/health` → 200 | Fix api/db/redis |
 | Tests pass | `python -m pytest -q` green | Fix regressions |
 | `.env` not committed | `.env` in `.gitignore` | Verify gitignore |
@@ -885,4 +886,3 @@ docker compose -f docker-compose.prod.yml config
 
 > **Next:** Slice 8 — GraphRAG with Neo4j (optional) **or** Slice 10 — Observability
 > Start feature slices only after **7P.8 production gate** passes on real VPS.
-> If LLM automation is flaky before deploy, run `slice7-llm-hardening.md` first.

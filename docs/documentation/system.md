@@ -150,3 +150,15 @@ Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recrea
 **Note create smoke test:** `POST /notes/` → after ~45s worker should log `generate_note_tags complete` and populate `notes.tags` in DB.
 
 **Agent smoke test:** `POST /ai/agent` with Bearer token → expect **200** with tool calls, or **503** when LLM quota exhausted (never silent empty response). Full E2E: `python scripts/e2e_agent_test.py`.
+
+### Dependency tiers & deploy profiles
+
+| Tier | Services | Deploy gate |
+|------|----------|-------------|
+| **Hard** | Postgres, Redis | `/health` must return 200 |
+| **Soft** | Qdrant, LLM providers | App boots; AI/automation degrades |
+| **Optional** | Langfuse, LangSmith, Grafana remote_write | Never block startup or CD |
+
+**Dev (full stack):** `docker compose up` — includes `db`, `redis`, `qdrant`, `api`, `worker`, `nginx`, `prometheus` on the local machine.
+
+**Prod (VPS / hosted services):** `docker compose -f docker-compose.prod.yml up` — `nginx`, `api`, `worker`, `migrate`, optional `prometheus` only; Postgres, Redis, and Qdrant come from `.env` (see `.env.production.example`).

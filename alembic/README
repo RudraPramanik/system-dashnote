@@ -1,1 +1,26 @@
-Generic single-database configuration.
+# Alembic migrations
+
+PostgreSQL schema migrations for DashNoteSystem. Revisions live in `alembic/versions/`. `env.py` loads ORM models from `src/` so autogenerate sees the full metadata.
+
+## Commands
+
+**Docker (recommended)**
+
+```powershell
+docker compose run --rm migrate              # upgrade to head
+docker compose down -v                       # reset DB volumes, then migrate again
+```
+
+**Local** (set `DATABASE_URL` in `.env`; async URL is converted to sync in `env.py`)
+
+```powershell
+alembic upgrade head
+alembic revision --autogenerate -m "describe change"
+alembic downgrade -1
+```
+
+## Documentation
+
+- [System workflow & routing](../docs/documentation/system.md)
+- [AI architecture](../docs/documentation/ai.md)
+- [UML diagrams](../docs/uml/diagrams.md)

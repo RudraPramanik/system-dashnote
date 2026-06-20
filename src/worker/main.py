@@ -119,17 +119,26 @@ async def startup(ctx: dict) -> None:
     logger.info("ARQ fan-out pool initialized in worker context")
 
     if settings.qdrant_enabled:
-        from ai.retrieval.collection import ensure_files_collection, ensure_notes_collection
+        try:
+            from ai.retrieval.collection import (
+                ensure_files_collection,
+                ensure_notes_collection,
+            )
 
-        await ensure_notes_collection()
-        await ensure_files_collection()
-        logger.info(
-            "Qdrant collections ready",
-            extra={
-                "notes_collection": settings.QDRANT_NOTES_COLLECTION,
-                "files_collection": settings.QDRANT_FILES_COLLECTION,
-            },
-        )
+            await ensure_notes_collection()
+            await ensure_files_collection()
+            logger.info(
+                "Qdrant collections ready",
+                extra={
+                    "notes_collection": settings.QDRANT_NOTES_COLLECTION,
+                    "files_collection": settings.QDRANT_FILES_COLLECTION,
+                },
+            )
+        except Exception as e:
+            logger.error(
+                "Qdrant bootstrap failed — indexing jobs will retry at runtime",
+                extra={"error": str(e)},
+            )
 
     logger.info(
         "ARQ worker started",

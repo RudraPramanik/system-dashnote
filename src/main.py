@@ -98,10 +98,21 @@ async def lifespan(app: FastAPI):
         app.state.arq_pool = None
 
     if _s.qdrant_enabled:
-        from ai.retrieval.collection import ensure_files_collection, ensure_notes_collection
+        try:
+            from ai.retrieval.collection import (
+                ensure_files_collection,
+                ensure_notes_collection,
+            )
 
-        await ensure_notes_collection()
-        await ensure_files_collection()
+            await ensure_notes_collection()
+            await ensure_files_collection()
+            logger.info("Qdrant collections ready")
+        except Exception as e:
+            logger.error(
+                "Qdrant bootstrap failed — vector features degraded",
+                extra={"error": str(e)},
+            )
+            # Non-fatal: core API boots; /ai/* returns 503 when qdrant unreachable
     # --- AI Slice 6: LangGraph checkpointer ---
     try:
         from ai.memory.checkpointer import init_checkpointer

@@ -130,6 +130,10 @@ python -m pytest tests/core/test_rate_limit.py -q
 
 ### Docker Compose
 
+Two compose files — dev stack vs VPS profile. See `.env.production.example` for hosted URLs.
+
+**Local (full stack)** — `docker-compose.yml`:
+
 ```powershell
 docker compose up -d --build    # start
 docker compose ps
@@ -139,9 +143,20 @@ docker compose down -v          # reset volumes
 docker compose run --rm migrate # migrations only
 ```
 
-**Services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `grafana` (:3001), `migrate` (one-shot Alembic).
+**Production (VPS — hosted db/redis/qdrant in `.env`)** — `docker-compose.prod.yml`:
 
-**Local dev overrides (Compose):** `api` and `worker` get explicit `DATABASE_URL` (local Postgres, not `.env` remote). Both mount `local_storage` for `STORAGE_BACKEND=local`. Worker imports all ORM models at startup (same pattern as `alembic/env.py`).
+```powershell
+docker compose -f docker-compose.prod.yml run --rm migrate
+docker compose -f docker-compose.prod.yml up -d
+# Optional metrics → Grafana Cloud:
+docker compose -f docker-compose.prod.yml --profile observability up -d
+```
+
+**Dev services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `migrate` (one-shot Alembic).
+
+**Prod services:** `nginx` (:80), `api` (expose 8000 only — nginx fronts traffic), `worker`, `migrate` (run separately), optional `prometheus` (`--profile observability`). No local `db`, `redis`, or `qdrant` containers.
+
+**Local dev overrides (Compose):** `api` and `worker` get explicit `DATABASE_URL` (local Postgres, not `.env` remote). Both mount `local_storage` for `STORAGE_BACKEND=local`. Worker imports all ORM models at startup (same pattern as `alembic/env.py`). Production compose uses `env_file: .env` only (plus `DEBUG=false`); no shared storage volume — use `STORAGE_BACKEND=r2`.
 
 Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recreating `api`, restart `nginx` if `/health` returns 502.
 

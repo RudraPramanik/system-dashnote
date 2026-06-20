@@ -63,6 +63,8 @@ services:
       redis:
         condition: service_healthy
     env_file: .env
+    # Dev overrides — take precedence over .env for local service discovery.
+    # Production uses docker-compose.prod.yml with env_file only.
     environment:
       DATABASE_URL: postgresql+asyncpg://dashuser:dashpass@db:5432/dashnotes
       JWT_SECRET: dev-secret
@@ -83,6 +85,8 @@ services:
     build: .
     command: python -m arq src.worker.main.WorkerSettings
     env_file: .env
+    # Dev overrides — take precedence over .env for local service discovery.
+    # Production uses docker-compose.prod.yml with env_file only.
     environment:
       DATABASE_URL: postgresql+asyncpg://dashuser:dashpass@db:5432/dashnotes
       REDIS_URL: redis://redis:6379/0

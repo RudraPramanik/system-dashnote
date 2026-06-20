@@ -30,13 +30,15 @@ Registers routers and global dependencies:
 
 **Middleware:** `ProxyHeadersMiddleware` (trusted `*`) for `X-Forwarded-For`; global `enforce_global_rate_limit` when Redis configured.
 
-**Lifespan:** `setup_logging()` → ARQ pool (`app.state.arq_pool`) → Qdrant collection bootstrap → LangGraph checkpointer init (non-fatal on failure).
+**Lifespan:** `setup_logging()` → ARQ pool → Qdrant collection bootstrap (non-fatal) → LangGraph checkpointer init (non-fatal).
+
+**Soft dependency boot (7P.3):** When `settings.qdrant_enabled`, `main.py` and `worker/main.py` call `ensure_notes_collection()` / `ensure_files_collection()` inside try/except. Failure logs `ERROR` and startup continues — `/health`, `/notes`, `/files` still work; `/ai/*` and indexing degrade until Qdrant is reachable. Redis and Postgres remain hard deps (`GET /health` gate). Optional `GET /health/ai` → 7P.6.
 
 **Event bus (Slice 7):** `shared/events/bus.py` — `emit_event()` maps domain events to ARQ automation tasks. Never raises; failures logged only. Routers call `emit_event` after successful DB commit alongside existing Slice 1 embed enqueue.
 
 **Metrics:** `GET /metrics` — Prometheus via `prometheus-fastapi-instrumentator` (`dashnote_api_*`); scraped by Compose `prometheus`, not Nginx.
 
-**Health:** `GET /health` — `SELECT 1` + Redis `PING` when configured. **200** ok / **503** degraded; returns `timestamp`, `latency_ms`, `dependencies`.
+**Health:** `GET /health` — `SELECT 1` + Redis `PING` when configured. **200** ok / **503** degraded; returns `timestamp`, `latency_ms`, `dependencies`. Qdrant is **not** probed here (deploy gate stays db + redis only).
 
 ### Rate limiting (Nginx + FastAPI)
 
@@ -130,6 +132,10 @@ python -m pytest tests/core/test_rate_limit.py -q
 
 ### Docker Compose
 
+Two compose files — dev stack vs VPS profile. See `.env.production.example` for hosted URLs.
+
+**Local (full stack)** — `docker-compose.yml`:
+
 ```powershell
 docker compose up -d --build    # start
 docker compose ps
@@ -139,9 +145,20 @@ docker compose down -v          # reset volumes
 docker compose run --rm migrate # migrations only
 ```
 
-**Services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `grafana` (:3001), `migrate` (one-shot Alembic).
+**Production (VPS — hosted db/redis/qdrant in `.env`)** — `docker-compose.prod.yml`:
 
-**Local dev overrides (Compose):** `api` and `worker` get explicit `DATABASE_URL` (local Postgres, not `.env` remote). Both mount `local_storage` for `STORAGE_BACKEND=local`. Worker imports all ORM models at startup (same pattern as `alembic/env.py`).
+```powershell
+docker compose -f docker-compose.prod.yml run --rm migrate
+docker compose -f docker-compose.prod.yml up -d
+# Optional metrics → Grafana Cloud:
+docker compose -f docker-compose.prod.yml --profile observability up -d
+```
+
+**Dev services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `migrate` (one-shot Alembic).
+
+**Prod services:** `nginx` (:80), `api` (expose 8000 only — nginx fronts traffic), `worker`, `migrate` (run separately), optional `prometheus` (`--profile observability`). No local `db`, `redis`, or `qdrant` containers.
+
+**Local dev overrides (Compose):** `api` and `worker` get explicit `DATABASE_URL` (local Postgres, not `.env` remote). Both mount `local_storage` for `STORAGE_BACKEND=local`. Worker imports all ORM models at startup (same pattern as `alembic/env.py`). Production compose uses `env_file: .env` only (plus `DEBUG=false`); no shared storage volume — use `STORAGE_BACKEND=r2`.
 
 Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recreating `api`, restart `nginx` if `/health` returns 502.
 
@@ -150,3 +167,15 @@ Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recrea
 **Note create smoke test:** `POST /notes/` → after ~45s worker should log `generate_note_tags complete` and populate `notes.tags` in DB.
 
 **Agent smoke test:** `POST /ai/agent` with Bearer token → expect **200** with tool calls, or **503** when LLM quota exhausted (never silent empty response). Full E2E: `python scripts/e2e_agent_test.py`.
+
+### Dependency tiers & deploy profiles
+
+| Tier | Services | Deploy gate |
+|------|----------|-------------|
+| **Hard** | Postgres, Redis | `/health` must return 200 |
+| **Soft** | Qdrant, LLM providers | App boots; AI/automation degrades |
+| **Optional** | Langfuse, LangSmith, Grafana remote_write | Never block startup or CD |
+
+**Dev (full stack):** `docker compose up` — includes `db`, `redis`, `qdrant`, `api`, `worker`, `nginx`, `prometheus` on the local machine.
+
+**Prod (VPS / hosted services):** `docker compose -f docker-compose.prod.yml up` — `nginx`, `api`, `worker`, `migrate`, optional `prometheus` only; Postgres, Redis, and Qdrant come from `.env` (see `.env.production.example`).

@@ -22,6 +22,176 @@
 
 ---
 
+## Two tiers — full stack vs simple GPT wrapper (Upwork)
+
+You run **two deliverables**, not one. DashNote is the **premium proof**; a **Lite template** lets you win low-budget jobs fast without falling behind “production-ready GPT” freelancers who ship less underneath.
+
+```
+                    ┌─────────────────────────────────────┐
+                    │         Client conversation          │
+                    └─────────────────┬───────────────────┘
+                                      │
+              ┌───────────────────────┴───────────────────────┐
+              ▼                                               ▼
+     ┌─────────────────┐                           ┌─────────────────┐
+     │  Tier A — Lite  │                           │ Tier B — Full   │
+     │  GPT + RAG MVP  │                           │ DashNote-class  │
+     │  $800–3,500     │                           │ $5,000–18,000+  │
+     └─────────────────┘                           └─────────────────┘
+              │                                               │
+              │         upgrade path (Phase 2 contract)       │
+              └──────────────────►────────────────────────────┘
+```
+
+### When to sell which tier
+
+| Signal from client | Tier | Your pitch |
+|--------------------|------|------------|
+| Budget **<$2k**, “chatbot on my PDFs”, 1 user or internal tool | **A — Lite** | “Custom GPT on your docs — live in ~1 week” |
+| “Just need ChatGPT on our website” | **A — Lite** | Same; set expectations: no multi-tenant SaaS |
+| Multiple users, login, teams, permissions | **B — Full** | Point to DashNote demo |
+| “Production”, compliance, audit, SLA | **B — Full** | RBAC search, workers, observability |
+| Already bought Lite from you; needs auth + teams | **A → B upgrade** | Fixed migration quote |
+
+**Rule:** Never build Tier B scope at Tier A price. Never oversell Lite as “enterprise multi-tenant.”
+
+---
+
+### Tier A — Simple GPT wrapper (Lite stack)
+
+**Goal:** Ship in **3–7 days**. Same *outcome* clients see on Upwork (upload docs → ask questions), minimal moving parts.
+
+#### Lite architecture (default recipe)
+
+Use your **Next.js** strength — most Lite jobs never need the full DashNote repo.
+
+```
+User (browser)
+    ▼
+Next.js app (Vercel / Cloudflare Pages)
+    ├── /chat          UI (React, Tailwind — your 4 yr stack)
+    ├── /api/chat      Route Handler → OpenAI / LiteLLM chat + tools optional
+    └── /api/upload    Route Handler → extract text → embed → upsert vectors
+    ▼
+Vector store (pick one per job)
+    ├── Qdrant Cloud free tier     (closest to DashNote; reuse mental model)
+    ├── Pinecone serverless        (client name recognition)
+    └── Supabase pgvector          (if client already on Supabase)
+    ▼
+LLM
+    └── OpenAI gpt-4o-mini OR Gemini flash (cost-sensitive clients)
+```
+
+**Optional Lite backend** (when client forbids serverless limits): single **`lite-api/`** folder — slim FastAPI (~300–500 LOC), one `workspace_id` constant or simple API key, no ARQ worker (sync embed on upload or Vercel background function).
+
+#### Lite — in scope / out of scope
+
+| In scope (promise this) | Out of scope (upsell to Tier B) |
+|-------------------------|----------------------------------|
+| Chat UI + streaming | Multi-tenant workspaces + JWT RBAC |
+| Upload PDF/TXT/DOCX → Q&A | LangGraph agent + tool mutations |
+| Basic RAG (chunk, embed, top-k, cite filenames) | Permission-aware vector filters |
+| One API key or simple password gate | Worker queue + automation |
+| Deploy to Vercel + env vars doc | Langfuse/Grafana/Prometheus |
+| 7-day bug-fix window | Eval harness + CI regression |
+
+#### Lite — file template (build once, clone per client)
+
+Keep a separate repo or `templates/lite-gpt-rag/`:
+
+```
+templates/lite-gpt-rag/
+├── README.md              # handoff for client
+├── .env.example           # OPENAI_API_KEY, QDRANT_URL, QDRANT_API_KEY
+├── app/
+│   ├── page.tsx           # chat
+│   ├── api/chat/route.ts
+│   └── api/upload/route.ts
+├── lib/
+│   ├── chunk.ts           # ~500 char chunks, overlap 100
+│   ├── embed.ts           # openai embeddings or litellm
+│   ├── vector.ts          # qdrant upsert/search wrapper
+│   └── prompts.ts         # system prompt + “answer only from context”
+└── scripts/smoke.mjs      # one upload + one question
+```
+
+**Reuse from DashNote knowledge (without importing the repo):** chunk overlap habits, “citations from retrieved chunks not stream”, score threshold ~0.4, system prompt structure from `src/ai/prompts/rag.py` — reimplemented in ~50 lines for Lite.
+
+#### Lite — delivery checklist (per client)
+
+- [ ] Client provides docs or sample files
+- [ ] Collection name = `{client_slug}_docs`
+- [ ] Upload → embed → chat works on **production URL**
+- [ ] README: env vars, how to add files, estimated OpenAI cost/month
+- [ ] Loom **2 min** walkthrough (counts as “production-ready” for this tier)
+- [ ] Invoice line: “Phase 1 Lite” — optional “Phase 2 Full platform” quote attached
+
+#### Lite — pricing (Bangladesh / Upwork — win jobs, don’t race to $5/hr)
+
+| Package | Scope | Fixed price | Your effort |
+|---------|-------|-------------|-------------|
+| **Lite S** | Chat + 1 data source, no auth | **$800–1,200** | 2–3 days |
+| **Lite M** | Chat + upload UI + password | **$1,200–2,000** | 4–5 days |
+| **Lite L** | Lite M + branding + 2 file types + deploy | **$2,000–3,500** | 5–7 days |
+
+Hourly equivalent target: **$35–50/hr** effective (acceptable for volume + reviews).  
+**After 3 Lite reviews:** raise Lite L to **$2,500–4,000**.
+
+#### Lite — honest Upwork copy (don’t undersell, don’t lie)
+
+**Say:** “Custom RAG chatbot on your documents — deployed, with citations and upload UI.”  
+**Don’t say:** “Enterprise multi-tenant AI platform.”  
+**Optional footnote:** “Built by the same engineer who ships [DashNote live URL] for teams needing auth, agents, and ops.”
+
+---
+
+### Tier B — Full stack (this repo — DashNote-class)
+
+Reference: [`system.md`](documentation/system.md) · [`ai.md`](documentation/ai.md)
+
+| Capability | Tier B |
+|------------|--------|
+| Multi-tenant JWT + RBAC in API **and** vector search | ✅ |
+| Notes, files, workers, automation | ✅ |
+| RAG + SSE + threads + LangGraph agent | ✅ |
+| Observability + evals + CI/CD | ✅ (ship-plan gates) |
+
+Pricing: **$5,000–8,000** MVP → **$12,000–18,000** full product (see Phase 1/2 gates).  
+Profile rate **$55–70/hr** (accept **$45–55** early).
+
+---
+
+### Lite template — one-time build (parallel to ship-plan)
+
+**Not a substitute for DashNote** — do this once in **2–3 evenings** so Lite jobs don’t steal Phase 1 focus.
+
+| Step | Task | Time |
+|------|------|------|
+| L1 | Scaffold `templates/lite-gpt-rag` Next.js 14 App Router | 2 hr |
+| L2 | `/api/upload` — pdf txt parse, chunk, Qdrant upsert | 3 hr |
+| L3 | `/api/chat` — retrieve top-5, stream SSE, cite sources | 3 hr |
+| L4 | Minimal chat UI (Tailwind), file list, markdown answers | 3 hr |
+| L5 | Deploy demo to Vercel + `scripts/smoke.mjs` | 1 hr |
+| L6 | `templates/lite-gpt-rag/README.md` — client handoff template | 1 hr |
+
+- [ ] **Gate:** Public Lite demo URL in Upwork portfolio **separate from** DashNote
+- [ ] **Gate:** Clone → rebrand → new client live in **<1 day** config changes
+
+---
+
+### Upgrade path (Lite → Full)
+
+| Client ask | Action |
+|------------|--------|
+| “We need user accounts” | Quote Tier B auth module or Supabase Auth + migrate vectors |
+| “Private docs per team” | Quote RBAC + DashNote `build_rbac_filter` pattern |
+| “Agent that creates tasks/notes” | Quote agent slice + fixed scope |
+| “SLA / monitoring” | Quote 7P deploy + Langfuse + monthly retainer **$500–1,500/mo** |
+
+Document upgrades in proposal as **Phase 2** — never free scope creep.
+
+---
+
 ## What “top 10%” and “top 3–5%” mean (concrete gates)
 
 ### Top ~10% gate (Day 14 — all must pass)
@@ -308,12 +478,13 @@ evals/
 
 ## Priority order (when time runs short)
 
-1. Live prod API + CD + smoke
-2. Frontend happy path + live URL
+1. Live prod API + CD + smoke (Tier B / portfolio)
+2. Frontend happy path + live URL (Tier B)
 3. Golden eval script (even 5 cases)
 4. Langfuse cost snapshot in README
 5. CI pytest
-6. Everything else in Phase 2
+6. **Lite template demo** (Tier A — if you need Upwork income before Day 14)
+7. Everything else in Phase 2
 
 ---
 
@@ -326,6 +497,9 @@ evals/
 - Giant README rewrite with no live link
 - Claiming “production-ready” with no rollback story
 - Optimizing prompts before tenant-isolation evals exist
+- **Selling Tier B scope at Tier A price** (burns margin and timeline)
+- **Calling Lite “enterprise multi-tenant”** (same oversell as cheap GPT wrappers)
+- **Building full DashNote for a $1k chatbot job** (use Lite template instead)
 
 ---
 

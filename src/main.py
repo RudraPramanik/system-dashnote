@@ -109,10 +109,10 @@ async def lifespan(app: FastAPI):
             logger.info("Qdrant collections ready")
         except Exception as e:
             logger.error(
-                "Qdrant bootstrap failed — vector features degraded",
+                "Qdrant collection bootstrap failed — AI retrieval degraded",
                 extra={"error": str(e)},
             )
-            # Non-fatal: core API boots; /ai/* returns 503 when qdrant unreachable
+            # Non-fatal: core API boots; /ai/* degrades when Qdrant unreachable
     # --- AI Slice 6: LangGraph checkpointer ---
     try:
         from ai.memory.checkpointer import init_checkpointer

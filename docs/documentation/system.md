@@ -30,13 +30,15 @@ Registers routers and global dependencies:
 
 **Middleware:** `ProxyHeadersMiddleware` (trusted `*`) for `X-Forwarded-For`; global `enforce_global_rate_limit` when Redis configured.
 
-**Lifespan:** `setup_logging()` → ARQ pool (`app.state.arq_pool`) → Qdrant collection bootstrap → LangGraph checkpointer init (non-fatal on failure).
+**Lifespan:** `setup_logging()` → ARQ pool → Qdrant collection bootstrap (non-fatal) → LangGraph checkpointer init (non-fatal).
+
+**Soft dependency boot (7P.3):** When `settings.qdrant_enabled`, `main.py` and `worker/main.py` call `ensure_notes_collection()` / `ensure_files_collection()` inside try/except. Failure logs `ERROR` and startup continues — `/health`, `/notes`, `/files` still work; `/ai/*` and indexing degrade until Qdrant is reachable. Redis and Postgres remain hard deps (`GET /health` gate). Optional `GET /health/ai` → 7P.6.
 
 **Event bus (Slice 7):** `shared/events/bus.py` — `emit_event()` maps domain events to ARQ automation tasks. Never raises; failures logged only. Routers call `emit_event` after successful DB commit alongside existing Slice 1 embed enqueue.
 
 **Metrics:** `GET /metrics` — Prometheus via `prometheus-fastapi-instrumentator` (`dashnote_api_*`); scraped by Compose `prometheus`, not Nginx.
 
-**Health:** `GET /health` — `SELECT 1` + Redis `PING` when configured. **200** ok / **503** degraded; returns `timestamp`, `latency_ms`, `dependencies`.
+**Health:** `GET /health` — `SELECT 1` + Redis `PING` when configured. **200** ok / **503** degraded; returns `timestamp`, `latency_ms`, `dependencies`. Qdrant is **not** probed here (deploy gate stays db + redis only).
 
 ### Rate limiting (Nginx + FastAPI)
 

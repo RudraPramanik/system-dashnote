@@ -136,7 +136,7 @@ async def startup(ctx: dict) -> None:
             )
         except Exception as e:
             logger.error(
-                "Qdrant bootstrap failed — indexing jobs will retry at runtime",
+                "Qdrant collection bootstrap failed — indexing jobs will retry at runtime",
                 extra={"error": str(e)},
             )
 

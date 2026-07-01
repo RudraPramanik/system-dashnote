@@ -1,93 +1,650 @@
-# DashNoteSystem — architecture & development Q&A
+# DashNoteSystem — Interview & Job Prep Q&A
 
-Short answers tied to how this repository is built today. For deeper flow diagrams and module contracts, see `system.md` and `lld.md`.
+Short answers tied to how this repository is built today. Use this for technical interviews, Upwork client calls, and system-design discussions.
 
----
-
-### Why centralize JWT handling in `core/security/dependency.py` instead of decoding in each router?
-
-So every protected route shares one claim contract (`sub`, `wid`, `role`, `typ`, `jti`) and one revocation path (access blacklist via `get_token_store()`). Routers stay thin and cannot drift to different validation rules or forget blacklist checks.
+**Deeper references:** `system.md` · `ai.md` · `auth.md` · `rules.md` · `lld.md` · `blueprint/goal.md`
 
 ---
 
-### Why does `TenantRepository` take `workspace_id` in the constructor rather than passing it on every method?
+## Table of contents
 
-Tenant scope becomes a type-level and construction-time guarantee: once built, the repository cannot accidentally query another workspace without constructing a new instance. That matches how routers derive `workspace_id` exclusively from `RequestContext` (JWT `wid`), which keeps cross-tenant mistakes harder to introduce than a per-call integer parameter.
-
----
-
-### Why a `StorageBackend` protocol and `get_storage()` factory instead of calling boto3 or the filesystem directly from routers?
-
-Upload, download, delete, and presigned URLs differ across local disk, MinIO, and R2, but the `files` module should not care which backend is active. A single protocol keeps routers and services stable while `STORAGE_BACKEND` and related settings choose the implementation at runtime, which is easier to test with mocks and to change per environment.
-
----
-
-### Why is Redis optional (`REDIS_URL` / `REDIS_ENABLED`) if features like refresh rotation and cache-aside assume it?
-
-The app is designed to boot and serve core CRUD paths without Redis: token store and cache helpers degrade to no-op or “always miss” behavior so local setups and tests do not require another service. When Redis is configured, you get refresh tracking, logout blacklist, read-through cache, and application rate limits.
-
----
-
-### Why does application rate limiting skip enforcement when Redis is unavailable (“fail open”) instead of rejecting every request?
-
-Blocking all traffic when Redis is down would make outages worse than abuse risk for many small deployments and for pytest runs that do not start Redis. The trade-off is documented: limits apply only when `get_redis_connection()` returns a client; Nginx edge `limit_req` still applies when you use the Compose Nginx path on port 80.
-
----
-
-### Why fixed-window counters (`INCR` + `EXPIRE` with a time bucket in the key) for app rate limits instead of a sliding window?
-
-Fixed windows need only a few Redis commands per request, are easy to reason about, and align with common “N requests per minute” product language. Sliding-window precision usually costs more Redis round-trips or Lua. Here the key includes a window index so resets do not require scanning keys.
+1. [System overview](#1-system-overview)
+2. [Architecture & module design](#2-architecture--module-design)
+3. [Authentication & authorization](#3-authentication--authorization)
+4. [Database & multi-tenancy](#4-database--multi-tenancy)
+5. [API design & request lifecycle](#5-api-design--request-lifecycle)
+6. [Storage & files](#6-storage--files)
+7. [Redis, caching & rate limits](#7-redis-caching--rate-limits)
+8. [Workers, events & background jobs](#8-workers-events--background-jobs)
+9. [Embeddings & indexing](#9-embeddings--indexing)
+10. [Vector search & RBAC retrieval](#10-vector-search--rbac-retrieval)
+11. [RAG chat](#11-rag-chat)
+12. [Streaming (SSE)](#12-streaming-sse)
+13. [Threads & conversation memory](#13-threads--conversation-memory)
+14. [LangGraph agent](#14-langgraph-agent)
+15. [Automation & governance](#15-automation--governance)
+16. [LLM layer & providers](#16-llm-layer--providers)
+17. [Observability](#17-observability)
+18. [Deployment & dependency tiers](#18-deployment--dependency-tiers)
+19. [Tradeoffs & “why not X?”](#19-tradeoffs--why-not-x)
+20. [Extending the codebase](#20-extending-the-codebase)
 
 ---
 
-### Why both Nginx `limit_req` and FastAPI/Redis limits?
+## 1. System overview
 
-They solve different problems: Nginx caps raw connection/request rate per IP before Python runs, which protects CPU and connection pools from floods. The app layer can key by authenticated `user_id` when a bearer token is present (via the same decode path as `get_current_context`) or by client IP for anonymous routes, so limits follow identity rather than only the edge IP (which matters behind shared NATs).
+### What is DashNoteSystem?
+
+A **multi-tenant notes backend**: FastAPI + async SQLAlchemy + PostgreSQL, with AI features (embeddings, RAG chat, LangGraph agent, file automation) layered on top. Every tenant is a **workspace**; JWT carries `workspace_id` and `role` so API and vector search enforce the same RBAC rules.
+
+### What is the high-level request flow?
+
+`Client → Nginx (optional) → FastAPI → JWT → RequestContext → router → service/repository → DB/storage`. AI routes call `RagService` or the LangGraph agent with **frozen** `workspace_id`, `user_id`, `role` strings — never raw user input for tenant scope.
+
+### Why FastAPI + async SQLAlchemy?
+
+Async I/O fits LLM calls, Qdrant, Redis, and S3-style storage without blocking the event loop. FastAPI gives typed dependencies (`RequestContext`, `get_session`) and OpenAPI docs for frontend integration.
+
+### What are the main AI surfaces?
+
+| Route | Purpose |
+|-------|---------|
+| `GET /ai/test-search` | Internal retrieval quality check |
+| `POST /ai/chat`, `/ai/chat/stream` | Fast RAG — single retrieve + answer |
+| `GET /ai/threads`, `.../messages` | Conversation history |
+| `POST /ai/agent`, `/ai/agent/stream` | LangGraph tool loop (search, create/update notes, summarize) |
+
+**Both** `/ai/chat*` and `/ai/agent*` coexist — chat is low-latency RAG; agent is multi-step tool use.
 
 ---
 
-### Why generation counters (`INCR` on `app:cache:gen:{domain}:{workspace_id}`) for cache invalidation instead of publishing events or deleting keys by pattern?
+## 2. Architecture & module design
 
-Redis `SCAN` or wildcard deletes are slow and risky at scale. Bumping a small integer invalidates every list/detail key that embeds the current generation in its name, without listing keys. Pub/sub would require subscribers and still leave stale entries if a message is missed; generations plus TTL give a simple correctness story: miss after bump, bounded staleness if a bump fails.
+### Why vertical slices instead of a big “AI monolith”?
+
+Each slice (embed → retrieve → chat → memory → agent → automation) ships value and has a **gate** before the next slice. Rollback is possible per slice. The blueprint in `blueprint/total.md` documents this explicitly.
+
+### What is the dependency direction law?
+
+```
+shared/  ← imported by ai/, worker/, domain modules. Imports nothing from domain.
+ai/      ← imports shared/ only. Never notes/, files/, FastAPI.
+worker/  ← imports ai/ + shared/. Never HTTP routers.
+notes/   ← calls ai/services via service interface only.
+```
+
+**Tools → services → repositories** — never shortcut to the DB from agent tools.
+
+### Why keep `ai/` free of SQLAlchemy and FastAPI?
+
+`RagService` and retrieval code must run from **workers** and **agent tools** outside HTTP. Importing `RequestContext` or ORM into `ai/` would couple inference to the web layer and break worker reuse.
+
+### Why separate `ai_memory/` from `ai/memory/`?
+
+- **`ai_memory/`** — SQLAlchemy models (`AIThread`, `AIMessage`) — product persistence for the UI.
+- **`ai/memory/`** — pure services (`ThreadService`, `ContextBuilder`) — no ORM in `ai/*` import law.
+
+LangGraph checkpoint state lives in Postgres via `AsyncPostgresSaver` (`ai/memory/checkpointer.py`), linked to product threads by `thread_id` string only.
+
+### Why LiteLLM instead of direct OpenAI/Gemini SDKs?
+
+One interface for embeddings and chat across providers (`gemini/...`, `nvidia_nim/...`, `openai/...`). Provider keys are configured in `shared/llm/env.py`. Switching models is an env change, not a refactor.
+
+### Why hosted embeddings/LLMs only — no local models?
+
+8GB-friendly deploys, no GPU ops, predictable cost. The product owns **orchestration, retrieval, tenancy, and evals** — not inference infrastructure.
+
+### Why ARQ instead of Celery or in-request embedding?
+
+Embedding and file parsing are slow and rate-limited. The API **enqueues** after DB commit and returns immediately. ARQ on Redis reuses existing infra; worker retries on transient LLM failures.
+
+### Why Qdrant instead of pgvector?
+
+Dedicated vector DB with payload indexes on `workspace_id`, `note_id`, `created_by`, `visibility` — filters run before ANN search. pgvector would work for smaller scale; Qdrant matches the retrieval + RBAC filter pattern we need at growth.
 
 ---
 
-### Why does the notes list cache use a `staff` vs `u{user_id}` key variant?
+## 3. Authentication & authorization
 
-Owner and admin see a different effective list than a member (RBAC and visibility rules differ). Encoding the viewer role class in the key prevents serving a staff-shaped list to a member or mixing member-specific visible sets across users within the same workspace.
+### Why centralize JWT handling in `core/security/dependency.py`?
+
+Every protected route shares one claim contract (`sub`, `wid`, `role`, `typ`, `jti`) and one revocation path (access blacklist via `get_token_store()`). Routers cannot drift to different validation rules or skip blacklist checks.
+
+### What claims does the JWT carry?
+
+| Claim | Meaning |
+|-------|---------|
+| `sub` | User ID |
+| `wid` | Workspace ID (tenant) |
+| `role` | `owner`, `admin`, or `member` |
+| `jti` | Token ID for blacklist / refresh tracking |
+| `typ` | `access` or `refresh` |
+
+### How does refresh token rotation work?
+
+On login/register, refresh `jti` is stored in Redis. On refresh, old token must exist → revoke old → issue new. On logout, access `jti` is blacklisted until `exp`. If Redis is off, auth works stateless without rotation guarantees.
+
+### What is `RequestContext`?
+
+A small immutable object: `user_id`, `workspace_id`, `role`. Built only from validated JWT in `get_current_context`. All tenant-scoped routes depend on it — **never** accept `workspace_id` from query/body on protected resources.
+
+### What is the difference between `require_roles` and entity permission helpers?
+
+- **`require_roles("owner", "admin")`** — coarse route gate (“can this role hit this endpoint?”).
+- **`notes/permissions.py`, `files/permissions.py`** — per-resource rules using `created_by`, `is_private`, visibility.
+
+Repositories enforce SQL scope; permission helpers enforce business rules; routers orchestrate.
+
+### What are the note visibility rules?
+
+| Role | Notes |
+|------|-------|
+| owner / admin | CRUD any note in workspace |
+| member | CRUD own notes; **read** all public + own private |
+
+Vector search mirrors this via `build_rbac_filter()` in Qdrant.
+
+### What are the file visibility rules?
+
+Owner/admin see all files. Members see non-private files + files they uploaded (`created_by`).
 
 ---
 
-### Why `get_optional_current_context` for rate limiting instead of requiring `get_current_context` on every route?
+## 4. Database & multi-tenancy
 
-Public routes (`POST /auth/login`, `POST /auth/register`, `GET /health`) have no access token. Optional bearer decoding reuses `_context_from_access_token` when a token exists so authenticated traffic is keyed by user, while anonymous traffic falls back to IP after `ProxyHeadersMiddleware`.
+### How is tenancy enforced in SQL?
 
----
+Models use `WorkspaceTenantMixin` (`workspace_id` column). Repositories apply `tenant_filter(workspace_id)` or subclass `TenantRepository` so every query is workspace-scoped.
+
+### Why does `TenantRepository` take `workspace_id` in the constructor?
+
+Tenant scope becomes a construction-time guarantee: once built, the repository cannot query another workspace without a new instance. Matches JWT-derived `workspace_id` from `RequestContext`.
 
 ### Why `expire_on_commit=False` on the async sessionmaker?
 
-After `commit()`, ORM instances attached to the session remain usable for building response DTOs without immediate refresh or re-query in many router paths. The trade-off is remembering that data can be slightly stale relative to the database until you explicitly refresh or load again, which matches typical FastAPI “commit then return” flows in this codebase.
+After `commit()`, ORM instances remain usable for response DTOs without immediate refresh — typical FastAPI “commit then return” flow. Trade-off: know when you need explicit `refresh()`.
+
+### How does a request’s DB session relate to concurrency?
+
+Each request gets its own `AsyncSession` from `get_session()`. Sessions are not shared across concurrent requests. Pool size and handler duration determine throughput.
+
+### Why do workers use `AsyncSessionLocal` directly, not `get_session()`?
+
+`get_session()` is a FastAPI generator dependency. Workers have no request scope — they open `async with AsyncSessionLocal() as db` per task.
+
+### What AI-related tables exist in Postgres?
+
+- **`ai_threads`**, **`ai_messages`** — product conversation UI (Slice 5).
+- LangGraph **checkpoint tables** — created by `AsyncPostgresSaver.setup()` (execution state, separate from product messages).
+- **`files`**: `extracted_text`, `summary`, `tags` (automation metadata).
+- **`notes`**: `tags` (JSONB, auto-generated).
+
+Vectors live in **Qdrant**, not Postgres.
+
+### Why Alembic for every schema change?
+
+Model columns without migrations break prod deploys. Rule: every new column → migration command before merge.
 
 ---
 
-### How does a request’s database session relate to concurrency between users?
+## 5. API design & request lifecycle
 
-Each request gets its own `AsyncSession` from `get_session()` (generator dependency). Sessions are not shared across concurrent requests, so transactions from different users do not interleave in the same session object. Throughput still depends on the async engine pool size and how long handlers hold the session open; keeping routers thin and avoiding unnecessary work before commit reduces contention on pool checkout.
+### What routers are registered in `main.py`?
+
+Health, auth, files, notebooks, notes, workspaces, membership, AI search/chat/threads/agent. Global middleware: `ProxyHeadersMiddleware`, optional Redis rate limit.
+
+### What happens in application lifespan startup?
+
+`setup_logging()` → ARQ pool on `app.state` → Qdrant collection bootstrap (**non-fatal** if down) → LangGraph checkpointer init (**non-fatal** if down). Core CRUD works even when soft AI deps fail.
+
+### Why never accept `workspace_id` from the client on AI routes?
+
+Tenant isolation is a security property. `workspace_id` always comes from JWT `wid`. Accepting it from query/body would allow cross-tenant retrieval — the most common RAG security bug in demos.
+
+### Why return 404 (not 403) for cross-workspace thread access?
+
+Avoid leaking whether a resource ID exists in another tenant. Same pattern for thread reuse on chat with wrong `thread_id`.
+
+### What does `GET /health` check?
+
+Postgres `SELECT 1` + Redis `PING` when configured. **200** ok / **503** degraded. Qdrant is **not** in the hard deploy gate — AI degrades separately (`GET /health/ai` optional).
+
+### Why Pydantic schemas on every route?
+
+Request validation, OpenAPI docs, and clear contracts for frontend. Domain events use frozen Pydantic models in `shared/events/definitions.py`.
 
 ---
 
-### Why keep permission helpers (for example `notes/permissions.py`, `files/permissions.py`) separate from `require_roles`?
+## 6. Storage & files
 
-`require_roles` answers “is this role allowed on this route?” Entity-level rules depend on `created_by`, `is_private`, and note–file visibility. Splitting coarse route RBAC from per-resource checks keeps repositories focused on SQL and routers on orchestration, and tests can target permission logic without spinning up full HTTP stacks where not needed.
+### Why a `StorageBackend` protocol and `get_storage()` factory?
+
+Upload/download/delete differ across local disk, MinIO, and R2. Routers stay backend-agnostic; `STORAGE_BACKEND` selects implementation. Easy to mock in tests.
+
+### Where do file bytes vs metadata live?
+
+- **Bytes** — object storage (`storage_key` in S3/R2/local path).
+- **Metadata** — PostgreSQL (`mime_type`, `extracted_text`, `summary`, `tags`).
+
+### Why do api and worker share a local volume in dev Compose?
+
+With `STORAGE_BACKEND=local`, the worker must read uploaded bytes for extraction. Prod uses R2 — no shared volume; worker downloads via `get_storage().download(storage_key)`.
+
+### What happens on file upload (AI enabled)?
+
+Router saves metadata + bytes → commits → `emit_event(FileUploadedEvent)`. Worker: download → `FileParsingEngine.extract_text()` (PDF/DOCX/HTML) → save `extracted_text` → fan-out `index_file_chunks` + `generate_file_metadata`.
+
+### Why validate MIME type and size in `core/storage/utils.py`?
+
+Reject bad uploads before storage write. Sniff MIME, enforce extension allowlist and max size — defense in depth, not only client-side checks.
 
 ---
 
-### Why does `docker-compose.yml` expose both Nginx on port 80 and the API on port 8000?
+## 7. Redis, caching & rate limits
 
-Port 80 matches the production-style path: edge rate limit, proxy headers, and a single public entry. Port 8000 is a developer convenience for hitting Uvicorn directly (Swagger UI, quick curls) without reproxying; application rate limits still run when Redis is configured, but Nginx’s `limit_req` does not apply on that path.
+### Why is Redis optional if refresh rotation and cache assume it?
+
+App boots and serves CRUD without Redis: token store and cache degrade to no-op / always-miss. When Redis is on: refresh tracking, logout blacklist, cache-aside, app rate limits.
+
+### Why fail-open on app rate limits when Redis is down?
+
+Blocking all traffic when Redis is down is worse than temporary abuse risk for small deployments and pytest. Nginx `limit_req` still applies on port 80 in Compose.
+
+### Why fixed-window counters for rate limits?
+
+Simple `INCR` + `EXPIRE` per time bucket — few round-trips, easy to explain (“100/min global, 5/min login”). Sliding windows cost more Redis ops for marginal benefit here.
+
+### Why both Nginx and FastAPI rate limits?
+
+Nginx protects CPU/connections per IP before Python. App layer keys by **`user_id`** when JWT present, else IP — important behind NATs and for authenticated abuse.
+
+### Why generation counters for cache invalidation?
+
+`INCR app:cache:gen:notes:{workspace_id}` bumps a generation embedded in cache keys. No `SCAN` or wildcard delete. Miss after bump; TTL bounds staleness if bump fails.
+
+### Why notes list cache uses `staff` vs `u{user_id}` key variant?
+
+Owner/admin see a different list than members (RBAC). Key encodes viewer class so a staff-shaped list is never served to a member.
+
+### Why `get_optional_current_context` for rate limiting?
+
+Public routes have no token. Optional decode keys authenticated traffic by user; anonymous traffic falls back to IP after `ProxyHeadersMiddleware`.
+
+### How does embedding cache work?
+
+Redis key `embed:v1:{sha256(text)}` — same chunk text = cache hit = skip provider API call. Cost control on re-index and duplicate content.
 
 ---
 
-### When adding a new tenant-scoped module, what is the minimum contract to stay consistent with the rest of the repo?
+## 8. Workers, events & background jobs
 
-Add `workspace_id` on the model (typically via `WorkspaceTenantMixin`), scope queries with `tenant_filter` (or a `TenantRepository` subclass that always applies it), resolve `RequestContext` from JWT in the router, and use domain permission helpers if rules go beyond role names. Register the router in `main.py` and extend tests for tenant isolation and RBAC the way existing `notes` and `files` tests do.
+### What worker tasks exist?
+
+| Task | Trigger |
+|------|---------|
+| `embed_note_task` | Direct enqueue from notes router (Slice 1) |
+| `handle_file_uploaded` | `FileUploadedEvent` |
+| `handle_note_created` | `NoteCreatedEvent` |
+| `handle_note_updated` | `NoteUpdatedEvent` |
+| `handle_file_deleted` | `FileDeletedEvent` |
+| Fan-out: `index_file_chunks`, `generate_file_metadata`, `generate_note_tags` | From automation handlers |
+
+### Why `emit_event()` never raises?
+
+Domain writes must not fail because Redis or ARQ hiccuped. Log and drop — ops monitors logs. HTTP already returned success after DB commit.
+
+### Why both direct `embed_note_task` enqueue and `NoteCreatedEvent`?
+
+Slice 1 predates the event bus. Slice 7 **adds** `emit_event` alongside embed enqueue — no breaking change. File upload uses events only (no direct embed in router).
+
+### Why fan-out from worker via `ctx["arq_pool"]`?
+
+One uploaded file triggers extraction, then parallel indexing + metadata LLM calls. Pool created once at worker startup, reused across tasks.
+
+### Why run `FileParsingEngine` in a thread executor?
+
+PDF/DOCX parsing is CPU-bound and sync. Executor keeps the async worker event loop responsive.
+
+### What happens on worker LLM failure?
+
+Transient errors in automation → re-raise → ARQ retries. `AutomationDecisionEngine` on LLM failure → fail-safe block (`is_destructive=True`). Agent route maps exhausted retries to **503** `"LLM temporarily unavailable"`.
+
+---
+
+## 9. Embeddings & indexing
+
+### Walk through the embed pipeline for a note.
+
+`notes/router` commits → enqueues `IndexingRequest` → worker `embed_note_task` → delete old vectors for note (if Qdrant on) → `EmbeddingPipeline.process_note` → chunk → cache lookup per chunk → LiteLLM `aembedding` on miss → `NoteVectorIndexer` upsert to `notes_chunks`.
+
+### Why deterministic `chunk_id`?
+
+`uuid5(NAMESPACE_URL, f"{note_id}:{index}")`. Re-indexing same note overwrites same Qdrant point IDs — idempotent, no duplicate vectors on retry.
+
+### Why prepend title as H1 to chunk text?
+
+Retrieved chunks carry note context even when the match is a body paragraph — better answers and citations.
+
+### Why `RecursiveCharacterTextSplitter`?
+
+Respects paragraph/sentence boundaries before character splits — more coherent chunks than fixed windows for markdown-ish notes.
+
+### What is stored in Qdrant payload?
+
+`workspace_id`, `note_id`, `chunk_id`, `chunk_index`, `text`/`chunk_text`, `title`, `created_by`, `visibility`, `is_private`, token/char offsets. **Always** filter on `workspace_id` + RBAC fields.
+
+### Why separate collections `notes_chunks` and `files_chunks`?
+
+Different ingestion paths and payloads; avoids mixed delete/reindex logic. Never upsert files into notes collection.
+
+### What if `QDRANT_URL` is unset?
+
+Embeddings still run; `qdrant_indexed=false`. Search and RAG return 503 when `qdrant_enabled` is false. Lets dev without Qdrant.
+
+---
+
+## 10. Vector search & RBAC retrieval
+
+### Why `WorkspaceVectorSearch` as the only Qdrant search interface?
+
+Routers and services never touch `AsyncQdrantClient` directly. All searches inject `workspace_id` + RBAC filter server-side — one place to audit tenant safety.
+
+### How does `build_rbac_filter` work?
+
+| Role | Qdrant filter |
+|------|----------------|
+| owner / admin | `must`: `workspace_id` |
+| member | `must`: `workspace_id` AND (`visibility=public` OR `created_by=user_id`) |
+
+Mirrors `notes/permissions.py` exactly. `workspace_id` is always `must` — never optional.
+
+### Why cosine score threshold ~0.4?
+
+Filters low-relevance noise before RAG context assembly. Tune with `GET /ai/test-search` and golden evals — not a universal constant.
+
+### Why payload indexes on Qdrant fields?
+
+Without indexes on `workspace_id`, `note_id`, etc., filters devolve into full scans. Created at startup in `ensure_notes_collection()` / `ensure_files_collection()`.
+
+### How do you prevent cross-tenant leakage in retrieval?
+
+1. `workspace_id` only from JWT, frozen before service call.  
+2. `must` filter on every query.  
+3. RBAC filter for members.  
+4. Eval case: member B cannot retrieve member A’s private note.
+
+---
+
+## 11. RAG chat
+
+### What is the RAG pipeline in `RagService.answer()`?
+
+1. Retrieve chunks (`WorkspaceVectorSearch`)  
+2. Fit to `TOKEN_BUDGET_PER_REQUEST` (char budget)  
+3. Load thread history if `thread_id` + DB session provided  
+4. Build prompt from `ai/prompts/rag.py`  
+5. LiteLLM completion → structured `RAGAnswer`  
+6. **Ground citations** against retrieved set — never trust LLM-hallucinated chunk IDs  
+7. Persist turn via `ThreadService` if threaded  
+
+### Why does `RagService` take plain strings, not `RequestContext`?
+
+Agent tools (Slice 6) call the same service outside HTTP. `(workspace_id, user_id, role)` works from routes **and** LangGraph tools without refactoring.
+
+### Why structured output for RAG answers?
+
+`RAGAnswer` Pydantic model — reliable parsing, testable, no regex on free text. Same pattern for automation via `acompletion_structured`.
+
+### Why citations from top retrieved chunks, not from the token stream?
+
+LLMs hallucinate sources in streaming text. Citations are computed from retrieval results and sent in SSE **`metadata`** event after stream completes.
+
+### Fast RAG vs agent — when to use which?
+
+| Path | Use when |
+|------|----------|
+| `/ai/chat` | Single question, low latency, no tool mutations |
+| `/ai/agent` | Multi-step: search → reason → create/update note |
+
+Coexist by design — don’t force all traffic through the agent loop.
+
+---
+
+## 12. Streaming (SSE)
+
+### Why freeze `workspace_id`, `user_id`, `role` before opening the SSE generator?
+
+`RequestContext` from FastAPI `Depends` may not be safe to reference inside a long-running async generator. Primitives captured before `StreamingResponse` — tenant context cannot be lost or mutated mid-stream.
+
+### What SSE events does chat stream emit?
+
+`token` events (text deltas) → final `metadata` (citations, `thread_id`, chunk counts) → `[DONE]`. Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no` for Nginx.
+
+### What about agent streaming?
+
+`graph.astream_events` → `token`, `tool_start`, `tool_end`, `done`, `[DONE]`. Frontend can show tool progress separately from answer tokens.
+
+---
+
+## 13. Threads & conversation memory
+
+### What is stored in `ai_threads` / `ai_messages`?
+
+Product layer: thread title, workspace, creator, messages with role/content/citations. Used for UI list and history — plain SQL with workspace filter.
+
+### How is history injected into RAG?
+
+`ContextBuilder` loads last `AI_THREAD_MESSAGE_LIMIT` (default 20) messages, respects token budget with retrieved chunks. Cross-workspace `thread_id` → **400** on chat, **404** on thread routes.
+
+### What is the relationship between product threads and LangGraph checkpointer?
+
+Linked by **`thread_id` string only**. Product tables = what user sees; checkpointer = graph execution state for agent loops. Two concerns, one ID bridge.
+
+---
+
+## 14. LangGraph agent
+
+### What is the agent graph topology?
+
+`START → agent → (tools | end) → tools → agent → ... → END`. Conditional edge on tool calls. `AGENT_MAX_ITERATIONS` caps loops.
+
+### What tools exist?
+
+| Tool | Implementation |
+|------|----------------|
+| `search_notes` | `RagService.answer()` |
+| `create_note` | `NoteService.create_note()` |
+| `update_note` | `NoteService.update_note()` |
+| `summarize_workspace` | `RagService.answer(..., retrieval_limit=12)` |
+
+All via **service layer** — `db_session_var` set in tool node before DB mutations.
+
+### Why LiteLLM `tools=` instead of LangChain `bind_tools()`?
+
+LiteLLM is not a LangChain LLM. OpenAI-style function defs passed to `acompletion_with_retry`.
+
+### Why separate Postgres pool for checkpointer (psycopg3)?
+
+LangGraph `AsyncPostgresSaver` uses psycopg3; SQLAlchemy async pool is separate. Avoids mixing connection semantics.
+
+### What happens when LLM retries are exhausted on the agent route?
+
+**503** with `"LLM temporarily unavailable; retry shortly"` — not silent empty response or opaque 500.
+
+---
+
+## 15. Automation & governance
+
+### What runs automatically without user action?
+
+- Note create → embed + auto-tags  
+- File upload → extract text → index vectors + summary/tags  
+
+### When does `AutomationDecisionEngine` run?
+
+Only for **destructive or ambiguous** AI-initiated actions (auto-delete duplicates, merge, archive, external notify). **Not** for additive tasks (tags, summary, index upsert).
+
+### What is the governance decision rule?
+
+`should_execute_immediately` → `True` **only** if `confidence >= 0.95` **and** `is_destructive=False`. Else log `[AUTOMATION_GOVERNANCE_BLOCK]` and hold for human review (approval queue = future slice).
+
+### Why fail-safe on governance LLM failure?
+
+If the evaluator LLM fails, treat as `is_destructive=True`, `confidence=0.0` — block rather than auto-execute.
+
+---
+
+## 16. LLM layer & providers
+
+### What is in `shared/llm/`?
+
+| Module | Role |
+|--------|------|
+| `retry.py` | `acompletion_with_retry` — tenacity, retryable vs fatal exceptions |
+| `structured.py` | `acompletion_structured` — JSON salvage + Pydantic validation |
+| `env.py` | Push provider keys into environment for LiteLLM |
+
+Import law: no FastAPI, SQLAlchemy, or domain repos in `shared/llm/`.
+
+### What models does the project use by default?
+
+- Embeddings: `gemini/gemini-embedding-2` (3072 dim)  
+- Chat/agent: configurable via `LLM_MODEL` (e.g. NVIDIA NIM Mistral)  
+- `ai_enabled` if any of OpenAI, Gemini, or NVIDIA NIM keys set  
+
+### Why tenacity retries with exponential backoff?
+
+Provider rate limits and transient outages are normal. `LLM_MAX_RETRIES`, min/max wait configured in settings. Fatal auth errors fail fast with log marker `[AUTOMATION_LLM_AUTH_FAIL]`.
+
+### Why not merge embedding retry into `shared/llm/`?
+
+Embedding retry lives in `ai/embeddings/litellm_provider.py` — different batching semantics; kept separate intentionally (Slice 7.5).
+
+---
+
+## 17. Observability
+
+### What tracing exists?
+
+`observability.tracing` — `rag_trace` / `rag_span` for retrieval, context build, LLM generation. Langfuse when `LANGFUSE_*` keys set. **No** Langfuse SDK inside `src/ai/*` — import law.
+
+### What metrics exist?
+
+`GET /metrics` — Prometheus `dashnote_api_*` via instrumentator. Compose includes Prometheus + Grafana folder **DashNote**.
+
+### What log markers should ops search for?
+
+`[AUTOMATION_GOVERNANCE_BLOCK]`, `[AUTOMATION_LLM_RETRY_EXHAUSTED]`, `[AUTOMATION_LLM_PARSE_FAIL]`, `[AUTOMATION_LLM_AUTH_FAIL]`.
+
+### Why JSON structured logging?
+
+Machine-parseable logs for grep/Loki; `request_id`, `workspace_id` in `extra` where applicable.
+
+---
+
+## 18. Deployment & dependency tiers
+
+### What are hard vs soft dependencies?
+
+| Tier | Services | Gate |
+|------|----------|------|
+| **Hard** | Postgres, Redis | `GET /health` must 200 |
+| **Soft** | Qdrant, LLM providers | App boots; AI routes 503 or degrade |
+| **Optional** | Langfuse, Grafana remote_write | Never block startup |
+
+### Why soft Qdrant boot (7P.3)?
+
+Collection init in try/except at API/worker startup. Log ERROR, continue — notes/files CRUD work; search/RAG down until Qdrant returns.
+
+### Dev vs prod Compose difference?
+
+- **`docker-compose.yml`** — full local stack (db, redis, qdrant, worker, nginx).  
+- **`docker-compose.prod.yml`** — api, worker, nginx, migrate only; hosted Postgres/Redis/Qdrant/R2 from `.env`.
+
+### Why one Dockerfile for api, worker, migrate?
+
+Same Python deps and `src/` tree; only `command` differs. Simpler CI and image promotion.
+
+---
+
+## 19. Tradeoffs & “why not X?”
+
+### Why not LangGraph for simple RAG chat?
+
+RAG is linear: retrieve → prompt → answer. LangGraph adds state machine complexity without benefit until **tool loops** are required (Slice 6).
+
+### Why not fine-tune a model?
+
+Hosted APIs + good retrieval + prompts solve most note Q&A. Fine-tuning is cost, data pipeline, and eval overhead — deferred unless base model consistently fails on domain.
+
+### Why not Neo4j / GraphRAG yet?
+
+Optional Slice 8 — only if users need relationship traversal and vector search is insufficient. Most portfolios over-invest here too early.
+
+### Why not parse citations from streamed tokens?
+
+Unreliable — models invent `[1]` markers. Metadata event from retrieval set is the source of truth.
+
+### Why not hybrid BM25 + vector yet?
+
+Planned in Slice 7R / ship-plan. Current search is dense semantic; hybrid improves exact-keyword recall — common interview “next step.”
+
+### Why not unstructured.io for file parsing?
+
+`pypdf` + `python-docx` + `beautifulsoup4` cover MVP formats without heavy deps — 8GB-friendly.
+
+### Why score threshold instead of reranker first?
+
+Rerankers add latency and cost. Threshold + chunk tuning is the first lever; reranker is Phase 2 optimization.
+
+### Why 503 for LLM down instead of cached fallback?
+
+Wrong answers from stale or generic fallback damage trust more than a clear “try again” error.
+
+---
+
+## 20. Extending the codebase
+
+### When adding a new tenant-scoped module, what is the minimum contract?
+
+`workspace_id` on model (`WorkspaceTenantMixin`), `tenant_filter` in repository, `RequestContext` in router, permission helper if rules exceed roles, register router in `main.py`, tests for tenant isolation.
+
+### When adding a new AI feature, what must you check?
+
+- Import law (`ai.md`, `rules.md`)  
+- `workspace_id` from JWT only  
+- Qdrant writes only via indexer classes in worker  
+- Qdrant reads only via `WorkspaceVectorSearch`  
+- Prompts only in `ai/prompts/`  
+- Structured outputs for machine-parseable LLM results  
+- Gate script or pytest before merge  
+
+### When adding a new agent tool?
+
+Pydantic `args_schema`, call **service** not repository, respect RBAC inside service, add to `get_note_tools()`, test with `e2e_agent_test.py` scenario.
+
+### When adding a new domain event?
+
+Extend payload in `shared/events/definitions.py` only (frozen models), map in `shared/events/bus.py`, handler in `worker/automation/tasks.py`, emit after DB commit in router.
+
+---
+
+## Quick interview pitches
+
+### 2-minute project pitch
+
+“I built a multi-tenant notes API where JWT workspace scope applies to both SQL and Qdrant retrieval. Notes and files are chunked and embedded in background workers; RAG chat streams answers with citations grounded in retrieval, not the LLM stream. A LangGraph agent can search, summarize, and create notes through the same service layer. Automation tags and summarizes uploads; destructive actions go through a governance engine that blocks unless confidence is very high. Everything is designed for prod: soft deps, rate limits, tracing, and explicit architecture laws.”
+
+### Three tradeoffs to defend
+
+1. **Chunk size (~1000 chars, overlap 150)** — balance coherence vs granularity; tune with evals not guesses.  
+2. **Fast RAG vs agent** — latency and cost for Q&A vs multi-step mutations.  
+3. **Fail-open rate limits without Redis** — availability over strict abuse prevention at small scale; Nginx still protects edge.
+
+### One failure story (template)
+
+“Early on, citations could include chunk IDs the model invented. We fixed it by grounding citations only against the retrieved chunk set in `RagService` and sending citations in the SSE metadata event after streaming — never parsing the token stream.”
+
+---
+
+*Update this file when architecture decisions change. Cross-link new slices in `blueprint/total.md` and `blueprint/goal.md`.*

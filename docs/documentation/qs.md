@@ -2,6 +2,9 @@
 
 Short answers tied to how this repository is built today. Use this for technical interviews, Upwork client calls, and system-design discussions.
 
+**§1–20** — core Q&A on what we built and why.  
+**§21** — **counter-questions**: pushback and “why not X?” follow-ups interviewers ask after your first answer. Practice answering without reading.
+
 **Deeper references:** `system.md` · `ai.md` · `auth.md` · `rules.md` · `lld.md` · `blueprint/goal.md`
 
 ---
@@ -28,6 +31,9 @@ Short answers tied to how this repository is built today. Use this for technical
 18. [Deployment & dependency tiers](#18-deployment--dependency-tiers)
 19. [Tradeoffs & “why not X?”](#19-tradeoffs--why-not-x)
 20. [Extending the codebase](#20-extending-the-codebase)
+21. [Counter-questions — interviewer pushback](#21-counter-questions--interviewer-pushback)
+
+**Format:** Each block is `They ask → You answer`. Practice the answer without reading first.
 
 ---
 
@@ -644,6 +650,273 @@ Extend payload in `shared/events/definitions.py` only (frozen models), map in `s
 ### One failure story (template)
 
 “Early on, citations could include chunk IDs the model invented. We fixed it by grounding citations only against the retrieved chunk set in `RagService` and sending citations in the SSE metadata event after streaming — never parsing the token stream.”
+
+---
+
+## 21. Counter-questions — interviewer pushback
+
+Real follow-ups when you explain DashNote. Interviewers probe tradeoffs, failure modes, and whether you understand alternatives — not just happy-path architecture.
+
+---
+
+### System & architecture
+
+**“Isn’t this over-engineered for a notes app? Why not just call OpenAI with the note text?”**
+
+At small scale, yes — paste into ChatGPT works. We built for **multi-tenant RBAC**, background indexing, file uploads, and agent mutations. Passing full workspace text per request doesn’t scale (token cost, latency, privacy). Retrieval + tenant filters is the minimum for a real product, not a demo.
+
+**“You have both RAG chat and an agent. Isn’t that redundant?”**
+
+Different cost/latency profiles. Chat is one retrieve + one LLM call — good for 80% of Q&A. Agent is 3–10+ LLM calls with tools — only when the user needs actions (create note, multi-step summarize). Forcing everything through the agent would 3× cost and latency for simple questions.
+
+**“Why so many import laws and slices? Sounds like bureaucracy.”**
+
+They prevent the bugs that kill AI prod: cross-tenant retrieval, tools bypassing RBAC, Langfuse in business logic. Slices let us ship embed → chat → agent incrementally with gates. Bureaucracy for a solo project; **risk control** for multi-tenant SaaS.
+
+**“Would you use the same stack if you started again today?”**
+
+Yes on: FastAPI, workers, Qdrant, LiteLLM, tenant-scoped retrieval. Maybe simplify: pgvector for v1 if <100k chunks. I’d still separate `ai/` from HTTP and still add evals earlier — that’s what I’d change, not the core stack.
+
+---
+
+### Auth, tenancy & security
+
+**“JWT with workspace in the token — what if a user belongs to multiple workspaces?”**
+
+Today login picks **first membership** as default `wid`. Switching workspace needs a new token (future: `POST /auth/switch-workspace`). The important part: `wid` is **server-issued**, never client-supplied on data routes.
+
+**“Why 404 instead of 403 on cross-tenant thread access?”**
+
+403 confirms the resource exists but is forbidden — **information leak** across tenants. 404 is indistinguishable from “never existed” for an attacker guessing UUIDs.
+
+**“Redis optional for auth — isn’t that insecure?”**
+
+Without Redis: no refresh rotation blacklist, logout is client-side only. Acceptable for local dev and tests. **Production enables Redis** — refresh tracking and access `jti` blacklist are required for real sessions.
+
+**“How do you know RBAC in Qdrant matches SQL?”**
+
+`build_rbac_filter()` is documented to mirror `notes/permissions.py`. Same rules: owner/admin = workspace only; member = public OR own. We test with `tests/ai/test_rbac_search_filter.py` and tenant-isolation eval cases. Drift is a code-review + test obligation, not automatic.
+
+**“What if someone patches the JWT `wid` claim?”**
+
+Tokens are HMAC-signed with `JWT_SECRET`. Tampering fails verification in `get_current_context` before any handler runs. Never trust decoded claims without signature check.
+
+---
+
+### Database & storage
+
+**“Why Postgres + Qdrant? Why not pgvector in one database?”**
+
+Valid for MVP. We chose Qdrant for payload indexes on `workspace_id`, `visibility`, `created_by` — filter-before-search at scale. pgvector reduces ops complexity; Qdrant reduces retrieval tuning pain. Trade-off: two systems to operate.
+
+**“`expire_on_commit=False` — couldn’t that return stale data?”**
+
+Only within the same request after commit — we build the response from objects we just wrote. Cross-request staleness goes through cache with TTL + generation bump, or fresh DB read. We don’t rely on session state across requests.
+
+**“Local shared volume for files in dev — how is that not broken in prod?”**
+
+Dev convenience only. Prod uses R2/MinIO — worker calls `get_storage().download(storage_key)`. The shared volume is explicitly **not** in `docker-compose.prod.yml`.
+
+**“What if extraction fails on a corrupted PDF?”**
+
+Worker logs error; `extracted_text` may stay empty; indexing/metadata tasks skip or no-op. Upload still succeeds — user sees file metadata, AI features degrade for that file. We don’t fail the HTTP upload for parse errors.
+
+---
+
+### Redis, cache & rate limits
+
+**“Fail-open rate limits — a attacker could DDoS you when Redis dies.”**
+
+True at the app layer. Mitigation: Nginx `limit_req` on port 80, infra alerts on Redis, horizontal scale later. For a small VPS, **availability during Redis blip** beat locking out all users. Enterprise would use always-on Redis cluster + stricter policy.
+
+**“Generation counters vs deleting cache keys — what if INCR fails?”**
+
+Worst case: stale list until TTL expires (60s default). Bounded staleness, not permanent wrong data. Pub/sub invalidation can miss messages; generation bump is simpler and correct on success.
+
+**“Embedding cache by text hash — what about semantically identical but differently worded chunks?”**
+
+Cache is **exact-text** dedup — saves money on re-index of unchanged chunks, not semantic dedup. Near-duplicate notes still embed separately. Semantic dedup would be a different (harder) problem.
+
+---
+
+### Workers & events
+
+**“`emit_event` swallows errors — couldn’t you lose automation silently?”**
+
+Yes — by design so HTTP never rolls back after commit. Mitigation: structured logs on enqueue failure, metrics on worker queue depth, smoke tests that upload a file and assert `summary` within 60s. **At-least-once** job processing is ARQ’s job; emit failure is ops-visible.
+
+**“Why ARQ and not Celery / Kafka?”**
+
+ARQ is Redis-native, async-friendly, minimal config — matches our existing Redis. Kafka is overkill for event volume here. Celery is fine but heavier; ARQ fits one worker process + fan-out pattern.
+
+**“Double enqueue on note create — embed task AND event. Isn’t that duplicate work?”**
+
+Different jobs: `embed_note_task` indexes vectors; `handle_note_created` runs tagging. Could merge later; keeping Slice 1 path unchanged reduced regression risk when Slice 7 shipped.
+
+**“What if the worker is 5 minutes behind?”**
+
+User sees note immediately; search catches up async. Chat may not find new note until embed completes — acceptable UX with “indexing” indicator on frontend. Agent `create_note` returns after DB write; embed follows same path.
+
+---
+
+### Embeddings & retrieval
+
+**“Chunk size 1000 — how did you pick that? What if it’s wrong?”**
+
+Starting point from common RAG practice; tuned via `GET /ai/test-search` and planned golden evals (Slice 7R). Too large = irrelevant context; too small = fragmented answers. **I’d defend the process (eval-driven tuning), not the number as sacred.**
+
+**“3072-dim embeddings — isn’t that expensive vs 1536 or smaller models?”**
+
+Gemini embedding-2 quality/dimension trade-off. Cost is per token, not just dimension. Could switch model + re-index if cost dominates — dimension must match Qdrant collection config.
+
+**“Cosine threshold 0.4 — arbitrary?”**
+
+Yes — empirically tuned gate to drop noise before RAG. Should be validated on golden set per domain. Interview answer: “I’d plot score distribution on labeled queries and set threshold where precision/recall cross is acceptable.”
+
+**“No hybrid search yet — wouldn’t you miss exact keyword matches?”**
+
+Correct — known gap. “Project X-47B” might miss if embedding doesn’t align. Next step: Qdrant sparse/BM25 hybrid (Slice 7R). Honest answer beats pretending dense search is enough.
+
+**“Deterministic chunk IDs — what if you change chunking algorithm?”**
+
+All chunks get new IDs → full re-index for that note. Expected migration cost when `CHUNK_SIZE` changes. We have re-index script planned; not magic — **payload schema changes require re-index.**
+
+---
+
+### RAG & chat
+
+**“How do you prevent hallucination?”**
+
+We don’t eliminate it — we **ground**: retrieve first, instruct model to use context only, citations from retrieval set not LLM output, structured answer schema. Residual hallucination when context is insufficient — evals measure faithfulness.
+
+**“What if retrieval returns wrong chunks but high scores?”**
+
+Model may still hallucinate or mis-synthesize. Mitigations: score threshold, chunk tuning, hybrid search, reranker (future), eval suite. This is the #1 RAG problem — show you know retrieval quality matters more than prompt tweaking.
+
+**“Char budget vs token budget — why chars?”**
+
+Simpler approximation without tiktoken on every chunk in hot path. Slight inaccuracy vs true token count; `TOKEN_BUDGET_PER_REQUEST` is conservative. Production hardening could switch to tiktoken — trade simplicity now for precision later.
+
+**“Why temperature 0?”**
+
+Deterministic, reproducible answers for notes/Q&A. Creative writing would raise it. Easier to eval and debug.
+
+**“Structured RAG output — doesn’t that add latency?”**
+
+One JSON parse vs free text — negligible vs LLM time. Reliability gain for citations and tests is worth it.
+
+---
+
+### Streaming & threads
+
+**“Why send citations only at the end? Users want sources while reading.”**
+
+UX choice — frontend can show “searching…” then render citations when `metadata` arrives. Streaming citations from tokens was **rejected** because models fake them mid-stream. End metadata is trustworthy.
+
+**“20 message thread limit — users with long conversations lose context.”**
+
+Intentional cost/latency cap. Older messages drop from prompt; retrieval still pulls relevant notes from workspace. Full history in DB for UI scroll; not all in LLM context. Scale-up: summarization of older turns.
+
+**“Two thread systems (SQL + checkpointer) — confusing?”**
+
+Separation of concerns: product CRUD vs graph execution state. Alternative: one table — couples LangGraph internals to UI schema. `thread_id` bridge is explicit and documented.
+
+---
+
+### Agent & LangGraph
+
+**“Agents are unreliable. Why expose one to users?”**
+
+Guardrails: `AGENT_MAX_ITERATIONS`, tools only through services (RBAC), no destructive automation without governance, 503 on LLM failure. Agent is for **actions**, not default Q&A. We keep fast RAG for reliability-sensitive queries.
+
+**“What if the agent calls `create_note` with wrong content?”**
+
+User can edit/delete (RBAC). Future: confirmation step for mutations, tool policy per role. Agent mistakes are product risk — we don’t claim 100% correctness; we claim **auditable tool paths** through `NoteService`.
+
+**“Why LangGraph and not a simple while-loop with tool calls?”**
+
+Could do while-loop for v1. LangGraph gives checkpointing, `astream_events`, conditional routing, and a path to multi-agent later. Cost: dependency + learning curve. We introduced it only in Slice 6 when tool loops were real.
+
+**“`db_session_var` in tools — thread-safe?”**
+
+Set per tool-node invocation in the graph for that request’s async context. Not global across concurrent requests — each agent invocation sets it before tools run. Would use explicit session pass in a refactor if we hit context issues.
+
+---
+
+### Automation & LLM ops
+
+**“Governance LLM to judge another LLM — turtles all the way down?”**
+
+Only for **destructive** actions — rare path. Additive automation skips it. Evaluator uses structured output + fail-safe block. Human approval queue is the ultimate backstop (Slice 7A).
+
+**“0.95 confidence threshold — arbitrary?”**
+
+Conservative default — prefer blocking false positives over auto-deleting user data. Would calibrate on labeled automation decisions. Business rule, not model property.
+
+**“LiteLLM as single point of failure?”**
+
+Provider outages hit everyone. Mitigation: retries, multi-provider keys via LiteLLM routing (future), 503 to client, queue jobs for worker. Abstraction lets us swap models without rewriting `RagService`.
+
+**“How do you control LLM cost per workspace?”**
+
+Planned: `ai_usage` table (Slice 10). Today: Langfuse traces, rate limits, `TOKEN_BUDGET`, embedding cache. Per-workspace billing is on roadmap — honest if not shipped yet.
+
+---
+
+### Observability & production
+
+**“Langfuse optional — how do you debug prod without it?”**
+
+JSON logs with `workspace_id`, operation markers, Prometheus HTTP metrics. Langfuse is for trace detail and cost — recommended in prod, not hard dependency. Soft tier like Qdrant.
+
+**“Qdrant not in `/health` — how do you know search is broken?”**
+
+Optional `GET /health/ai`, smoke scripts post-deploy, user reports, Grafana/Langfuse retrieval span failures. Hard gate stays db+redis so deploy isn’t blocked by vector DB blip.
+
+**“One VPS — what’s your scaling story?”**
+
+Scale workers horizontally (`--scale worker=N`), move to Qdrant Cloud + hosted Postgres, add RAG response cache (Slice 11), model routing for cheap vs expensive paths. Not Kubernetes on day one — **thin compute, fat managed data plane**.
+
+**“No evals in CI yet — how do you prevent RAG regressions?”**
+
+Gap acknowledged — job-search baseline includes golden set + `run_eval.py`. Until then: manual smoke + unit tests on RBAC filter. Strong candidates admit what’s not done and what’s next.
+
+---
+
+### Behavioral / judgment
+
+**“Tell me something you’d do differently.”**
+
+Ship eval harness earlier (before agent). Finish prod deploy before more slices. Maybe pgvector for v0 if solo and no RBAC-in-vector requirement yet — though we’d still need tenant filters somewhere.
+
+**“Biggest production risk in this system?”**
+
+Cross-tenant retrieval bug — catastrophic. Second: silent worker failures (lost indexing). We mitigate with filter laws, tests, smoke scripts, and structured logs — not with hope.
+
+**“How do you stay current when models change every month?”**
+
+LiteLLM abstracts providers; prompts versioned in `ai/prompts/`; evals detect quality drift; don’t fine-tune unless retrieval is proven insufficient. Models are replaceable; **retrieval + tenancy + evals** are the durable engineering.
+
+**“Why should we hire you over someone who used LangChain for a weekend?”**
+
+I can walk through tenant-isolated retrieval, why citations come from metadata not streams, what happens when Redis or Qdrant is down, and how agent tools enforce RBAC through services. Weekend tutorials rarely touch multi-tenant prod failure modes.
+
+---
+
+### Rapid-fire counter round (30-second answers)
+
+| They ask | You answer |
+|----------|------------|
+| pgvector or Qdrant? | Qdrant for payload-filtered ANN; pgvector if ops simplicity wins and scale is small. |
+| LangChain or LiteLLM? | LiteLLM for provider calls; LangGraph only for agent graph — not full LangChain stack. |
+| Sync or async embed on upload? | Async worker — API must not block on provider rate limits. |
+| One collection or per-tenant? | Shared collections with `workspace_id` filter — ops simpler than 1000 collections. |
+| OpenAI only? | Multi-provider via LiteLLM — avoid vendor lock-in for embeddings and chat. |
+| Prompt in code or DB? | Code (`ai/prompts/`) — versioned in git, reviewed in PR, traced via metadata. |
+| Fine-tune? | Last resort after retrieval + prompts + evals show gap. |
+| RAG or long context? | RAG — workspace notes exceed any context window; retrieval is mandatory. |
+| Agent for everything? | No — fast RAG path for Q&A; agent for mutations and multi-step. |
+| How measure RAG quality? | Golden questions, recall@k, citation grounding, tenant isolation cases — not vibes. |
 
 ---
 

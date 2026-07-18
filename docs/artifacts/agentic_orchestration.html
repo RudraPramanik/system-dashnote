@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agentic Orchestration — Loop · Tools · Skills · Workflows — Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --blue: #6b9fd4;
+      --nav-w: 275px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.79rem; margin-bottom: 0.1rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 820px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 40rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px; letter-spacing: 0.02em;
+    }
+    .badge.done { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .badge.todo { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--line); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.75rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0 0 1rem; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid var(--blue); }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .tabs { margin: 0.85rem 0 1.1rem; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.6rem; }
+    .tab-btn {
+      font-family: var(--font-b); font-size: 0.8rem; padding: 0.32rem 0.6rem;
+      border: 1px solid transparent; border-radius: 8px; background: transparent;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.3); font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .demo {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1rem; margin: 0.85rem 0;
+    }
+    .demo label {
+      display: block; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600;
+    }
+    .demo select, .demo input[type="range"], .demo textarea {
+      width: 100%; font-family: var(--font-m); font-size: 0.85rem;
+      padding: 0.5rem 0.6rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-2); color: var(--ink); margin-bottom: 0.7rem;
+      accent-color: var(--teal);
+    }
+    .demo input[type="range"] { padding: 0; }
+    .range-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin: -0.4rem 0 0.7rem; }
+    .out {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem;
+      color: #c5d0dc; white-space: pre-wrap; line-height: 1.5; max-height: 340px; overflow-y: auto;
+    }
+    .out .ok { color: var(--teal); }
+    .out .am { color: var(--amber); }
+    .out .dim { color: var(--muted); }
+    .out .bad { color: var(--bad); }
+    .out .role { color: var(--blue); }
+    .traj {
+      display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0;
+      font-family: var(--font-m); font-size: 0.76rem;
+    }
+    .traj .step {
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.65rem;
+      background: var(--bg-2); border-left: 3px solid var(--teal);
+    }
+    .traj .step.tool { border-left-color: var(--amber); }
+    .traj .step.end { border-left-color: var(--good); }
+    .traj .step.limit { border-left-color: var(--bad); }
+    .traj .tag { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .quiz {
+      border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+      background: var(--card); margin: 1rem 0;
+    }
+    .quiz h4 { margin: 0 0 0.45rem; font-family: var(--font-d); }
+    .quiz-opts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.55rem 0; }
+    .quiz-opts button {
+      text-align: left; font-family: var(--font-b); font-size: 0.85rem;
+      padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg-2); color: var(--soft); cursor: pointer;
+    }
+    .quiz-opts button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-dim); }
+    .quiz-opts button.correct { border-color: var(--good); background: rgba(76,175,122,0.15); color: var(--good); font-weight: 600; }
+    .quiz-opts button.wrong { border-color: var(--bad); background: rgba(224,108,108,0.12); color: var(--bad); }
+    .quiz-opts button:disabled { cursor: default; }
+    .quiz-fb { font-size: 0.84rem; color: var(--soft); min-height: 1.2em; margin: 0; }
+    .acc { margin: 0.8rem 0; }
+    .acc-item {
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 0.4rem;
+      background: var(--card); overflow: hidden;
+    }
+    .acc-btn {
+      width: 100%; text-align: left; padding: 0.75rem 0.9rem; border: none;
+      background: transparent; font-family: var(--font-b); font-size: 0.9rem;
+      font-weight: 600; color: var(--ink); cursor: pointer;
+      display: flex; justify-content: space-between; gap: 0.8rem;
+    }
+    .acc-btn .chev { font-family: var(--font-m); color: var(--muted); transition: transform 0.2s; }
+    .acc-item.open .acc-btn .chev { transform: rotate(90deg); color: var(--teal); }
+    .acc-body {
+      display: none; padding: 0 0.9rem 0.85rem; font-size: 0.88rem;
+      color: var(--soft); border-top: 1px solid var(--line);
+    }
+    .acc-item.open .acc-body { display: block; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.85rem 0; }
+    .roadmap > li {
+      position: relative; padding: 0 0 1rem 2.25rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.65rem;
+    }
+    .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .roadmap > li::before {
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.75rem; top: 0;
+      width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
+    }
+    .roadmap h4 { margin: 0 0 0.25rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .status-row {
+      display: grid; grid-template-columns: 110px 1fr; gap: 0.45rem 0.65rem;
+      margin: 0.7rem 0; font-size: 0.84rem; align-items: start;
+    }
+    .status-row .st {
+      font-family: var(--font-m); font-size: 0.65rem; padding: 0.2rem 0.4rem;
+      border-radius: 4px; font-weight: 600; text-align: center; white-space: nowrap;
+    }
+    .st.y { background: rgba(76,175,122,0.15); color: var(--good); }
+    .st.p { background: var(--amber-dim); color: var(--amber); }
+    .st.n { background: rgba(255,255,255,0.05); color: var(--muted); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+      .status-row { grid-template-columns: 90px 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">Agentic Orchestration</p>
+      <p class="brand-sub">Dark guide · DashNoteSystem</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Read</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Core</h3>
+          <a href="#agent" data-c="agent"><span class="dot"></span>What is an agent</a>
+          <a href="#loop" data-c="loop"><span class="dot"></span>Agent loop</a>
+          <a href="#tools" data-c="tools"><span class="dot"></span>Tool use</a>
+          <a href="#skills" data-c="skills"><span class="dot"></span>Agent skills</a>
+          <a href="#workflows" data-c="workflows"><span class="dot"></span>Workflows</a>
+          <a href="#orchestrator" data-c="orchestrator"><span class="dot"></span>Orchestrator</a>
+        </div>
+        <div class="nav-g">
+          <h3>Patterns</h3>
+          <a href="#patterns" data-c="patterns"><span class="dot"></span>ReAct · Plan · Router</a>
+          <a href="#state" data-c="state"><span class="dot"></span>State &amp; memory</a>
+          <a href="#guard" data-c="guard"><span class="dot"></span>Guards &amp; HITL</a>
+          <a href="#vs" data-c="vs"><span class="dot"></span>Agent vs RAG chat</a>
+        </div>
+        <div class="nav-g">
+          <h3>DashNote</h3>
+          <a href="#status" data-c="status"><span class="dot"></span>Done · partial · not</a>
+          <a href="#implement" data-c="implement"><span class="dot"></span>Implement here</a>
+          <a href="#check" data-c="check"><span class="dot"></span>Checklist</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Interactive · AI engineering essentials · dark</p>
+        <h1>Agentic orchestration</h1>
+        <p>
+          The backbone of modern AI apps: agents that reason, call tools, loop until done,
+          and run inside workflows — mapped onto DashNote’s LangGraph workspace assistant
+          and what to build next.
+        </p>
+        <div class="chips">
+          <span class="chip t">Agent loop ✓</span>
+          <span class="chip t">4 tools ✓</span>
+          <span class="chip t">LangGraph ✓</span>
+          <span class="chip a">Skills ✗</span>
+          <span class="chip a">HITL ✗</span>
+          <span class="chip a">Orchestrator ✗</span>
+        </div>
+      </header>
+
+      <!-- 01 AGENT -->
+      <section class="ch" id="agent" data-c="agent">
+        <h2><span class="n">01</span> What is an agent <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          An agent is an LLM that can <strong>take actions</strong> (tools) in a loop until it
+          decides the goal is met — not just a one-shot completion.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Chat / RAG</h4>
+            <ul>
+              <li>Retrieve → generate once</li>
+              <li>No side effects</li>
+              <li>Fast, predictable</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Agent</h4>
+            <ul>
+              <li>Model chooses tools</li>
+              <li>May mutate state (create note)</li>
+              <li>Multi-step, variable latency</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <div class="lb">Minimal definition</div>
+          Agent = <strong>policy</strong> (LLM + prompt) + <strong>actions</strong> (tools) +
+          <strong>loop</strong> (observe → act → observe) + <strong>stop condition</strong>
+          (final answer or max steps).
+        </div>
+
+        <div class="callout">
+          <div class="lb">DashNote</div>
+          <code>POST /ai/agent</code> · graph in <code>ai/workflows/workspace_assistant.py</code>.
+          Coexists with fast RAG at <code>/ai/chat*</code> — never replace chat with agent.
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>What makes something an agent vs a single LLM call?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Using a bigger model</button>
+            <button type="button" data-ok="true">Tool-using loop with a stop condition</button>
+            <button type="button" data-ok="false">Streaming tokens over SSE</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="agent">Mark read</button></div>
+      </section>
+
+      <!-- 02 LOOP -->
+      <section class="ch" id="loop" data-c="loop">
+        <h2><span class="n">02</span> Agent loop <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          The loop is the runtime: call model → if tool calls, execute → feed results back →
+          call model again → until end or limit.
+        </p>
+
+        <div class="flow">
+          <span class="fn hi">START</span><span class="fa">→</span>
+          <span class="fn">agent</span><span class="fa">→</span>
+          <span class="fn am">tools?</span><span class="fa">→</span>
+          <span class="fn">tools</span><span class="fa">→</span>
+          <span class="fn">agent</span><span class="fa">→</span>
+          <span class="fn hi">END</span>
+        </div>
+
+        <table>
+          <thead><tr><th>Route</th><th>When</th><th>DashNote</th></tr></thead>
+          <tbody>
+            <tr><td><code>tools</code></td><td>Model emitted tool_calls</td><td><code>should_continue</code></td></tr>
+            <tr><td><code>end</code></td><td>Final text answer</td><td>No tool_calls</td></tr>
+            <tr><td><code>limit</code></td><td>Too many steps</td><td><code>AGENT_MAX_ITERATIONS=10</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="demo">
+          <label>User intent</label>
+          <select id="loopScene">
+            <option value="search">“What’s in my Q3 notes?”</option>
+            <option value="create">“Save this as a note titled Launch”</option>
+            <option value="multi">“Find INV-2048 and update it”</option>
+            <option value="limit">Pathological tool spam</option>
+          </select>
+          <div class="traj" id="loopTraj"></div>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Safety</div>
+          Every <code>call_model</code> increments <code>steps_taken</code>. Without a max-iteration
+          guard, a confused model can burn tokens forever.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="loop">Mark read</button></div>
+      </section>
+
+      <!-- 03 TOOLS -->
+      <section class="ch" id="tools" data-c="tools">
+        <h2><span class="n">03</span> Tool use <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          Tools are the agent’s hands. The model picks a name + JSON args; your code executes
+          and returns a string observation.
+        </p>
+
+        <h3>Design laws</h3>
+        <ul>
+          <li><strong>Schema</strong> — Pydantic <code>args_schema</code>; reject free-form junk</li>
+          <li><strong>Descriptions</strong> — tell the model <em>when</em> to call, not just what</li>
+          <li><strong>Service boundary</strong> — tool → service → repository (never shortcut)</li>
+          <li><strong>No tenant args from LLM trust</strong> — inject <code>workspace_id</code> from state</li>
+          <li><strong>Errors as observations</strong> — return “failed: …” so the loop can recover</li>
+        </ul>
+
+        <table>
+          <thead><tr><th>Tool</th><th>Service</th><th>Side effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>search_notes</code></td><td><code>RagService.answer</code></td><td>Read</td></tr>
+            <tr><td><code>summarize_workspace</code></td><td>RAG limit=12</td><td>Read</td></tr>
+            <tr><td><code>create_note</code></td><td><code>NoteService</code></td><td>Write</td></tr>
+            <tr><td><code>update_note</code></td><td><code>NoteService</code></td><td>Write</td></tr>
+          </tbody>
+        </table>
+
+        <div class="tabs" data-tabs="tools">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="wire">Wiring</button>
+            <button type="button" class="tab-btn" data-tab="db">DB session</button>
+            <button type="button" class="tab-btn" data-tab="litellm">LiteLLM format</button>
+          </div>
+          <div class="tab-panel active" data-panel="wire">
+            <p><code>StructuredTool</code> + schemas in <code>ai/tools/schemas.py</code> · registry <code>get_note_tools()</code>.</p>
+            <p>Graph uses LangGraph <code>ToolNode</code>; model call uses OpenAI function defs — <strong>not</strong> LangChain <code>.bind_tools()</code>.</p>
+          </div>
+          <div class="tab-panel" data-panel="db">
+            <p>Mutation tools need <code>AsyncSession</code> but the LLM cannot invent a DB handle.</p>
+            <p>Solution: <code>db_session_var</code> (ContextVar) set by the tool node before invoke.</p>
+          </div>
+          <div class="tab-panel" data-panel="litellm">
+<pre><code>tools=[{
+  "type": "function",
+  "function": {
+    "name": tool.name,
+    "description": tool.description,
+    "parameters": tool.args_schema.model_json_schema()
+  }
+}]
+tool_choice="auto"</code></pre>
+          </div>
+        </div>
+
+        <div class="demo">
+          <label>Bad vs good tool call</label>
+          <select id="toolScene">
+            <option value="good">Good: create with state tenant</option>
+            <option value="smuggle">Bad: smuggled workspace_id</option>
+            <option value="invent">Bad: invented note_id</option>
+            <option value="implicit">Bad: create without explicit ask</option>
+          </select>
+          <div class="out" id="toolOut"></div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Where should agent mutations go?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Direct repository from the tool</button>
+            <button type="button" data-ok="true">Tool → NoteService → repository</button>
+            <button type="button" data-ok="false">Raw SQL in the graph node</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="tools">Mark read</button></div>
+      </section>
+
+      <!-- 04 SKILLS -->
+      <section class="ch" id="skills" data-c="skills">
+        <h2><span class="n">04</span> Agent skills <span class="badge todo">not yet</span></h2>
+        <p class="lede">
+          Skills are packaged capabilities beyond a raw function — playbooks the agent can
+          load: instructions, checklists, optional tools, and when to use them.
+        </p>
+
+        <div class="grid3">
+          <div class="panel t"><h4>Tool</h4><p>Atomic action: search, create.</p></div>
+          <div class="panel a"><h4>Skill</h4><p>Procedure: “weekly review” = search → summarize → draft note.</p></div>
+          <div class="panel b"><h4>Persona</h4><p>Style + constraints in the system prompt.</p></div>
+        </div>
+
+        <h3>Why skills matter</h3>
+        <ul>
+          <li>Keep the base prompt small; load skills on demand</li>
+          <li>Encode domain SOPs without hard-coding a DAG for every case</li>
+          <li>Enable progressive disclosure (Cursor-style skill files)</li>
+        </ul>
+
+        <div class="acc">
+          <div class="acc-item">
+            <button type="button" class="acc-btn">Skill shape (proposed) <span class="chev">›</span></button>
+            <div class="acc-body">
+<pre><code># skills/weekly_review.md
+name: weekly_review
+when: user asks for weekly summary / standup prep
+steps:
+  1. summarize_workspace
+  2. search_notes for open risks
+  3. create_note only if user asks to save
+tools: [summarize_workspace, search_notes, create_note]</code></pre>
+            </div>
+          </div>
+          <div class="acc-item">
+            <button type="button" class="acc-btn">DashNote gap <span class="chev">›</span></button>
+            <div class="acc-body">
+              <p>Today: one fixed system prompt + 4 always-on tools.</p>
+              <p>Next: skill registry → inject matching skill text into the system message;
+              optionally filter the tool list per skill.</p>
+            </div>
+          </div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="skills">Mark read</button></div>
+      </section>
+
+      <!-- 05 WORKFLOWS -->
+      <section class="ch" id="workflows" data-c="workflows">
+        <h2><span class="n">05</span> Workflows <span class="badge partial">partial</span></h2>
+        <p class="lede">
+          A workflow is a graph of steps with typed state. Agents are one node type inside
+          workflows — not the only kind.
+        </p>
+
+        <div class="tabs" data-tabs="wf">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="types">Types</button>
+            <button type="button" class="tab-btn" data-tab="lg">LangGraph</button>
+            <button type="button" class="tab-btn" data-tab="arq">ARQ automation</button>
+          </div>
+          <div class="tab-panel active" data-panel="types">
+            <table>
+              <thead><tr><th>Style</th><th>Control</th><th>Use when</th></tr></thead>
+              <tbody>
+                <tr><td>Sequential DAG</td><td>Code-fixed edges</td><td>ETL, known pipelines</td></tr>
+                <tr><td>Agent loop</td><td>Model chooses next tool</td><td>Open-ended tasks</td></tr>
+                <tr><td>Hybrid</td><td>DAG with agent nodes</td><td>Most production systems</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="tab-panel" data-panel="lg">
+            <p>Slice 6: <code>StateGraph</code> · <code>AgentState</code> · nodes <code>agent</code> + <code>tools</code>.</p>
+            <p>Checkpointer: <code>AsyncPostgresSaver</code> (psycopg3) — execution memory, separate from product <code>AIThread</code>.</p>
+            <p>Config: <code>{"configurable": {"thread_id": thread_id}}</code>.</p>
+          </div>
+          <div class="tab-panel" data-panel="arq">
+            <p>Slice 7 event bus is also a workflow — but <strong>deterministic</strong>:</p>
+            <p><code>file.uploaded</code> → extract → fan-out index + metadata. No LLM choosing edges.</p>
+            <p>Don’t confuse worker DAGs with the agent loop; they solve different problems.</p>
+          </div>
+        </div>
+
+        <div class="callout">
+          <div class="lb">Rule</div>
+          Prefer a fixed workflow when steps are known. Prefer an agent when the path
+          depends on intermediate observations. Prefer hybrid when both apply.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="workflows">Mark read</button></div>
+      </section>
+
+      <!-- 06 ORCHESTRATOR -->
+      <section class="ch" id="orchestrator" data-c="orchestrator">
+        <h2><span class="n">06</span> Orchestrator <span class="badge todo">not yet</span></h2>
+        <p class="lede">
+          An orchestrator decides <em>which</em> agent / workflow / skill runs for a request —
+          routing, parallel fan-out, and aggregation.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Without orchestrator</h4>
+            <p>Client picks <code>/ai/chat</code> or <code>/ai/agent</code>. One graph, four tools.</p>
+          </div>
+          <div class="panel a">
+            <h4>With orchestrator</h4>
+            <p>Ingress router: FAQ → chat; “create note” → agent; research → sub-agent; report → DAG.</p>
+          </div>
+        </div>
+
+        <h3>Common topologies</h3>
+        <ul>
+          <li><strong>Router</strong> — classify intent → one specialist</li>
+          <li><strong>Supervisor</strong> — central LLM delegates to workers, merges answers</li>
+          <li><strong>Handoff</strong> — agent A transfers control + summary to agent B</li>
+          <li><strong>Fan-out / fan-in</strong> — parallel specialists → synthesizer</li>
+        </ul>
+
+        <div class="demo">
+          <label>Orchestrator router (toy)</label>
+          <select id="orchScene">
+            <option value="q">“When is the Q3 launch?”</option>
+            <option value="write">“Create a note with these meeting minutes”</option>
+            <option value="deep">“Cross-check notes and files for INV-2048 risks”</option>
+            <option value="auto">File just uploaded (system event)</option>
+          </select>
+          <div class="out" id="orchOut"></div>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Companion</div>
+          Multi-agent, handoff, harness, autonomy levels → see <code>agent.html</code>.
+          This page focuses on the single-agent loop + when you need an orchestrator at all.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="orchestrator">Mark read</button></div>
+      </section>
+
+      <!-- 07 PATTERNS -->
+      <section class="ch" id="patterns" data-c="patterns">
+        <h2><span class="n">07</span> Patterns: ReAct · Plan · Router</h2>
+        <p class="lede">Named recipes you’ll see in papers and frameworks — all map onto graphs.</p>
+
+        <div class="tabs" data-tabs="pat">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="react">ReAct</button>
+            <button type="button" class="tab-btn" data-tab="plan">Plan-and-execute</button>
+            <button type="button" class="tab-btn" data-tab="router">Router</button>
+          </div>
+          <div class="tab-panel active" data-panel="react">
+            <p><strong>Reason + Act</strong> interleaved: think → tool → observe → think…</p>
+            <p>DashNote’s loop is ReAct-shaped (tool_choice auto, no separate planner node).</p>
+          </div>
+          <div class="tab-panel" data-panel="plan">
+            <p>First produce a plan (steps), then execute each step (often with tools), then revise.</p>
+            <p>Better for long tasks; more latency. Not in DashNote yet — add a <code>planner</code> node before <code>agent</code>.</p>
+          </div>
+          <div class="tab-panel" data-panel="router">
+            <p>Cheap classifier (or small LLM) picks chat vs agent vs skill before the heavy loop.</p>
+            <p>Best ROI next step for cost control — see Cost Optimization guide.</p>
+          </div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="patterns">Mark read</button></div>
+      </section>
+
+      <!-- 08 STATE -->
+      <section class="ch" id="state" data-c="state">
+        <h2><span class="n">08</span> State &amp; memory <span class="badge done">shipped</span></h2>
+        <p class="lede">Agents fail when state is wrong. Separate product memory from execution checkpoints.</p>
+
+        <table>
+          <thead><tr><th>Layer</th><th>Store</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td>Product history</td><td><code>AIThread</code> / <code>AIMessage</code></td><td>User-visible chat</td></tr>
+            <tr><td>Graph state</td><td><code>AgentState</code></td><td>messages, tenant, steps_taken</td></tr>
+            <tr><td>Checkpoints</td><td>LangGraph Postgres saver</td><td>Resume mid-graph</td></tr>
+            <tr><td>Tenant context</td><td>Injected at invoke</td><td>Immutable workspace_id / role</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">AgentState</div>
+          <code>messages</code> (add_messages reducer) · <code>workspace_id</code> · <code>user_id</code> ·
+          <code>role</code> · <code>steps_taken</code> · <code>thread_id</code>.
+          Nodes return partial dicts; LangGraph merges.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="state">Mark read</button></div>
+      </section>
+
+      <!-- 09 GUARD -->
+      <section class="ch" id="guard" data-c="guard">
+        <h2><span class="n">09</span> Guards &amp; HITL <span class="badge partial">partial</span></h2>
+        <p class="lede">
+          Autonomy without brakes is a liability — especially with write tools.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Have today</h4>
+            <ul>
+              <li><code>AGENT_MAX_ITERATIONS</code></li>
+              <li><code>AGENT_TOOL_TIMEOUT</code></li>
+              <li>Prompt: mutate only if explicitly asked</li>
+              <li>Service-layer RBAC on notes</li>
+              <li>LLM retry → HTTP 503</li>
+              <li>AutomationDecisionEngine (worker destructive acts)</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Missing</h4>
+            <ul>
+              <li>LangGraph interrupt before create/update</li>
+              <li>Allowlist of tools per role</li>
+              <li>Budget caps (tokens / $ per turn)</li>
+              <li>Confirmation UI for mutations</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">HITL pattern</div>
+          Before write tools: <code>interrupt()</code> → return pending action to client →
+          user approves → <code>Command(resume=…)</code>. Highest leverage for agent trust.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="guard">Mark read</button></div>
+      </section>
+
+      <!-- 10 VS -->
+      <section class="ch" id="vs" data-c="vs">
+        <h2><span class="n">10</span> Agent vs RAG chat</h2>
+        <p class="lede">Both stay. Pick by job — don’t collapse into one endpoint.</p>
+
+        <table>
+          <thead><tr><th></th><th>/ai/chat</th><th>/ai/agent</th></tr></thead>
+          <tbody>
+            <tr><td>Latency</td><td>Lower</td><td>Higher (multi-step)</td></tr>
+            <tr><td>Citations</td><td>First-class</td><td>Via search tool text</td></tr>
+            <tr><td>Mutations</td><td>None</td><td>create / update note</td></tr>
+            <tr><td>Loop</td><td>No</td><td>Yes</td></tr>
+            <tr><td>When</td><td>Q&amp;A over notes</td><td>Act on the workspace</td></tr>
+          </tbody>
+        </table>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="vs">Mark read</button></div>
+      </section>
+
+      <!-- 11 STATUS -->
+      <section class="ch" id="status" data-c="status">
+        <h2><span class="n">11</span> What we have · what we don’t</h2>
+        <p class="lede">Honest inventory for DashNoteSystem Slice 6+.</p>
+
+        <div class="status-row">
+          <span class="st y">DONE</span>
+          <span>Single-agent ReAct loop · 4 StructuredTools · AgentState + tenant inject · max iterations · Postgres checkpointer · /ai/agent + SSE stream · tool→service chain · coexistence with RAG chat · LLM retry (7.5)</span>
+        </div>
+        <div class="status-row">
+          <span class="st p">PARTIAL</span>
+          <span>Workflows (one agent graph + separate ARQ DAGs) · guards (prompt + limits, no HITL interrupt) · observability (RAG traces stronger than agent tool spans)</span>
+        </div>
+        <div class="status-row">
+          <span class="st n">NOT YET</span>
+          <span>Skill packs · intent orchestrator/router · plan-and-execute · sub-agents / handoff · HITL on mutations · dynamic tool allowlists · agent eval suite · file tools (search files_chunks)</span>
+        </div>
+
+        <h3>Key paths</h3>
+<pre><code>src/ai/workflows/workspace_assistant.py   # graph + call_model + should_continue
+src/ai/workflows/state.py                 # AgentState
+src/ai/tools/note_tools.py                # StructuredTools + db_session_var
+src/ai/tools/schemas.py
+src/ai/memory/checkpointer.py
+src/ai_routes/agent.py                    # POST /ai/agent*
+src/notes/service.py                      # mutation boundary
+</code></pre>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="status">Mark read</button></div>
+      </section>
+
+      <!-- 12 IMPLEMENT -->
+      <section class="ch" id="implement" data-c="implement">
+        <h2><span class="n">12</span> Implement in DashNote</h2>
+        <p class="lede">Ordered upgrades that respect Slice 6 laws. Don’t jump to multi-agent first.</p>
+
+        <ol class="roadmap">
+          <li>
+            <h4>HITL interrupt on write tools</h4>
+            <p>
+              Wrap <code>create_note</code> / <code>update_note</code> with LangGraph interrupt.
+              Stream a <code>pending_action</code> SSE event; resume on user confirm.
+              Highest trust win for demos and production.
+            </p>
+          </li>
+          <li>
+            <h4>Intent router before the loop</h4>
+            <p>
+              Lightweight classifier (rules or small LLM): Q&amp;A → <code>RagService</code>;
+              mutations / multi-step → agent graph. Cuts cost and latency for 80% of traffic.
+            </p>
+          </li>
+          <li>
+            <h4>Skill registry</h4>
+            <p>
+              Add <code>ai/skills/*.md</code> (or YAML). Match on user message; inject into system prompt;
+              optionally subset tools. Keep base <code>WORKSPACE_ASSISTANT_PROMPT</code> short.
+            </p>
+          </li>
+          <li>
+            <h4>File-aware tools</h4>
+            <p>
+              <code>search_files</code> over <code>files_chunks</code> with same RBAC pattern.
+              Still tool → service; extend retrieval wrapper — don’t raw-query Qdrant from tools.
+            </p>
+          </li>
+          <li>
+            <h4>Orchestrator / specialists (later)</h4>
+            <p>
+              Only when tool count or prompt overcrowds. Supervisor + research/writer workers.
+              Details in <code>agent.html</code>. Blueprint goal.md treats multi-agent as late stage.
+            </p>
+          </li>
+          <li>
+            <h4>Agent eval harness</h4>
+            <p>
+              Scripted tasks: “create note X”, “update Y after search”. Assert tool sequence +
+              side effects. Extend <code>scripts/e2e_agent_test.py</code> + pytest fixtures.
+            </p>
+          </li>
+        </ol>
+
+        <h3>Minimal router sketch</h3>
+<pre><code># ai_routes or thin service — conceptual
+intent = classify(message)  # "rag" | "agent" | "reject"
+if intent == "rag":
+    return await RagService.answer(...)
+if intent == "agent":
+    return await run_workspace_assistant(...)
+</code></pre>
+
+        <div class="callout">
+          <div class="lb">Laws to keep</div>
+          Chat routes untouched · tools call services only · tenant from state not LLM ·
+          checkpointer ≠ product threads · append-only settings · no infinite loops without
+          <code>AGENT_MAX_ITERATIONS</code>.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="implement">Mark read</button></div>
+      </section>
+
+      <!-- 13 CHECK -->
+      <section class="ch" id="check" data-c="check">
+        <h2><span class="n">13</span> Checklist</h2>
+        <p class="lede">Learning + build tracker. Persisted in localStorage.</p>
+
+        <h3>Understand</h3>
+        <ul class="checklist" data-list="learn">
+          <li><input type="checkbox" /> Agent = policy + tools + loop + stop</li>
+          <li><input type="checkbox" /> should_continue: tools / end / limit</li>
+          <li><input type="checkbox" /> Tool schema + service boundary</li>
+          <li><input type="checkbox" /> Skill ≠ tool (procedure vs atomic action)</li>
+          <li><input type="checkbox" /> Workflow can be DAG, agent, or hybrid</li>
+          <li><input type="checkbox" /> Orchestrator routes; agent executes</li>
+          <li><input type="checkbox" /> Product memory vs checkpointer</li>
+          <li><input type="checkbox" /> HITL before destructive tools</li>
+        </ul>
+
+        <h3>Build next</h3>
+        <ul class="checklist" data-list="build">
+          <li><input type="checkbox" /> Interrupt + confirm for create/update</li>
+          <li><input type="checkbox" /> Intent router (chat vs agent)</li>
+          <li><input type="checkbox" /> First skill pack (e.g. weekly_review)</li>
+          <li><input type="checkbox" /> search_files tool</li>
+          <li><input type="checkbox" /> Agent tool-sequence evals</li>
+        </ul>
+
+        <div class="mark">
+          <button type="button" class="btn primary mark-btn" data-c="check">Mark read</button>
+          <button type="button" class="btn" id="reset">Reset progress</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Sources: <code>docs/documentation/ai.md</code> (Slice 6), <code>system.md</code>,
+        <code>src/ai/workflows/*</code>, <code>src/ai/tools/*</code>.
+        Companion: <code>agent.html</code> (sub-agents · handoff · harness) ·
+        <code>rag.html</code> (retrieval backbone).
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const KEY = "dashnote-agentic-orch-v1";
+      const CH = [
+        "agent","loop","tools","skills","workflows","orchestrator",
+        "patterns","state","guard","vs","status","implement","check"
+      ];
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+      let state = load();
+      if (!state.read) state.read = {};
+      if (!state.checks) state.checks = {};
+
+      function progress() {
+        const n = CH.filter((c) => state.read[c]).length;
+        const p = Math.round((n / CH.length) * 100);
+        document.getElementById("pct").textContent = p + "%";
+        document.getElementById("fill").style.width = p + "%";
+        document.querySelectorAll("nav a[data-c]").forEach((a) => {
+          a.classList.toggle("visited", !!state.read[a.dataset.c]);
+        });
+      }
+
+      document.querySelectorAll(".mark-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.read[btn.dataset.c] = true;
+          save(state);
+          progress();
+          btn.textContent = "Read ✓";
+        });
+      });
+      CH.forEach((c) => {
+        if (state.read[c]) {
+          document.querySelectorAll('.mark-btn[data-c="' + c + '"]').forEach((b) => {
+            b.textContent = "Read ✓";
+          });
+        }
+      });
+      progress();
+
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!confirm("Reset progress?")) return;
+        state = { read: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false; i.closest("li").classList.remove("checked");
+        });
+        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark read"; });
+        progress();
+      });
+
+      const links = [...document.querySelectorAll("nav a[data-c]")];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+        });
+      }, { rootMargin: "-28% 0px -55% 0px" });
+      CH.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("navToggle");
+      toggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        toggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      });
+      links.forEach((l) => l.addEventListener("click", () => {
+        sidebar.classList.remove("open"); toggle.textContent = "Menu";
+      }));
+
+      document.querySelectorAll("[data-tabs]").forEach((root) => {
+        const btns = root.querySelectorAll(".tab-btn");
+        const panels = root.querySelectorAll(".tab-panel");
+        btns.forEach((btn) => btn.addEventListener("click", () => {
+          btns.forEach((b) => b.classList.toggle("active", b === btn));
+          panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+        }));
+      });
+
+      document.querySelectorAll(".acc-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = btn.closest(".acc-item");
+          const open = item.classList.contains("open");
+          item.parentElement.querySelectorAll(".acc-item").forEach((i) => i.classList.remove("open"));
+          if (!open) item.classList.add("open");
+        });
+      });
+
+      document.querySelectorAll(".quiz").forEach((quiz) => {
+        const fb = quiz.querySelector(".quiz-fb");
+        quiz.querySelectorAll(".quiz-opts button").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const ok = btn.dataset.ok === "true";
+            quiz.querySelectorAll(".quiz-opts button").forEach((b) => {
+              b.disabled = true;
+              if (b.dataset.ok === "true") b.classList.add("correct");
+            });
+            if (!ok) btn.classList.add("wrong");
+            fb.textContent = ok ? "Correct." : "See the highlighted option.";
+          });
+        });
+      });
+
+      /* Loop trajectory demo */
+      const LOOPS = {
+        search: [
+          { cls: "", tag: "agent", text: "call_model → tool_calls: search_notes" },
+          { cls: "tool", tag: "tools", text: "search_notes → RagService.answer" },
+          { cls: "", tag: "agent", text: "call_model → final answer (no tools)" },
+          { cls: "end", tag: "end", text: "END · steps_taken=2" }
+        ],
+        create: [
+          { cls: "", tag: "agent", text: "call_model → tool_calls: create_note" },
+          { cls: "tool", tag: "tools", text: "create_note → NoteService (db_session_var)" },
+          { cls: "", tag: "agent", text: "call_model → confirm note_id to user" },
+          { cls: "end", tag: "end", text: "END · steps_taken=2" }
+        ],
+        multi: [
+          { cls: "", tag: "agent", text: "search_notes(INV-2048)" },
+          { cls: "tool", tag: "tools", text: "observation: note_id=…" },
+          { cls: "", tag: "agent", text: "update_note(note_id, content)" },
+          { cls: "tool", tag: "tools", text: "NoteService.update_note" },
+          { cls: "", tag: "agent", text: "final confirmation" },
+          { cls: "end", tag: "end", text: "END · steps_taken=3" }
+        ],
+        limit: [
+          { cls: "", tag: "agent", text: "tool_calls again…" },
+          { cls: "tool", tag: "tools", text: "…" },
+          { cls: "", tag: "agent", text: "steps_taken hits AGENT_MAX_ITERATIONS" },
+          { cls: "limit", tag: "limit", text: "force END with warning — no infinite loop" }
+        ]
+      };
+      function renderLoop() {
+        const steps = LOOPS[document.getElementById("loopScene").value];
+        document.getElementById("loopTraj").innerHTML = steps.map((s) =>
+          '<div class="step ' + s.cls + '"><span class="tag">' + s.tag + "</span><br>" + s.text + "</div>"
+        ).join("");
+      }
+      document.getElementById("loopScene").addEventListener("change", renderLoop);
+      renderLoop();
+
+      /* Tool scenes */
+      const TOOLS = {
+        good:
+          '<span class="role">create_note</span>\n' +
+          'title="Launch" content=…\n' +
+          'workspace_id / user_id / role from AgentState\n' +
+          '<span class="ok">OK — tenant bound by graph, not invented</span>',
+        smuggle:
+          '<span class="role">create_note</span>\n' +
+          'workspace_id="other-tenant"  ← LLM args\n' +
+          '<span class="bad">FAIL if you trust LLM tenant fields</span>\n' +
+          '<span class="ok">Fix: drop from schema or overwrite from state</span>',
+        invent:
+          '<span class="role">update_note</span>\n' +
+          'note_id="00000000-…" fabricated\n' +
+          '<span class="bad">Prompt rule: search first; never invent IDs</span>\n' +
+          '<span class="dim">Service still enforces RBAC / 404</span>',
+        implicit:
+          '<span class="role">User</span> "tell me about Q3"\n' +
+          'Model calls create_note silently\n' +
+          '<span class="bad">Violates WORKSPACE_ASSISTANT_PROMPT rule 3</span>\n' +
+          '<span class="ok">Harder fix: HITL interrupt on writes</span>'
+      };
+      function renderTool() {
+        document.getElementById("toolOut").innerHTML = TOOLS[document.getElementById("toolScene").value];
+      }
+      document.getElementById("toolScene").addEventListener("change", renderTool);
+      renderTool();
+
+      /* Orchestrator scenes */
+      const ORCH = {
+        q:
+          '<span class="ok">route → /ai/chat (RagService)</span>\n' +
+          'Single retrieve+answer · citations · no tools needed',
+        write:
+          '<span class="am">route → /ai/agent</span>\n' +
+          'create_note tool · optional HITL confirm',
+        deep:
+          '<span class="am">route → orchestrator (future)</span>\n' +
+          'fan-out: search_notes + search_files → synthesizer\n' +
+          '<span class="dim">Today: agent with more tools / skills</span>',
+        auto:
+          '<span class="ok">route → ARQ workflow (not agent)</span>\n' +
+          'FileUploadedEvent → extract → index_file_chunks\n' +
+          'Deterministic DAG — no LLM choosing edges'
+      };
+      function renderOrch() {
+        document.getElementById("orchOut").innerHTML = ORCH[document.getElementById("orchScene").value];
+      }
+      document.getElementById("orchScene").addEventListener("change", renderOrch);
+      renderOrch();
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) { input.checked = true; li.classList.add("checked"); }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hybrid Search &amp; Reranking — Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218;
+      --bg-2: #141a22;
+      --ink: #e8ecef;
+      --soft: #b8c0cc;
+      --muted: #7a8698;
+      --card: #161c26;
+      --line: rgba(232, 236, 239, 0.1);
+      --teal: #3dbaa0;
+      --teal-dim: rgba(61, 186, 160, 0.14);
+      --amber: #e8a35c;
+      --amber-dim: rgba(232, 163, 92, 0.12);
+      --good: #4caf7a;
+      --nav-w: 250px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0;
+      font-family: var(--font-b);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 10% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh;
+      line-height: 1.55;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: var(--nav-w) 1fr;
+      min-height: 100vh;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem;
+      border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.65rem;
+      margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between;
+      font-size: 0.68rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    nav a {
+      display: block;
+      padding: 0.38rem 0.5rem;
+      border-radius: 8px;
+      color: var(--soft);
+      text-decoration: none;
+      font-size: 0.84rem;
+      margin-bottom: 0.15rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 780px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.7rem, 3.5vw, 2.3rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 36rem; }
+    section.ch { margin-bottom: 2.5rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.4rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 1rem; font-weight: 600; margin: 1.4rem 0 0.5rem; }
+    p { margin: 0 0 0.8rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.9rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.3rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.76rem;
+      background: #080b10; color: #d4dce6; padding: 0.9rem 1rem;
+      border-radius: 10px; overflow-x: auto; border: 1px solid var(--line);
+      margin: 0 0 1rem; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.75rem 0.9rem; border-radius: 0 8px 8px 0; margin: 0.9rem 0;
+      font-size: 0.92rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 0.9rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.9rem 1rem;
+    }
+    .panel h4 { margin: 0 0 0.4rem; font-size: 0.92rem; }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.84rem;
+      margin: 0.7rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--line); color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.7rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .tabs { margin: 0.9rem 0 1.2rem; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.65rem; }
+    .tab-btn {
+      font-family: var(--font-b); font-size: 0.82rem; padding: 0.35rem 0.65rem;
+      border: 1px solid transparent; border-radius: 8px; background: transparent;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.3); font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;
+      margin: 0.9rem 0; font-size: 0.78rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.4rem 0.6rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .demo {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1rem; margin: 0.9rem 0;
+    }
+    .demo label {
+      display: block; font-size: 0.7rem; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600;
+    }
+    .demo select, .demo input[type="range"] {
+      width: 100%; margin-bottom: 0.75rem;
+      accent-color: var(--teal);
+    }
+    .demo select {
+      font-family: var(--font-m); font-size: 0.85rem; padding: 0.5rem 0.6rem;
+      border-radius: 8px; border: 1px solid var(--line); background: var(--bg-2); color: var(--ink);
+    }
+    .rank-list { list-style: none; padding: 0; margin: 0; }
+    .rank-list li {
+      display: grid; grid-template-columns: 1.5rem 1fr auto; gap: 0.5rem;
+      align-items: center; padding: 0.45rem 0.55rem; margin-bottom: 0.3rem;
+      border-radius: 8px; border: 1px solid var(--line); background: var(--bg-2);
+      font-size: 0.84rem; color: var(--soft); transition: transform 0.25s, border-color 0.25s;
+    }
+    .rank-list li .rk { font-family: var(--font-m); color: var(--teal); font-weight: 600; }
+    .rank-list li .sc { font-family: var(--font-m); font-size: 0.75rem; color: var(--muted); }
+    .quiz {
+      border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+      background: var(--card); margin: 1rem 0;
+    }
+    .quiz h4 { margin: 0 0 0.5rem; font-family: var(--font-d); }
+    .quiz-opts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.6rem 0; }
+    .quiz-opts button {
+      text-align: left; font-family: var(--font-b); font-size: 0.86rem;
+      padding: 0.55rem 0.75rem; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg-2); color: var(--soft); cursor: pointer;
+    }
+    .quiz-opts button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-dim); }
+    .quiz-opts button.correct { border-color: var(--good); background: rgba(76,175,122,0.15); color: var(--good); font-weight: 600; }
+    .quiz-opts button.wrong { border-color: #e06c6c; background: rgba(224,108,108,0.12); color: #e06c6c; }
+    .quiz-opts button:disabled { cursor: default; }
+    .quiz-fb { font-size: 0.85rem; color: var(--soft); min-height: 1.3em; margin: 0; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.9rem 0; }
+    .roadmap > li {
+      position: relative; padding: 0 0 1.1rem 2.3rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.7rem;
+    }
+    .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .roadmap > li::before {
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.8rem; top: 0;
+      width: 1.45rem; height: 1.45rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.72rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
+    }
+    .roadmap h4 { margin: 0 0 0.3rem; font-size: 0.95rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.7rem 0; }
+    .checklist li {
+      display: flex; gap: 0.55rem; align-items: flex-start;
+      padding: 0.5rem 0.6rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.3rem; cursor: pointer; color: var(--soft); font-size: 0.88rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.84rem; font-weight: 600;
+      padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.2rem; display: flex; gap: 0.45rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.5rem; padding-top: 1.2rem; border-top: 1px solid var(--line);
+      font-size: 0.82rem; color: var(--muted);
+    }
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(280px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">Hybrid Search &amp; Rerank</p>
+      <p class="brand-sub">Dark guide · DashNoteSystem</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Read</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <a href="#why" data-c="why"><span class="dot"></span>Why hybrid?</a>
+        <a href="#modes" data-c="modes"><span class="dot"></span>Dense · sparse · hybrid</a>
+        <a href="#rerank" data-c="rerank"><span class="dot"></span>Reranking</a>
+        <a href="#demo" data-c="demo"><span class="dot"></span>Mini demo</a>
+        <a href="#dashnote" data-c="dashnote"><span class="dot"></span>DashNote today</a>
+        <a href="#implement" data-c="implement"><span class="dot"></span>Implement here</a>
+        <a href="#check" data-c="check"><span class="dot"></span>Checklist</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Interactive · simpler · dark</p>
+        <h1>Hybrid search &amp; reranking</h1>
+        <p>
+          Short field guide: when vectors miss keywords, how hybrid + rerank fix it,
+          and how to add both to DashNote without breaking RBAC or import laws.
+        </p>
+      </header>
+
+      <section class="ch" id="why" data-c="why">
+        <h2><span class="n">01</span> Why hybrid?</h2>
+        <p class="lede">Pure semantic search is great at meaning — weak at exact IDs, names, and rare terms.</p>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Dense (vectors) wins</h4>
+            <ul>
+              <li>“deadline for Q3 plan” ≈ roadmap note</li>
+              <li>Paraphrases &amp; synonyms</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Sparse (keywords) wins</h4>
+            <ul>
+              <li>Exact codes: <code>INV-2048</code></li>
+              <li>Names, error strings, file titles</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout">
+          <div class="lb">Rule of thumb</div>
+          Hybrid = retrieve with both signals, then (optionally) rerank the shortlist.
+          DashNote today is dense-only — hybrid is the natural upgrade.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="why">Mark read</button></div>
+      </section>
+
+      <section class="ch" id="modes" data-c="modes">
+        <h2><span class="n">02</span> Dense · sparse · hybrid</h2>
+        <p class="lede">Three retrieval modes — know what each stores and scores.</p>
+
+        <div class="tabs" data-tabs="modes">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="dense">Dense</button>
+            <button type="button" class="tab-btn" data-tab="sparse">Sparse</button>
+            <button type="button" class="tab-btn" data-tab="hybrid">Hybrid</button>
+          </div>
+          <div class="tab-panel active" data-panel="dense">
+            <p>Embed query + chunks → cosine / dot similarity in a vector DB.</p>
+            <p><strong>DashNote:</strong> Gemini embed → Qdrant <code>notes_chunks</code> / <code>files_chunks</code>, dim <strong>3072</strong>, via <code>WorkspaceVectorSearch</code>.</p>
+          </div>
+          <div class="tab-panel" data-panel="sparse">
+            <p>Inverted index / BM25 / keyword match on text (or sparse vectors like SPLADE).</p>
+            <p>Strong on exact tokens. Weak when the user paraphrases.</p>
+          </div>
+          <div class="tab-panel" data-panel="hybrid">
+            <p>Run both → merge (RRF or weighted sum) → top-k for the LLM.</p>
+            <div class="flow">
+              <span class="fn">query</span><span class="fa">→</span>
+              <span class="fn hi">dense top-N</span><span class="fa">+</span>
+              <span class="fn hi">sparse top-N</span><span class="fa">→</span>
+              <span class="fn">fuse</span><span class="fa">→</span>
+              <span class="fn">top-k</span>
+            </div>
+          </div>
+        </div>
+
+        <table>
+          <thead><tr><th>Fusion</th><th>Idea</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td><strong>RRF</strong></td><td>Score by rank: 1/(k+rank)</td><td>Simple, no score calibration</td></tr>
+            <tr><td><strong>Weighted</strong></td><td>α·dense + (1−α)·sparse</td><td>Needs comparable scores</td></tr>
+            <tr><td><strong>Qdrant hybrid</strong></td><td>Native dense+sparse query</td><td>Good fit if you store both</td></tr>
+          </tbody>
+        </table>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="modes">Mark read</button></div>
+      </section>
+
+      <section class="ch" id="rerank" data-c="rerank">
+        <h2><span class="n">03</span> Reranking</h2>
+        <p class="lede">Retrieve broad (20–50), score carefully on a shortlist (5–10). Saves LLM context for the best chunks.</p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Cross-encoder / API rerank</h4>
+            <p style="margin:0;font-size:0.88rem">Model scores (query, doc) pairs. Highest quality; extra latency/cost. Cohere / Jina / local cross-encoder.</p>
+          </div>
+          <div class="panel a">
+            <h4>Light heuristics</h4>
+            <p style="margin:0;font-size:0.88rem">Boost title matches, exact token hits, recency. Cheap first step before a paid reranker.</p>
+          </div>
+        </div>
+
+        <div class="flow">
+          <span class="fn">hybrid retrieve 30</span><span class="fa">→</span>
+          <span class="fn hi">rerank</span><span class="fa">→</span>
+          <span class="fn">top 8 → RAG budget</span>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Security</div>
+          Rerank <em>after</em> RBAC filter — never fetch candidates without <code>workspace_id</code> + role filter first.
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>User searches <code>error E-9921</code>. Dense returns vague “error handling” notes. What’s most likely missing?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">A bigger embedding dimension</button>
+            <button type="button" data-ok="true">A keyword / sparse signal (or hybrid) for the exact code</button>
+            <button type="button" data-ok="false">Turning off score_threshold</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="rerank">Mark read</button></div>
+      </section>
+
+      <section class="ch" id="demo" data-c="demo">
+        <h2><span class="n">04</span> Mini demo</h2>
+        <p class="lede">Same corpus, different ranking mode — see order change.</p>
+
+        <div class="demo">
+          <label>Query scenario</label>
+          <select id="scenario">
+            <option value="semantic">“What’s our Q3 launch plan?” (semantic)</option>
+            <option value="exact">“ticket INV-2048” (exact id)</option>
+            <option value="mixed">“Alice private roadmap notes” (mixed)</option>
+          </select>
+          <label>Mode — <span id="modeLabel">dense</span></label>
+          <input type="range" id="mode" min="0" max="2" step="1" value="0" />
+          <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--muted);margin:-0.4rem 0 0.7rem">
+            <span>dense</span><span>hybrid</span><span>hybrid+rerank</span>
+          </div>
+          <ul class="rank-list" id="rankList"></ul>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="demo">Mark read</button></div>
+      </section>
+
+      <section class="ch" id="dashnote" data-c="dashnote">
+        <h2><span class="n">05</span> DashNote today</h2>
+        <p class="lede">Dense retrieval only — already “hybrid-ready” at the wrapper boundary.</p>
+
+<pre><code>query → embed → build_rbac_filter(workspace, user, role)
+      → Qdrant query_points (cosine, score_threshold)
+      → SearchResult[] → RagService / agent tools</code></pre>
+
+        <table>
+          <thead><tr><th>Piece</th><th>Where</th></tr></thead>
+          <tbody>
+            <tr><td>Only search API</td><td><code>WorkspaceVectorSearch</code> in <code>wrapper.py</code></td></tr>
+            <tr><td>RBAC</td><td><code>build_rbac_filter()</code> — workspace always <code>must</code></td></tr>
+            <tr><td>Tune gate</td><td><code>GET /ai/test-search</code> · aim score &gt; ~0.4</td></tr>
+            <tr><td>Default threshold</td><td><code>score_threshold≈0.3</code> in wrapper</td></tr>
+            <tr><td>Payload text</td><td><code>text</code> / <code>chunk_text</code> · title in payload</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">Import law</div>
+          No raw <code>AsyncQdrantClient</code> in routers. Extend search inside <code>ai/retrieval/</code> only.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="dashnote">Mark read</button></div>
+      </section>
+
+      <section class="ch" id="implement" data-c="implement">
+        <h2><span class="n">06</span> Implement in this project</h2>
+        <p class="lede">Minimal path — keep one public search method, add hybrid + optional rerank behind it.</p>
+
+        <ol class="roadmap">
+          <li>
+            <h4>Keep the facade</h4>
+            <p>Callers stay on <code>WorkspaceVectorSearch.search(...)</code>. Add flags/settings, don’t fork routes.</p>
+          </li>
+          <li>
+            <h4>Add sparse index</h4>
+            <p>Options: Qdrant sparse vectors on chunk text, or Postgres <code>tsvector</code> on note/file text. Prefer Qdrant if you want one filter path (reuse <code>build_rbac_filter</code>).</p>
+          </li>
+          <li>
+            <h4>Fuse candidates</h4>
+<pre><code># inside wrapper.search (sketch)
+dense = await dense_query(..., limit=overfetch)
+sparse = await sparse_query(..., limit=overfetch)
+merged = rrf_fuse(dense, sparse, k=60)
+# still RBAC-filtered — never merge unfiltered lists</code></pre>
+          </li>
+          <li>
+            <h4>Optional rerank</h4>
+            <p>New <code>ai/retrieval/rerank.py</code>: take <code>list[SearchResult]</code> + query → reordered list. Call only when <code>RERANK_ENABLED</code>. Start with title/exact-token boost; later Cohere/Jina.</p>
+          </li>
+          <li>
+            <h4>Config (append-only)</h4>
+<pre><code>HYBRID_SEARCH_ENABLED: bool = False
+HYBRID_OVERFETCH: int = 30
+RERANK_ENABLED: bool = False
+RERANK_TOP_N: int = 8</code></pre>
+          </li>
+          <li>
+            <h4>Validate</h4>
+            <p>Use <code>GET /ai/test-search</code> with exact-ID queries + paraphrases. Compare dense-only vs hybrid. Trace <code>retrieval</code> span: log <code>chunks_retrieved</code> + mode.</p>
+          </li>
+        </ol>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Where should hybrid fusion live in DashNote?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">In <code>ai_routes/chat.py</code> so the LLM sees raw scores</button>
+            <button type="button" data-ok="true">Inside <code>WorkspaceVectorSearch</code> / <code>ai/retrieval/</code> so RBAC stays centralized</button>
+            <button type="button" data-ok="false">In the frontend before calling the API</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="implement">Mark read</button></div>
+      </section>
+
+      <section class="ch" id="check" data-c="check">
+        <h2><span class="n">07</span> Checklist</h2>
+        <ul class="checklist" data-list="c">
+          <li><input type="checkbox" /><span>Dense ≠ sparse — know when each fails</span></li>
+          <li><input type="checkbox" /><span>Hybrid = retrieve both → fuse (RRF is fine)</span></li>
+          <li><input type="checkbox" /><span>Rerank = overfetch then score shortlist</span></li>
+          <li><input type="checkbox" /><span>RBAC filter before any merge/rerank</span></li>
+          <li><input type="checkbox" /><span>Extend <code>WorkspaceVectorSearch</code>, not routers</span></li>
+          <li><input type="checkbox" /><span>Gate with <code>/ai/test-search</code> + golden exact-ID cases</span></li>
+        </ul>
+        <div class="mark">
+          <button type="button" class="btn primary mark-btn" data-c="check">Mark read</button>
+          <button type="button" class="btn" id="reset">Reset</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Sources: <code>docs/documentation/ai.md</code> · <code>system.md</code> · <code>ai/retrieval/wrapper.py</code>.
+        Companions: <code>evals.html</code> · <code>model_token.html</code>.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const KEY = "dashnote-search-ranking-v1";
+      const CH = ["why","modes","rerank","demo","dashnote","implement","check"];
+      const MODES = ["dense", "hybrid", "hybrid+rerank"];
+
+      const CORPUS = {
+        semantic: [
+          { id: "n1", title: "Q3 launch roadmap", dense: 0.82, sparse: 0.35, rerank: 0.91 },
+          { id: "n2", title: "Marketing calendar", dense: 0.71, sparse: 0.22, rerank: 0.55 },
+          { id: "n3", title: "INV-2048 refund bug", dense: 0.41, sparse: 0.15, rerank: 0.20 },
+          { id: "n4", title: "Alice private goals", dense: 0.48, sparse: 0.18, rerank: 0.30 },
+          { id: "n5", title: "Office wifi password", dense: 0.25, sparse: 0.10, rerank: 0.08 }
+        ],
+        exact: [
+          { id: "n1", title: "Q3 launch roadmap", dense: 0.38, sparse: 0.12, rerank: 0.25 },
+          { id: "n2", title: "Marketing calendar", dense: 0.33, sparse: 0.08, rerank: 0.15 },
+          { id: "n3", title: "INV-2048 refund bug", dense: 0.44, sparse: 0.96, rerank: 0.98 },
+          { id: "n4", title: "Alice private goals", dense: 0.30, sparse: 0.05, rerank: 0.10 },
+          { id: "n5", title: "Office wifi password", dense: 0.22, sparse: 0.04, rerank: 0.05 }
+        ],
+        mixed: [
+          { id: "n1", title: "Q3 launch roadmap", dense: 0.55, sparse: 0.40, rerank: 0.50 },
+          { id: "n2", title: "Marketing calendar", dense: 0.42, sparse: 0.20, rerank: 0.28 },
+          { id: "n3", title: "INV-2048 refund bug", dense: 0.35, sparse: 0.15, rerank: 0.18 },
+          { id: "n4", title: "Alice private goals", dense: 0.68, sparse: 0.72, rerank: 0.88 },
+          { id: "n5", title: "Office wifi password", dense: 0.20, sparse: 0.10, rerank: 0.05 }
+        ]
+      };
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+      let state = load();
+      if (!state.read) state.read = {};
+      if (!state.checks) state.checks = {};
+
+      function progress() {
+        const n = CH.filter((c) => state.read[c]).length;
+        const p = Math.round((n / CH.length) * 100);
+        document.getElementById("pct").textContent = p + "%";
+        document.getElementById("fill").style.width = p + "%";
+        document.querySelectorAll("nav a[data-c]").forEach((a) => {
+          a.classList.toggle("visited", !!state.read[a.dataset.c]);
+        });
+      }
+
+      document.querySelectorAll(".mark-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.read[btn.dataset.c] = true;
+          save(state);
+          progress();
+          btn.textContent = "Read ✓";
+        });
+      });
+      CH.forEach((c) => {
+        if (state.read[c]) {
+          document.querySelectorAll('.mark-btn[data-c="' + c + '"]').forEach((b) => { b.textContent = "Read ✓"; });
+        }
+      });
+      progress();
+
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!confirm("Reset progress?")) return;
+        state = { read: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false; i.closest("li").classList.remove("checked");
+        });
+        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark read"; });
+        progress();
+      });
+
+      const links = [...document.querySelectorAll("nav a[data-c]")];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+        });
+      }, { rootMargin: "-28% 0px -55% 0px" });
+      CH.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("navToggle");
+      toggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        toggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      });
+      links.forEach((l) => l.addEventListener("click", () => {
+        sidebar.classList.remove("open"); toggle.textContent = "Menu";
+      }));
+
+      document.querySelectorAll("[data-tabs]").forEach((root) => {
+        const btns = root.querySelectorAll(".tab-btn");
+        const panels = root.querySelectorAll(".tab-panel");
+        btns.forEach((btn) => btn.addEventListener("click", () => {
+          btns.forEach((b) => b.classList.toggle("active", b === btn));
+          panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+        }));
+      });
+
+      document.querySelectorAll(".quiz").forEach((quiz) => {
+        const fb = quiz.querySelector(".quiz-fb");
+        quiz.querySelectorAll(".quiz-opts button").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const ok = btn.dataset.ok === "true";
+            quiz.querySelectorAll(".quiz-opts button").forEach((b) => {
+              b.disabled = true;
+              if (b.dataset.ok === "true") b.classList.add("correct");
+            });
+            if (!ok) btn.classList.add("wrong");
+            fb.textContent = ok ? "Correct." : "See the highlighted option.";
+          });
+        });
+      });
+
+      function scoreOf(item, mode) {
+        if (mode === 0) return item.dense;
+        if (mode === 1) return 0.55 * item.dense + 0.45 * item.sparse;
+        return item.rerank;
+      }
+
+      function renderRank() {
+        const sc = document.getElementById("scenario").value;
+        const mode = +document.getElementById("mode").value;
+        document.getElementById("modeLabel").textContent = MODES[mode];
+        const items = CORPUS[sc].map((x) => ({ ...x, s: scoreOf(x, mode) }));
+        items.sort((a, b) => b.s - a.s);
+        const ul = document.getElementById("rankList");
+        ul.innerHTML = "";
+        items.forEach((it, i) => {
+          const li = document.createElement("li");
+          li.innerHTML =
+            '<span class="rk">' + (i + 1) + "</span>" +
+            "<span>" + it.title + "</span>" +
+            '<span class="sc">' + it.s.toFixed(2) + "</span>";
+          ul.appendChild(li);
+        });
+      }
+      document.getElementById("scenario").addEventListener("change", renderRank);
+      document.getElementById("mode").addEventListener("input", renderRank);
+      renderRank();
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) { input.checked = true; li.classList.add("checked"); }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

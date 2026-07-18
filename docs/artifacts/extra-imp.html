@@ -1,0 +1,1326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tier 4 — Nice to Know · Build · Flywheel · Summary · Multimodal · A2A</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --blue: #6b9fd4;
+      --nav-w: 270px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.8rem; margin-bottom: 0.1rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 820px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 40rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px; letter-spacing: 0.02em;
+    }
+    .badge.done { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .badge.todo { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--line); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.75rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0 0 1rem; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout.bad { border-color: var(--bad); background: rgba(224,108,108,0.1); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .callout.bad .lb { color: var(--bad); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid var(--blue); }
+    .panel.d { border-top: 3px solid var(--bad); }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .tabs { margin: 0.85rem 0 1.1rem; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.6rem; }
+    .tab-btn {
+      font-family: var(--font-b); font-size: 0.8rem; padding: 0.32rem 0.6rem;
+      border: 1px solid transparent; border-radius: 8px; background: transparent;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.3); font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fn.bad { background: rgba(224,108,108,0.12); border-color: rgba(224,108,108,0.4); color: var(--bad); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .demo {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1rem; margin: 0.85rem 0;
+    }
+    .demo label {
+      display: block; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600;
+    }
+    .demo select, .demo textarea {
+      width: 100%; font-family: var(--font-m); font-size: 0.85rem;
+      padding: 0.5rem 0.6rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-2); color: var(--ink); margin-bottom: 0.7rem;
+    }
+    .demo textarea { min-height: 72px; resize: vertical; font-size: 0.8rem; }
+    .out {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem;
+      color: #c5d0dc; white-space: pre-wrap; line-height: 1.5; max-height: 320px; overflow-y: auto;
+    }
+    .out .ok { color: var(--teal); }
+    .out .bad { color: var(--bad); }
+    .out .am { color: var(--amber); }
+    .out .role { color: var(--amber); }
+    .out .dim { color: var(--muted); }
+    .quiz {
+      border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+      background: var(--card); margin: 1rem 0;
+    }
+    .quiz h4 { margin: 0 0 0.45rem; font-family: var(--font-d); }
+    .quiz-opts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.55rem 0; }
+    .quiz-opts button {
+      text-align: left; font-family: var(--font-b); font-size: 0.85rem;
+      padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg-2); color: var(--soft); cursor: pointer;
+    }
+    .quiz-opts button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-dim); }
+    .quiz-opts button.correct { border-color: var(--good); background: rgba(76,175,122,0.15); color: var(--good); font-weight: 600; }
+    .quiz-opts button.wrong { border-color: var(--bad); background: rgba(224,108,108,0.12); color: var(--bad); }
+    .quiz-opts button:disabled { cursor: default; }
+    .quiz-fb { font-size: 0.84rem; color: var(--soft); min-height: 1.2em; margin: 0; }
+    .acc { margin: 0.8rem 0; }
+    .acc-item {
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 0.4rem;
+      background: var(--card); overflow: hidden;
+    }
+    .acc-btn {
+      width: 100%; text-align: left; padding: 0.75rem 0.9rem; border: none;
+      background: transparent; font-family: var(--font-b); font-size: 0.9rem;
+      font-weight: 600; color: var(--ink); cursor: pointer;
+      display: flex; justify-content: space-between; gap: 0.8rem;
+    }
+    .acc-btn .chev { font-family: var(--font-m); color: var(--muted); transition: transform 0.2s; }
+    .acc-item.open .acc-btn .chev { transform: rotate(90deg); color: var(--teal); }
+    .acc-body {
+      display: none; padding: 0 0.9rem 0.85rem; font-size: 0.88rem;
+      color: var(--soft); border-top: 1px solid var(--line);
+    }
+    .acc-item.open .acc-body { display: block; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.85rem 0; }
+    .roadmap > li {
+      position: relative; padding: 0 0 1rem 2.25rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.65rem;
+    }
+    .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .roadmap > li::before {
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.75rem; top: 0;
+      width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
+    }
+    .roadmap h4 { margin: 0 0 0.25rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .status-row {
+      display: grid; grid-template-columns: 110px 1fr; gap: 0.45rem 0.65rem;
+      margin: 0.7rem 0; font-size: 0.84rem; align-items: start;
+    }
+    .status-row .st {
+      font-family: var(--font-m); font-size: 0.65rem; padding: 0.2rem 0.4rem;
+      border-radius: 4px; font-weight: 600; text-align: center; white-space: nowrap;
+    }
+    .st.y { background: rgba(76,175,122,0.15); color: var(--good); }
+    .st.p { background: var(--amber-dim); color: var(--amber); }
+    .st.n { background: rgba(255,255,255,0.05); color: var(--muted); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .flywheel {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem;
+      margin: 0.85rem 0;
+    }
+    .flywheel .step {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem 0.7rem; font-size: 0.78rem;
+      text-align: center; color: var(--soft); position: relative;
+      transition: border-color 0.25s, background 0.25s;
+    }
+    .flywheel .step.on {
+      border-color: rgba(61,186,160,0.45); background: var(--teal-dim); color: var(--teal);
+    }
+    .flywheel .step .k {
+      display: block; font-family: var(--font-m); font-size: 0.62rem;
+      color: var(--muted); margin-bottom: 0.25rem; letter-spacing: 0.04em;
+    }
+    .flywheel .step.on .k { color: var(--teal); }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3, .flywheel { grid-template-columns: 1fr; }
+      .status-row { grid-template-columns: 90px 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">Tier 4 · Nice to Know</p>
+      <p class="brand-sub">Dark guide · DashNoteSystem</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Read</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Concepts</h3>
+          <a href="#overview" data-c="overview"><span class="dot"></span>Why Tier 4</a>
+          <a href="#build" data-c="build"><span class="dot"></span>Build vs Integrate</a>
+          <a href="#flywheel" data-c="flywheel"><span class="dot"></span>Data Flywheel</a>
+          <a href="#summary" data-c="summary"><span class="dot"></span>Summarization</a>
+          <a href="#multimodal" data-c="multimodal"><span class="dot"></span>Multimodal</a>
+          <a href="#a2a" data-c="a2a"><span class="dot"></span>A2A Protocol</a>
+        </div>
+        <div class="nav-g">
+          <h3>DashNote</h3>
+          <a href="#status" data-c="status"><span class="dot"></span>Done · partial · not</a>
+          <a href="#implement" data-c="implement"><span class="dot"></span>Implement here</a>
+          <a href="#check" data-c="check"><span class="dot"></span>Checklist</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Interactive · Tier 4 · Nice to Know · dark</p>
+        <h1>Useful concepts you’ll meet over time</h1>
+        <p>
+          Less foundational than RAG, agents, security, and reliability — but they shape
+          product decisions as DashNote grows. Mapped onto what this repo already ships
+          and what to add next.
+        </p>
+        <div class="chips">
+          <span class="chip t">Build vs Integrate</span>
+          <span class="chip t">Data Flywheel</span>
+          <span class="chip t">Summarization</span>
+          <span class="chip a">Multimodal</span>
+          <span class="chip a">A2A Protocol</span>
+        </div>
+      </header>
+
+      <!-- 1 OVERVIEW -->
+      <section class="ch" id="overview" data-c="overview">
+        <h2><span class="n">01</span> Why Tier 4 exists</h2>
+        <p class="lede">
+          Independent builders need Tiers 1–3 first: models/tokens, retrieval, agents,
+          prompts, evals, security, reliability. Tier 4 is the “you’ll bump into these”
+          layer — useful vocabulary and decision frames, not day-one blockers.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Learn now for judgment</h4>
+            <p style="margin:0;font-size:0.88rem">
+              So you don’t rebuild Qdrant, ignore feedback loops, or bolt vision on
+              before text RAG is solid.
+            </p>
+          </div>
+          <div class="panel a">
+            <h4>Don’t block shipping</h4>
+            <p style="margin:0;font-size:0.88rem">
+              DashNote already works without multimodal or A2A. Summarization and
+              integrate-first LLM wiring are partial / done.
+            </p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr><th>Topic</th><th>When it bites</th><th>DashNote today</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Build vs Integrate</td>
+              <td>Choosing LLM, vector DB, parsers, tracing</td>
+              <td><span class="badge done">mostly integrate</span></td>
+            </tr>
+            <tr>
+              <td>Data Flywheel</td>
+              <td>Quality stops improving after v1</td>
+              <td><span class="badge partial">automation loop only</span></td>
+            </tr>
+            <tr>
+              <td>Summarization</td>
+              <td>Long notes, digests, file metadata</td>
+              <td><span class="badge done">file + workspace tool</span></td>
+            </tr>
+            <tr>
+              <td>Multimodal</td>
+              <td>Images, scans, audio in notebooks</td>
+              <td><span class="badge todo">text docs only</span></td>
+            </tr>
+            <tr>
+              <td>A2A Protocol</td>
+              <td>Multi-agent / cross-product agents</td>
+              <td><span class="badge todo">single agent graph</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="overview">Mark read</button></div>
+      </section>
+
+      <!-- 2 BUILD VS INTEGRATE -->
+      <section class="ch" id="build" data-c="build">
+        <h2><span class="n">02</span> Build vs Integrate <span class="badge done">core habit</span></h2>
+        <p class="lede">
+          Default: <strong>integrate</strong> undifferentiated heavy lifting;
+          <strong>build</strong> the thin layer that encodes your product laws
+          (tenancy, RBAC, events, prompts).
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Integrate when…</h4>
+            <ul>
+              <li>Commodity capability (embeddings, LLM, vector search)</li>
+              <li>Provider can be swapped via config</li>
+              <li>Ops burden &gt; differentiation</li>
+              <li>You need speed to learn product fit</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Build when…</h4>
+            <ul>
+              <li>Tenant isolation / RBAC must be yours</li>
+              <li>Domain events &amp; workflows are the product</li>
+              <li>Contracts must stay stable across providers</li>
+              <li>Compliance / audit path is custom</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>DashNote’s actual split</h3>
+        <table>
+          <thead>
+            <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>LLM + embeddings</td>
+              <td><strong>Integrate</strong> LiteLLM</td>
+              <td>Prefix-routed providers (<code>gemini/</code>, <code>nvidia_nim/</code>); keys in settings</td>
+            </tr>
+            <tr>
+              <td>Vectors</td>
+              <td><strong>Integrate</strong> Qdrant</td>
+              <td>Soft-boot; own wrapper <code>WorkspaceVectorSearch</code> + RBAC filter</td>
+            </tr>
+            <tr>
+              <td>Agent runtime</td>
+              <td><strong>Integrate</strong> LangGraph</td>
+              <td>Checkpointer + ToolNode; own tools/services</td>
+            </tr>
+            <tr>
+              <td>Tracing</td>
+              <td><strong>Integrate</strong> Langfuse</td>
+              <td>Via <code>observability.tracing</code> only — no SDK in <code>ai/*</code></td>
+            </tr>
+            <tr>
+              <td>Storage</td>
+              <td><strong>Integrate</strong> local / MinIO / R2</td>
+              <td><code>get_storage()</code> behind interface</td>
+            </tr>
+            <tr>
+              <td>Parsing</td>
+              <td><strong>Thin build</strong></td>
+              <td><code>FileParsingEngine</code> on pypdf / docx / bs4 — not Unstructured</td>
+            </tr>
+            <tr>
+              <td>Tenancy, events, RAG, tools</td>
+              <td><strong>Build</strong></td>
+              <td>Product core — never outsource workspace_id / RBAC</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">Rule of thumb</div>
+          Integrate the atom (model call, vector upsert). Build the molecule
+          (IndexingRequest, emit_event, RagService, NoteService tools).
+        </div>
+
+        <div class="demo">
+          <label for="bviScene">Decision lab — pick a capability</label>
+          <select id="bviScene">
+            <option value="llm">Chat / completion model</option>
+            <option value="embed">Embedding model</option>
+            <option value="vec">Vector database</option>
+            <option value="parse">PDF / DOCX extract</option>
+            <option value="rbac">Workspace RBAC on search</option>
+            <option value="ocr">Image OCR / vision</option>
+            <option value="a2a">Cross-product agent protocol</option>
+          </select>
+          <div class="out" id="bviOut"></div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quiz · Build or integrate?</h4>
+          <p style="margin:0;font-size:0.86rem;color:var(--soft)">You need “member cannot see private notes of others” in vector search.</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Ship Qdrant’s default filters only — no custom code</button>
+            <button type="button" data-ok="true">Integrate Qdrant; build build_rbac_filter() that mirrors notes/permissions.py</button>
+            <button type="button" data-ok="false">Train a custom embedding model that hides private notes</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="build">Mark read</button></div>
+      </section>
+
+      <!-- 3 FLYWHEEL -->
+      <section class="ch" id="flywheel" data-c="flywheel">
+        <h2><span class="n">03</span> Data Flywheel <span class="badge partial">partial</span></h2>
+        <p class="lede">
+          A <strong>data flywheel</strong> is a closed loop: product usage creates data →
+          data improves models/retrieval/UX → better product → more usage. Without the
+          feedback edge, you only have a pipeline.
+        </p>
+
+        <div class="flywheel" id="flySteps" aria-hidden="true">
+          <div class="step" data-i="0"><span class="k">1 · USE</span>Users create notes / upload files</div>
+          <div class="step" data-i="1"><span class="k">2 · CAPTURE</span>Extract · embed · tag · summarize</div>
+          <div class="step" data-i="2"><span class="k">3 · LEARN</span>Signals: clicks, thumbs, edits, evals</div>
+          <div class="step" data-i="3"><span class="k">4 · IMPROVE</span>Better ranking, prompts, tools</div>
+        </div>
+
+        <div class="demo">
+          <label for="flyScene">Flywheel stage (DashNote lens)</label>
+          <select id="flyScene">
+            <option value="pipeline">What we have today (open loop)</option>
+            <option value="signal">Missing: quality signals</option>
+            <option value="closed">Closed loop (target)</option>
+            <option value="trap">Common trap</option>
+          </select>
+          <div class="out" id="flyOut"></div>
+        </div>
+
+        <h3>Pipeline ≠ flywheel</h3>
+        <div class="flow">
+          <span class="fn hi">upload</span><span class="fa">→</span>
+          <span class="fn">extract</span><span class="fa">→</span>
+          <span class="fn">index</span><span class="fa">→</span>
+          <span class="fn">metadata</span><span class="fa">→</span>
+          <span class="fn am">RAG/agent</span>
+          <span class="fa">···</span>
+          <span class="fn bad">no feedback yet</span>
+        </div>
+
+        <div class="tabs" data-tabs>
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="have">Have</button>
+            <button type="button" class="tab-btn" data-tab="miss">Missing</button>
+            <button type="button" class="tab-btn" data-tab="add">Cheap wins</button>
+          </div>
+          <div class="tab-panel active" data-panel="have">
+            <ul>
+              <li>Event bus: <code>FileUploadedEvent</code> / <code>NoteCreatedEvent</code> → ARQ fan-out</li>
+              <li>Embeddings cached in Redis (<code>embed:v1:…</code>)</li>
+              <li>Auto tags + file summary enrich the corpus</li>
+              <li>Langfuse traces for LLM spans (when keys set)</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="miss">
+            <ul>
+              <li>User thumbs up/down on chat answers</li>
+              <li>Citation click / copy events → re-rank training or eval sets</li>
+              <li>Golden Q&amp;A sets refreshed from real failures</li>
+              <li>Prompt / chunk-size experiments driven by those metrics</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="add">
+            <ul>
+              <li>Log <code>chunks_used</code> + answer id; store optional rating row</li>
+              <li>Weekly offline eval on fixed fixtures (see evals guide)</li>
+              <li>Promote high-rated Q→A pairs into few-shot or regression tests</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Privacy</div>
+          Flywheels amplify tenant data. Keep signals scoped by
+          <code>workspace_id</code>; never train global models on raw notes without
+          explicit product policy.
+        </div>
+
+        <div class="quiz">
+          <h4>Quiz · Is it a flywheel?</h4>
+          <p style="margin:0;font-size:0.86rem;color:var(--soft)">File upload → extract → summary → Qdrant. Users never rate answers.</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Yes — automation means the flywheel is spinning</button>
+            <button type="button" data-ok="true">No — that’s a one-way enrichment pipeline until signals improve the system</button>
+            <button type="button" data-ok="false">Only if Langfuse is enabled</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="flywheel">Mark read</button></div>
+      </section>
+
+      <!-- 4 SUMMARIZATION -->
+      <section class="ch" id="summary" data-c="summary">
+        <h2><span class="n">04</span> Summarization <span class="badge done">shipped (partial depth)</span></h2>
+        <p class="lede">
+          Compress long content into a shorter artifact humans or downstream agents can use.
+          Pick <strong>extractive</strong> (keep sentences) vs <strong>abstractive</strong> (rewrite)
+          vs <strong>hierarchical / map-reduce</strong> (chunk → local summaries → global).
+        </p>
+
+        <div class="grid3">
+          <div class="panel t">
+            <h4>Extractive</h4>
+            <p style="margin:0;font-size:0.84rem">Select key sentences. Faithful, dull, cheap.</p>
+          </div>
+          <div class="panel a">
+            <h4>Abstractive</h4>
+            <p style="margin:0;font-size:0.84rem">LLM rewrite. Readable; risk of drift — use structured schema.</p>
+          </div>
+          <div class="panel b">
+            <h4>Map-reduce</h4>
+            <p style="margin:0;font-size:0.84rem">Per-chunk then merge. Needed when context &gt; budget.</p>
+          </div>
+        </div>
+
+        <h3>Where DashNote summarizes today</h3>
+        <table>
+          <thead>
+            <tr><th>Surface</th><th>Path</th><th>Shape</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>File metadata</td>
+              <td><code>generate_file_metadata</code></td>
+              <td>Abstractive 2–4 sentences + tags via <code>acompletion_structured</code> → <code>files.summary</code></td>
+            </tr>
+            <tr>
+              <td>Workspace digest</td>
+              <td><code>summarize_workspace</code> tool</td>
+              <td>RAG with <code>retrieval_limit=12</code> — broad overview, not map-reduce</td>
+            </tr>
+            <tr>
+              <td>Note tags</td>
+              <td><code>generate_note_tags</code></td>
+              <td>Not a summary — topical labels only</td>
+            </tr>
+            <tr>
+              <td>Chat / agent</td>
+              <td>User asks “summarize…”</td>
+              <td>Ad-hoc via RAG or tools — no dedicated note.summary column</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="demo">
+          <label for="sumScene">Summarization pattern</label>
+          <select id="sumScene">
+            <option value="file">DashNote file metadata (current)</option>
+            <option value="ws">Workspace tool (current)</option>
+            <option value="map">Map-reduce for huge corpora</option>
+            <option value="note">Note-level summary field (not built)</option>
+          </select>
+          <div class="out" id="sumOut"></div>
+        </div>
+
+        <div class="acc">
+          <div class="acc-item open">
+            <button type="button" class="acc-btn">Governance note <span class="chev">›</span></button>
+            <div class="acc-body">
+              Auto-summarize / auto-tag are <strong>non-destructive</strong> —
+              <code>AutomationDecisionEngine</code> is skipped (rules.md). Destructive
+              automation (merge/delete) must go through governance.
+            </div>
+          </div>
+          <div class="acc-item">
+            <button type="button" class="acc-btn">Token budget tip <span class="chev">›</span></button>
+            <div class="acc-body">
+              File metadata already truncates document context for the LLM.
+              For workspace-wide digests on large tenants, prefer map-reduce or
+              “summary of summaries” over stuffing 12 raw chunks forever.
+            </div>
+          </div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quiz · Which summarizer?</h4>
+          <p style="margin:0;font-size:0.86rem;color:var(--soft)">A PDF uploads and must get a short blurb stored on the File row without user action.</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="true">Worker generate_file_metadata after extract (event fan-out)</button>
+            <button type="button" data-ok="false">Ask the LangGraph agent on every upload</button>
+            <button type="button" data-ok="false">Client-side JS summarize before POST /files/upload</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="summary">Mark read</button></div>
+      </section>
+
+      <!-- 5 MULTIMODAL -->
+      <section class="ch" id="multimodal" data-c="multimodal">
+        <h2><span class="n">05</span> Multimodal <span class="badge todo">not yet</span></h2>
+        <p class="lede">
+          Models (or pipelines) that accept more than text: images, audio, video, tables-as-pixels.
+          For notes products this usually means: vision for screenshots/scans, OCR for PDFs that are images,
+          optional speech-to-text for voice notes.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Approach A · Native multimodal LLM</h4>
+            <p style="margin:0;font-size:0.86rem">
+              Send image bytes + prompt to a vision model. Simple path; cost &amp; latency higher;
+              harder to cache embeddings for search.
+            </p>
+          </div>
+          <div class="panel a">
+            <h4>Approach B · Unimodal bridge</h4>
+            <p style="margin:0;font-size:0.86rem">
+              OCR / ASR → text → existing DashNote chunk → embed → RAG.
+              Reuses Slice 1–7. Better for search; OCR quality is the bottleneck.
+            </p>
+          </div>
+        </div>
+
+        <h3>Current upload surface (text-ish only)</h3>
+<pre><code>ALLOWED_MIME_TYPES ⊂ {
+  pdf, doc/docx, xls/xlsx, ppt/pptx, txt, csv
+}
+# No image/*, audio/*, video/*
+FileParsingEngine → text only (pypdf / docx / bs4)
+</code></pre>
+
+        <div class="demo">
+          <label for="mmScene">Incoming asset</label>
+          <select id="mmScene">
+            <option value="pdf">Text PDF (works today)</option>
+            <option value="scan">Scanned PDF / screenshot</option>
+            <option value="png">PNG diagram</option>
+            <option value="wav">Voice memo</option>
+            <option value="path">Recommended DashNote path</option>
+          </select>
+          <div class="out" id="mmOut"></div>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Don’t rush</div>
+          Multimodal expands attack surface (prompt injection in images) and cost.
+          Ship solid text RAG + file summaries first — Tier 4, not Tier 1.
+        </div>
+
+        <div class="quiz">
+          <h4>Quiz · First multimodal step for DashNote?</h4>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Replace RagService with a single vision-only model for everything</button>
+            <button type="button" data-ok="true">Allow image MIME → OCR/vision extract → write extracted_text → reuse index + metadata fan-out</button>
+            <button type="button" data-ok="false">Store images in Qdrant as raw pixels without text</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="multimodal">Mark read</button></div>
+      </section>
+
+      <!-- 6 A2A -->
+      <section class="ch" id="a2a" data-c="a2a">
+        <h2><span class="n">06</span> A2A Protocol <span class="badge todo">not yet</span></h2>
+        <p class="lede">
+          <strong>Agent-to-Agent (A2A)</strong> is an open protocol (popularized by Google’s A2A effort)
+          for agents from different systems to discover each other, negotiate tasks, and exchange
+          messages/artifacts — without sharing internal tools or memory.
+        </p>
+
+        <div class="callout">
+          <div class="lb">Not the same as MCP</div>
+          <strong>MCP</strong> = tools/resources for one agent (host ↔ servers).
+          <strong>A2A</strong> = peer agents collaborating across products.
+          DashNote already has internal tools (LangGraph); A2A would be external peers.
+        </div>
+
+        <h3>Mental model</h3>
+        <div class="flow">
+          <span class="fn hi">Agent Card</span><span class="fa">→</span>
+          <span class="fn">discover</span><span class="fa">→</span>
+          <span class="fn am">task</span><span class="fa">→</span>
+          <span class="fn">messages / artifacts</span><span class="fa">→</span>
+          <span class="fn">status</span>
+        </div>
+
+        <div class="tabs" data-tabs>
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="why">Why care</button>
+            <button type="button" class="tab-btn" data-tab="vs">vs DashNote agent</button>
+            <button type="button" class="tab-btn" data-tab="when">When to adopt</button>
+          </div>
+          <div class="tab-panel active" data-panel="why">
+            <ul>
+              <li>Workspace assistant talks to a calendar agent or CRM agent owned elsewhere</li>
+              <li>Standard task lifecycle instead of one-off webhooks</li>
+              <li>Capability advertising without exposing your Postgres / Qdrant</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="vs">
+            <ul>
+              <li>Today: one LangGraph workspace assistant + in-process StructuredTools</li>
+              <li>A2A: remote agents as peers; auth, discovery, and trust boundaries</li>
+              <li>Keep <code>/ai/chat*</code> fast RAG and <code>/ai/agent*</code> local tools — A2A would be additive</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="when">
+            <ul>
+              <li>You have ≥2 production agents that must collaborate across repos/companies</li>
+              <li>Partners demand a standard handshake</li>
+              <li>Not needed for “search my notes and create a note” inside one backend</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="demo">
+          <label for="a2aScene">Scenario</label>
+          <select id="a2aScene">
+            <option value="local">DashNote today (local tools)</option>
+            <option value="peer">Future: peer calendar agent</option>
+            <option value="danger">Anti-pattern</option>
+            <option value="bridge">Sane bridge design</option>
+          </select>
+          <div class="out" id="a2aOut"></div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quiz · MCP or A2A?</h4>
+          <p style="margin:0;font-size:0.86rem;color:var(--soft)">Your agent needs a GitHub “create issue” capability as a tool.</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="true">MCP (or native tool) — host exposes a tool/server to the agent</button>
+            <button type="button" data-ok="false">A2A — two peer agents must negotiate every GitHub click</button>
+            <button type="button" data-ok="false">Neither — put the GitHub token in the system prompt</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="a2a">Mark read</button></div>
+      </section>
+
+      <!-- 7 STATUS -->
+      <section class="ch" id="status" data-c="status">
+        <h2><span class="n">07</span> What we have · what we don’t</h2>
+        <p class="lede">Honest inventory for Tier 4 topics in this repo.</p>
+
+        <h3>Build vs Integrate</h3>
+        <div class="status-row">
+          <span class="st y">DONE</span>
+          <span>LiteLLM LLM/embeddings · Qdrant behind WorkspaceVector* · LangGraph agent · Langfuse via observability · storage backends · thin FileParsingEngine · product laws in ai/worker/shared</span>
+        </div>
+        <div class="status-row">
+          <span class="st n">NOT YET</span>
+          <span>Homegrown vector DB · custom trained models · heavy Unstructured / LlamaIndex app layer</span>
+        </div>
+
+        <h3>Data Flywheel</h3>
+        <div class="status-row">
+          <span class="st p">PARTIAL</span>
+          <span>Event-driven enrichment (extract → index → tags/summary) · embed cache · traces — no user feedback loop closing into ranking/prompts</span>
+        </div>
+        <div class="status-row">
+          <span class="st n">NOT YET</span>
+          <span>Answer ratings · citation engagement · auto-curated eval sets from production misses</span>
+        </div>
+
+        <h3>Summarization</h3>
+        <div class="status-row">
+          <span class="st y">DONE</span>
+          <span>files.summary + tags via generate_file_metadata · summarize_workspace StructuredTool · structured LLM salvage path</span>
+        </div>
+        <div class="status-row">
+          <span class="st p">PARTIAL</span>
+          <span>Workspace summary = wide RAG retrieve, not hierarchical map-reduce · notes have tags not summary column</span>
+        </div>
+        <div class="status-row">
+          <span class="st n">NOT YET</span>
+          <span>Note auto-summary field · scheduled digests · incremental “summary of summaries”</span>
+        </div>
+
+        <h3>Multimodal</h3>
+        <div class="status-row">
+          <span class="st n">NOT YET</span>
+          <span>image/audio MIME · OCR/vision · multimodal embeddings · image injection defenses</span>
+        </div>
+
+        <h3>A2A</h3>
+        <div class="status-row">
+          <span class="st n">NOT YET</span>
+          <span>Agent Cards · remote peer tasks · cross-product agent auth — single in-process workspace assistant only</span>
+        </div>
+
+        <h3>Key paths</h3>
+<pre><code>src/config.py                         # provider keys, LLM/embedding models
+src/shared/llm/                       # integrate LiteLLM behind retry/structured
+src/ai/retrieval/                     # integrate Qdrant + build RBAC
+src/shared/events/ + worker/automation/  # enrichment pipeline (flywheel input)
+src/worker/automation/tasks.py        # generate_file_metadata (summary)
+src/ai/tools/note_tools.py            # summarize_workspace
+src/shared/utils/parsers.py           # text extract only
+src/core/storage/utils.py             # ALLOWED_MIME_TYPES
+src/ai/workflows/workspace_assistant.py  # local agent — not A2A
+</code></pre>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="status">Mark read</button></div>
+      </section>
+
+      <!-- 8 IMPLEMENT -->
+      <section class="ch" id="implement" data-c="implement">
+        <h2><span class="n">08</span> Implement in DashNote</h2>
+        <p class="lede">Ordered by leverage — stay append-only on settings; keep import laws.</p>
+
+        <ol class="roadmap">
+          <li>
+            <h4>Keep integrate-first for models</h4>
+            <p>
+              New providers = LiteLLM model string + env key in <code>settings</code> /
+              <code>shared/llm/env.py</code>. Do not fork provider SDKs into <code>ai/*</code>.
+            </p>
+          </li>
+          <li>
+            <h4>Close a thin flywheel loop</h4>
+            <p>
+              Add optional <code>POST /ai/feedback</code> (thread_id, message_id, rating, note).
+              Persist workspace-scoped rows. Nightly job: export low ratings into an eval fixture
+              folder. Improve prompts/chunking from that set — not from raw dumps.
+            </p>
+          </li>
+          <li>
+            <h4>Deepen summarization when needed</h4>
+            <p>
+              If workspace digests miss content: map-reduce over note titles + existing
+              <code>files.summary</code> first (cheap), then fall back to chunk RAG.
+              Optional: <code>notes.summary</code> column + worker on note.updated (non-destructive).
+            </p>
+          </li>
+          <li>
+            <h4>Multimodal via text bridge</h4>
+            <p>
+              Extend <code>ALLOWED_MIME_TYPES</code> carefully → new extract path
+              (OCR or vision → string) → same <code>extracted_text</code> + fan-out.
+              Reuse <code>index_file_chunks</code> / <code>generate_file_metadata</code>.
+              Gate vision model behind settings; soft-fail like Qdrant.
+            </p>
+          </li>
+          <li>
+            <h4>Defer A2A</h4>
+            <p>
+              Until a real peer agent exists, expand local tools (files search, attachments)
+              and MCP-style tool servers if needed. If A2A arrives: adapter service outside
+              <code>ai/*</code> core, JWT/workspace auth intact, never leak tenant vectors.
+            </p>
+          </li>
+        </ol>
+
+        <h3>Sketch · feedback event (flywheel)</h3>
+<pre><code># shared/events/definitions.py — extend payloads only
+class ChatFeedbackEvent(BaseModel):  # frozen pattern as existing events
+    workspace_id: UUID
+    user_id: UUID
+    thread_id: UUID
+    rating: Literal["up", "down"]
+    comment: str | None = None
+
+# worker: append to eval buffer / metrics — never raise from emit_event
+</code></pre>
+
+        <h3>Sketch · vision → text (multimodal bridge)</h3>
+<pre><code># shared/utils/parsers.py (or sibling vision_extract.py)
+# IMPORT LAW: no FastAPI / SQLAlchemy
+async def image_to_text(bytes_, mime: str) -> str:
+    # litellm vision OR local OCR
+    ...
+
+# worker handle_file_uploaded:
+#   if mime in IMAGE_TYPES: text = await image_to_text(...)
+#   else: text = FileParsingEngine.extract_text(...)
+#   persist extracted_text → fan-out unchanged
+</code></pre>
+
+        <div class="callout">
+          <div class="lb">Laws</div>
+          <code>workspace_id</code> always from context · Qdrant only via wrappers ·
+          structured LLM via <code>shared/llm</code> · automation non-destructive skips governance ·
+          append-only settings / compose / requirements.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="implement">Mark read</button></div>
+      </section>
+
+      <!-- 9 CHECK -->
+      <section class="ch" id="check" data-c="check">
+        <h2><span class="n">09</span> Checklist</h2>
+        <p class="lede">Learning + build tracker (localStorage).</p>
+
+        <h3>Understand</h3>
+        <ul class="checklist" data-list="learn">
+          <li><input type="checkbox" /> Integrate commodities; build tenant/product laws</li>
+          <li><input type="checkbox" /> Pipeline ≠ flywheel without feedback → improve</li>
+          <li><input type="checkbox" /> Extractive vs abstractive vs map-reduce summaries</li>
+          <li><input type="checkbox" /> Multimodal: native vision vs OCR→text bridge</li>
+          <li><input type="checkbox" /> A2A peers ≠ MCP tools ≠ LangGraph ToolNode</li>
+        </ul>
+
+        <h3>Build next (priority)</h3>
+        <ul class="checklist" data-list="build">
+          <li><input type="checkbox" /> Optional chat answer rating + workspace-scoped store</li>
+          <li><input type="checkbox" /> Eval fixtures fed by down-rated answers</li>
+          <li><input type="checkbox" /> Map-reduce / summary-of-summaries for large digests</li>
+          <li><input type="checkbox" /> (Later) image MIME + OCR/vision → extracted_text</li>
+          <li><input type="checkbox" /> (Much later) A2A adapter only with a real peer</li>
+        </ul>
+
+        <div class="mark">
+          <button type="button" class="btn primary mark-btn" data-c="check">Mark read</button>
+          <button type="button" class="btn" id="reset">Reset progress</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Sources: <code>docs/documentation/ai.md</code>, <code>docs/documentation/system.md</code>,
+        <code>shared/llm</code>, <code>worker/automation</code>, <code>ai/tools/note_tools.py</code>,
+        <code>core/storage/utils.py</code>.
+        Related: <code>fundamental.html</code> · <code>rag.html</code> · <code>agent.html</code> ·
+        <code>mcp.html</code> · <code>evals.html</code>.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const KEY = "dashnote-tier4-nice-v1";
+      const CH = ["overview","build","flywheel","summary","multimodal","a2a","status","implement","check"];
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+      let state = load();
+      if (!state.read) state.read = {};
+      if (!state.checks) state.checks = {};
+
+      function progress() {
+        const n = CH.filter((c) => state.read[c]).length;
+        const p = Math.round((n / CH.length) * 100);
+        document.getElementById("pct").textContent = p + "%";
+        document.getElementById("fill").style.width = p + "%";
+        document.querySelectorAll("nav a[data-c]").forEach((a) => {
+          a.classList.toggle("visited", !!state.read[a.dataset.c]);
+        });
+      }
+
+      document.querySelectorAll(".mark-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.read[btn.dataset.c] = true;
+          save(state);
+          progress();
+          btn.textContent = "Read ✓";
+        });
+      });
+      CH.forEach((c) => {
+        if (state.read[c]) {
+          document.querySelectorAll('.mark-btn[data-c="' + c + '"]').forEach((b) => {
+            b.textContent = "Read ✓";
+          });
+        }
+      });
+      progress();
+
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!confirm("Reset progress?")) return;
+        state = { read: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false; i.closest("li").classList.remove("checked");
+        });
+        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark read"; });
+        progress();
+      });
+
+      const links = [...document.querySelectorAll("nav a[data-c]")];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+        });
+      }, { rootMargin: "-28% 0px -55% 0px" });
+      CH.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("navToggle");
+      toggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        toggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      });
+      links.forEach((l) => l.addEventListener("click", () => {
+        sidebar.classList.remove("open"); toggle.textContent = "Menu";
+      }));
+
+      document.querySelectorAll("[data-tabs]").forEach((root) => {
+        const btns = root.querySelectorAll(".tab-btn");
+        const panels = root.querySelectorAll(".tab-panel");
+        btns.forEach((btn) => btn.addEventListener("click", () => {
+          btns.forEach((b) => b.classList.toggle("active", b === btn));
+          panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+        }));
+      });
+
+      document.querySelectorAll(".acc-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = btn.closest(".acc-item");
+          const open = item.classList.contains("open");
+          item.parentElement.querySelectorAll(".acc-item").forEach((i) => i.classList.remove("open"));
+          if (!open) item.classList.add("open");
+        });
+      });
+
+      document.querySelectorAll(".quiz").forEach((quiz) => {
+        const fb = quiz.querySelector(".quiz-fb");
+        quiz.querySelectorAll(".quiz-opts button").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const ok = btn.dataset.ok === "true";
+            quiz.querySelectorAll(".quiz-opts button").forEach((b) => {
+              b.disabled = true;
+              if (b.dataset.ok === "true") b.classList.add("correct");
+            });
+            if (!ok) btn.classList.add("wrong");
+            fb.textContent = ok ? "Correct." : "See the highlighted option.";
+          });
+        });
+      });
+
+      /* Build vs Integrate */
+      const BVI = {
+        llm:
+          '<span class="ok">INTEGRATE</span> LiteLLM · model string in settings\n' +
+          '<span class="dim">DashNote:</span> LLM_MODEL = nvidia_nim/… or swap provider\n' +
+          '<span class="am">Build only:</span> retry, structured salvage, prompts, RBAC around the call',
+        embed:
+          '<span class="ok">INTEGRATE</span> embedding provider via LiteLLM\n' +
+          '<span class="dim">DashNote:</span> gemini/gemini-embedding-2 · dim 3072\n' +
+          '<span class="am">Build:</span> chunker, cache key, IndexingRequest pipeline',
+        vec:
+          '<span class="ok">INTEGRATE</span> Qdrant (soft-boot)\n' +
+          '<span class="bad">Do not</span> reimplement ANN from scratch\n' +
+          '<span class="am">Build:</span> WorkspaceVectorSearch + build_rbac_filter',
+        parse:
+          '<span class="am">THIN BUILD</span> on pypdf / python-docx / bs4\n' +
+          '<span class="dim">Why not Unstructured?</span> 8GB-friendly MVP (qs.md)\n' +
+          '<span class="ok">Integrate</span> libraries; own FileParsingEngine API',
+        rbac:
+          '<span class="bad">BUILD</span> — never outsource tenant rules\n' +
+          '<span class="ok">Mirror</span> notes/permissions.py in filters.py\n' +
+          '<span class="dim">workspace_id from JWT only</span>',
+        ocr:
+          '<span class="ok">INTEGRATE</span> OCR/vision model when you add images\n' +
+          '<span class="am">Build:</span> MIME allowlist + extract → extracted_text bridge\n' +
+          '<span class="dim">Today:</span> not in ALLOWED_MIME_TYPES',
+        a2a:
+          '<span class="ok">INTEGRATE</span> protocol later if peers exist\n' +
+          '<span class="am">Build:</span> adapter + auth boundary outside ai core\n' +
+          '<span class="dim">Today:</span> local LangGraph tools only — defer'
+      };
+      function renderBvi() {
+        document.getElementById("bviOut").innerHTML = BVI[document.getElementById("bviScene").value];
+      }
+      document.getElementById("bviScene").addEventListener("change", renderBvi);
+      renderBvi();
+
+      /* Flywheel */
+      const FLY = {
+        pipeline:
+          '<span class="role">Open loop (shipped)</span>\n' +
+          'use → extract → embed → summarize/tag → RAG\n' +
+          '<span class="am">Stops at “answer”</span> — quality does not feed back\n' +
+          '<span class="dim">Still valuable automation — just not a flywheel yet</span>',
+        signal:
+          '<span class="role">Missing edge</span>\n' +
+          'thumbs · citation clicks · “edited after answer” · eval fail clusters\n' +
+          '<span class="ok">Store workspace-scoped</span> · never mix tenants\n' +
+          '<span class="dim">Langfuse = observability, not product feedback by itself</span>',
+        closed:
+          '<span class="ok">Closed loop</span>\n' +
+          'signals → eval fixtures / prompt diffs / ranker tweaks → better answers\n' +
+          '→ more trust → more notes → richer retrieval\n' +
+          '<span class="am">Human review</span> for anything that changes behavior in prod',
+        trap:
+          '<span class="bad">Trap</span> “we’ll fine-tune on all customer notes”\n' +
+          'Privacy, tenancy, and contamination risk\n' +
+          '<span class="ok">Safer:</span> offline evals + prompt/chunk experiments first'
+      };
+      const flyEl = document.getElementById("flySteps");
+      function renderFly() {
+        const v = document.getElementById("flyScene").value;
+        document.getElementById("flyOut").innerHTML = FLY[v];
+        const on = v === "pipeline" ? [0, 1] : v === "signal" ? [0, 1, 2] : v === "closed" ? [0, 1, 2, 3] : [2];
+        flyEl.querySelectorAll(".step").forEach((s) => {
+          s.classList.toggle("on", on.includes(+s.dataset.i));
+        });
+      }
+      document.getElementById("flyScene").addEventListener("change", renderFly);
+      renderFly();
+
+      /* Summarization */
+      const SUM = {
+        file:
+          '<span class="ok">generate_file_metadata</span>\n' +
+          'FileUploaded → extract → fan-out → structured LLM\n' +
+          'schema: summary (2–4 sentences) + tags\n' +
+          '→ files.summary / files.tags  <span class="dim">non-destructive</span>',
+        ws:
+          '<span class="ok">summarize_workspace tool</span>\n' +
+          'RagService.answer(retrieval_limit=12)\n' +
+          '<span class="am">Broad retrieve + abstractive answer</span>\n' +
+          'Good for overview; can miss long-tail notes',
+        map:
+          '<span class="role">Map-reduce (target for huge workspaces)</span>\n' +
+          '1) summarize each note/file.summary\n' +
+          '2) merge partials under TOKEN_BUDGET\n' +
+          '3) optional final polish pass\n' +
+          '<span class="dim">Not implemented — design when digests degrade</span>',
+        note:
+          '<span class="bad">notes.summary</span> column — not present\n' +
+          'notes get tags only (generate_note_tags)\n' +
+          '<span class="am">Optional slice:</span> summary on create/update + index title+summary'
+      };
+      function renderSum() {
+        document.getElementById("sumOut").innerHTML = SUM[document.getElementById("sumScene").value];
+      }
+      document.getElementById("sumScene").addEventListener("change", renderSum);
+      renderSum();
+
+      /* Multimodal */
+      const MM = {
+        pdf:
+          '<span class="ok">Supported</span> application/pdf → pypdf text\n' +
+          '→ extracted_text → index_file_chunks + generate_file_metadata\n' +
+          '<span class="dim">Works when PDF has a text layer</span>',
+        scan:
+          '<span class="bad">Fails today</span> empty/garbage extract on image-only PDF\n' +
+          '<span class="am">Need:</span> OCR or vision pass before persist\n' +
+          'Then same fan-out — no new RAG stack',
+        png:
+          '<span class="bad">415</span> image/png not in ALLOWED_MIME_TYPES\n' +
+          '<span class="ok">Path:</span> allow MIME → vision/OCR → text bridge\n' +
+          '<span class="dim">Keep vectors as text chunks for RBAC search</span>',
+        wav:
+          '<span class="bad">Not allowed</span> audio/*\n' +
+          '<span class="am">ASR → transcript → note or file text</span>\n' +
+          'Reuse embed pipeline; store transcript as source of truth',
+        path:
+          '<span class="ok">Recommended order</span>\n' +
+          '1. Detect scanned PDFs (low char density)\n' +
+          '2. OCR those first (highest ROI)\n' +
+          '3. Then PNG/JPEG screenshots\n' +
+          '4. Voice later\n' +
+          '<span class="dim">Always land on extracted_text</span>'
+      };
+      function renderMm() {
+        document.getElementById("mmOut").innerHTML = MM[document.getElementById("mmScene").value];
+      }
+      document.getElementById("mmScene").addEventListener("change", renderMm);
+      renderMm();
+
+      /* A2A */
+      const A2A = {
+        local:
+          '<span class="ok">Today</span> POST /ai/agent → LangGraph\n' +
+          'tools: search_notes, create_note, update_note, summarize_workspace\n' +
+          'in-process ToolNode · Postgres checkpointer\n' +
+          '<span class="dim">No Agent Card · no remote peers</span>',
+        peer:
+          '<span class="am">Future sketch</span>\n' +
+          'DashNote agent discovers Calendar Agent Card\n' +
+          'sends task “block 2h for deep work”\n' +
+          'receives artifact (event id) — never shares Qdrant\n' +
+          '<span class="ok">Tenant auth still on DashNote side</span>',
+        danger:
+          '<span class="bad">Anti-pattern</span>\n' +
+          'Expose raw SQL / vector search as an A2A skill\n' +
+          'or trust peer agent’s workspace_id claim\n' +
+          '<span class="ok">Always</span> re-bind tenant from your JWT/session',
+        bridge:
+          '<span class="ok">Sane bridge</span>\n' +
+          'Local tool "delegate_to_peer" → A2A client adapter\n' +
+          'adapter lives outside ai retrieval core\n' +
+          'audit log + timeout + least privilege scopes'
+      };
+      function renderA2a() {
+        document.getElementById("a2aOut").innerHTML = A2A[document.getElementById("a2aScene").value];
+      }
+      document.getElementById("a2aScene").addEventListener("change", renderA2a);
+      renderA2a();
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) { input.checked = true; li.classList.add("checked"); }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

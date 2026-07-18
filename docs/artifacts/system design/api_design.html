@@ -1,0 +1,1548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API Design — Full Guidebook · DashNote</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --blue: #6b9fd4; --blue-dim: rgba(107,159,212,0.14);
+      --nav-w: 280px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.78rem; margin-bottom: 0.08rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 880px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 44rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    .chip.b { border-color: rgba(107,159,212,0.4); color: var(--blue); background: var(--blue-dim); }
+    section.ch { margin-bottom: 2.5rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px; letter-spacing: 0.02em;
+    }
+    .badge.done { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .badge.todo { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--line); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .dn {
+      border-left: 3px solid var(--blue); background: var(--blue-dim);
+      padding: 0.65rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.75rem 0;
+      font-size: 0.86rem; color: var(--soft);
+    }
+    .dn .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--blue); margin-bottom: 0.2rem;
+    }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid var(--blue); }
+    .panel h4 { margin-top: 0; }
+    .panel p:last-child, .panel ul:last-child { margin-bottom: 0; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .status {
+      font-family: var(--font-m); font-size: 0.68rem; font-weight: 500;
+      padding: 0.12rem 0.4rem; border-radius: 4px; white-space: nowrap;
+    }
+    .status.covered { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .status.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .status.gap { background: rgba(224,108,108,0.12); color: var(--bad); border: 1px solid rgba(224,108,108,0.35); }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .code-toggle {
+      margin: 0.85rem 0 1.1rem; border: 1px solid var(--line);
+      border-radius: 12px; overflow: hidden; background: var(--card);
+    }
+    .code-toggle .toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 0.5rem; flex-wrap: wrap; padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.02);
+    }
+    .code-toggle .label {
+      font-size: 0.72rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.04em; font-weight: 600;
+    }
+    .lang-switch { display: inline-flex; gap: 0.25rem; }
+    .lang-btn {
+      font-family: var(--font-b); font-size: 0.78rem; font-weight: 600;
+      padding: 0.28rem 0.65rem; border-radius: 7px; border: 1px solid transparent;
+      background: transparent; color: var(--muted); cursor: pointer;
+    }
+    .lang-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.35);
+    }
+    .code-pane { display: none; }
+    .code-pane.active { display: block; }
+    .code-pane pre { border: none; border-radius: 0; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .path {
+      font-family: var(--font-m); font-size: 0.72rem; color: var(--muted);
+      margin: 0.2rem 0 0.55rem;
+    }
+    .toc-mini {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 0.85rem 1rem; margin: 0.85rem 0; font-size: 0.84rem; color: var(--soft);
+    }
+    .toc-mini ol { margin: 0.4rem 0 0; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">API Design</p>
+      <p class="brand-sub">Full guidebook · Must #2</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Progress</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Foundations</h3>
+          <a href="#overview"><span class="dot"></span>Overview</a>
+          <a href="#principles"><span class="dot"></span>Principles</a>
+          <a href="#resources"><span class="dot"></span>Resources &amp; URLs</a>
+          <a href="#methods"><span class="dot"></span>HTTP methods</a>
+          <a href="#bodies"><span class="dot"></span>Bodies &amp; schemas</a>
+        </div>
+        <div class="nav-g">
+          <h3>Contracts</h3>
+          <a href="#versioning"><span class="dot"></span>Versioning</a>
+          <a href="#lists"><span class="dot"></span>Lists · filter · sort</a>
+          <a href="#errors"><span class="dot"></span>Error shapes</a>
+          <a href="#idempotency"><span class="dot"></span>Idempotency</a>
+          <a href="#async"><span class="dot"></span>Sync vs async jobs</a>
+          <a href="#webhooks"><span class="dot"></span>Webhooks</a>
+          <a href="#streaming"><span class="dot"></span>Streaming APIs</a>
+        </div>
+        <div class="nav-g">
+          <h3>Hardening</h3>
+          <a href="#auth-surface"><span class="dot"></span>Auth in the contract</a>
+          <a href="#limits"><span class="dot"></span>Rate limits</a>
+          <a href="#evolution"><span class="dot"></span>Evolution &amp; deprecation</a>
+          <a href="#styles"><span class="dot"></span>REST · RPC · GraphQL</a>
+          <a href="#openapi"><span class="dot"></span>OpenAPI contracts</a>
+        </div>
+        <div class="nav-g">
+          <h3>This repo</h3>
+          <a href="#status"><span class="dot"></span>Covered vs should</a>
+          <a href="#examples"><span class="dot"></span>Code (FastAPI / Nest)</a>
+          <a href="#checklist"><span class="dot"></span>Checklist</a>
+        </div>
+        <div class="nav-g">
+          <h3>Related</h3>
+          <a href="network_http.html"><span class="dot"></span>← Networking</a>
+          <a href="roadmap.html"><span class="dot"></span>Roadmap</a>
+        </div>
+      </nav>
+      <div class="mark" style="margin-top:1rem">
+        <button class="btn" type="button" id="resetBtn">Reset progress</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Full guidebook · Roadmap Must #2</p>
+        <h1>API design</h1>
+        <p>
+          A practical guideline for designing production HTTP APIs — resources, contracts,
+          evolution, and failure modes. DashNote callouts show what this repo already does
+          and what a production system should still add.
+        </p>
+        <div class="chips">
+          <span class="chip t">Full curriculum</span>
+          <span class="chip a">DashNote-mapped</span>
+          <span class="chip b">FastAPI · NestJS</span>
+        </div>
+      </header>
+
+      <!-- ========== OVERVIEW ========== -->
+      <section class="ch" id="overview">
+        <h2><span class="n">00</span> Overview</h2>
+        <p class="lede">
+          An API is a long-lived product surface. Good design optimizes for client clarity,
+          safe change, and predictable failure — not for matching your internal table layout.
+        </p>
+        <div class="toc-mini">
+          <strong style="color:var(--ink)">What this book covers</strong>
+          <ol>
+            <li>Model resources and URLs that stay stable</li>
+            <li>Choose methods, bodies, and status codes deliberately</li>
+            <li>Ship list/query, error, and idempotency contracts</li>
+            <li>Decide sync vs async vs webhooks vs streams</li>
+            <li>Version, deprecate, and document without breaking clients</li>
+          </ol>
+        </div>
+        <div class="flow">
+          <span class="fn">Client intent</span><span class="fa">→</span>
+          <span class="fn hi">Resource + method</span><span class="fa">→</span>
+          <span class="fn">AuthZ · validate</span><span class="fa">→</span>
+          <span class="fn am">Sync work or enqueue</span><span class="fa">→</span>
+          <span class="fn">Stable response shape</span>
+        </div>
+        <div class="dn">
+          <div class="lb">DashNote shape</div>
+          JWT-scoped flat REST (<code>/notes</code>, <code>/files</code>, <code>/auth</code>, <code>/ai/*</code>) plus SSE for chat/agent.
+          Workspace comes from JWT <code>wid</code>, not the path. OpenAPI live only when <code>DEBUG</code>.
+        </div>
+      </section>
+
+      <!-- ========== PRINCIPLES ========== -->
+      <section class="ch" id="principles">
+        <h2><span class="n">01</span> Design principles</h2>
+        <p class="lede">Rules that keep APIs usable under growth and team churn.</p>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>1. Client-first contracts</h4>
+            <p>Name what the product does, not your ORM. Hide join tables and storage quirks.</p>
+          </div>
+          <div class="panel t">
+            <h4>2. Predictable semantics</h4>
+            <p>Same verb + status meaning everywhere. Don’t invent “200 with error in body” for writes.</p>
+          </div>
+          <div class="panel a">
+            <h4>3. Explicit failure</h4>
+            <p>Errors are part of the API. Typed codes + stable fields beat free-form strings alone.</p>
+          </div>
+          <div class="panel a">
+            <h4>4. Safe evolution</h4>
+            <p>Additive changes preferred. Breaking changes need versioning or dual-run periods.</p>
+          </div>
+          <div class="panel b">
+            <h4>5. Least surprise</h4>
+            <p>GET never mutates. POST creates/actions. PATCH partial. DELETE removes (or soft-deletes consistently).</p>
+          </div>
+          <div class="panel b">
+            <h4>6. Bound the expensive</h4>
+            <p>Pagination defaults, rate limits, payload size limits, and timeouts are design — not ops afterthoughts.</p>
+          </div>
+        </div>
+        <div class="callout">
+          <div class="lb">Guideline</div>
+          If two endpoints do the same kind of thing differently (list shape, error shape, auth),
+          clients will forever special-case you. Standardize early.
+        </div>
+      </section>
+
+      <!-- ========== RESOURCES ========== -->
+      <section class="ch" id="resources">
+        <h2><span class="n">02</span> Resources &amp; URL design</h2>
+        <p class="lede">URLs identify resources. Verbs are HTTP methods — not verbs jammed into paths.</p>
+
+        <h3>Resource modeling</h3>
+        <ul>
+          <li>Nouns in plural: <code>/notes</code>, <code>/files</code>, <code>/workspaces</code></li>
+          <li>IDs opaque to clients: <code>/notes/{id}</code> — prefer stable public IDs (UUID) over leaking sequence if enumeration is a risk</li>
+          <li>Collections vs items: list on collection, detail on item</li>
+          <li>Actions that aren’t CRUD: <code>POST /files/{id}/attach/{note_id}</code> or <code>POST /notes/{id}:publish</code> (pick one style and stick to it)</li>
+        </ul>
+
+        <h3>Flat vs nested</h3>
+        <table>
+          <thead>
+            <tr><th>Style</th><th>Example</th><th>When</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Flat</strong></td>
+              <td><code>/notes/{id}</code></td>
+              <td>Resource has its own identity; parent is context (auth/tenant)</td>
+            </tr>
+            <tr>
+              <td><strong>Nested</strong></td>
+              <td><code>/ai/threads/{id}/messages</code></td>
+              <td>Child only makes sense under parent; lifecycle tied together</td>
+            </tr>
+            <tr>
+              <td><strong>Cross-link action</strong></td>
+              <td><code>POST /files/{id}/attach/{note_id}</code></td>
+              <td>Relating two peers without inventing a third resource yet</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Tenancy in the URL</h3>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Path tenancy</h4>
+            <p><code>/workspaces/{wid}/notes</code> — explicit, good for multi-workspace UIs and admin tools.</p>
+          </div>
+          <div class="panel a">
+            <h4>Token tenancy</h4>
+            <p>Workspace from JWT — shorter URLs; harder to “act as” another tenant without impersonation APIs.</p>
+          </div>
+        </div>
+        <div class="dn">
+          <div class="lb">DashNote · Covered</div>
+          Flat resources + JWT <code>wid</code> / role. Nested where it fits: <code>/workspaces/members</code>,
+          <code>/ai/threads/{id}/messages</code>, <code>/files/{id}/download</code>.
+          Notes are not nested under notebooks in the path today.
+        </div>
+
+        <h3>Naming rules that age well</h3>
+        <ul>
+          <li>kebab-case or snake for rare multi-word path segments — be consistent</li>
+          <li>Don’t encode filters in path (<code>/notes/active</code>) — use query params</li>
+          <li>Avoid deep nesting (&gt;2 levels) — clients and caches hate it</li>
+          <li>Prefer one canonical URL per resource (no duplicate list endpoints without reason)</li>
+        </ul>
+      </section>
+
+      <!-- ========== METHODS ========== -->
+      <section class="ch" id="methods">
+        <h2><span class="n">03</span> HTTP methods — safe, unsafe, idempotent</h2>
+        <p class="lede">Method choice is a correctness contract, not a style preference.</p>
+        <table>
+          <thead>
+            <tr><th>Method</th><th>Safe?</th><th>Idempotent?</th><th>Use for</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>GET</code></td>
+              <td>Yes</td>
+              <td>Yes</td>
+              <td>Read / list / download. Never mutate.</td>
+            </tr>
+            <tr>
+              <td><code>HEAD</code></td>
+              <td>Yes</td>
+              <td>Yes</td>
+              <td>Metadata only (existence, size, ETag)</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td>No</td>
+              <td>No*</td>
+              <td>Create, actions, non-idempotent commands (*make idempotent with keys)</td>
+            </tr>
+            <tr>
+              <td><code>PUT</code></td>
+              <td>No</td>
+              <td>Yes</td>
+              <td>Full replace of a resource at a known URI</td>
+            </tr>
+            <tr>
+              <td><code>PATCH</code></td>
+              <td>No</td>
+              <td>Usually</td>
+              <td>Partial update — document merge semantics</td>
+            </tr>
+            <tr>
+              <td><code>DELETE</code></td>
+              <td>No</td>
+              <td>Yes</td>
+              <td>Remove; second call should be 404 or 204 consistently</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <div class="lb">Common mistake</div>
+          <code>GET /notes/delete?id=1</code> or <code>POST /getNotes</code> — breaks caches, CDNs, and every HTTP assumption.
+        </div>
+        <div class="dn">
+          <div class="lb">DashNote · Covered</div>
+          GET reads · POST create/actions · PATCH partial · DELETE remove · no PUT.
+          Examples: <code>POST /notes/</code>, <code>PATCH /notes/{id}</code>, <code>POST /files/upload</code>,
+          <code>POST /ai/chat</code>, <code>DELETE /notes/{id}</code> → 204.
+        </div>
+      </section>
+
+      <!-- ========== BODIES ========== -->
+      <section class="ch" id="bodies">
+        <h2><span class="n">04</span> Request &amp; response bodies</h2>
+        <p class="lede">Schemas are the API. Handlers should be thin adapters over validated DTOs.</p>
+
+        <h3>Guidelines</h3>
+        <ul>
+          <li><strong>Separate write/read models</strong> — <code>Create</code> / <code>Update</code> / <code>Read</code> (DashNote does this for notes)</li>
+          <li><strong>Optional vs required</strong> — PATCH fields optional; CREATE required fields explicit</li>
+          <li><strong>Don’t overshare</strong> — strip secrets, internal flags, other tenants’ fields</li>
+          <li><strong>Stable field names</strong> — rename is a breaking change</li>
+          <li><strong>Types over strings</strong> — booleans, enums, ISO-8601 timestamps</li>
+          <li><strong>Envelope policy</strong> — either raw resource or <code>{ data, meta }</code> — pick one for lists and stick to it</li>
+        </ul>
+
+        <h3>Content types</h3>
+        <ul>
+          <li><code>application/json</code> — default for APIs</li>
+          <li><code>multipart/form-data</code> — uploads (<code>POST /files/upload</code>)</li>
+          <li><code>text/event-stream</code> — SSE streams</li>
+          <li>Prefer explicit <code>Content-Type</code>; reject ambiguous bodies in strict APIs</li>
+        </ul>
+
+        <h3>Partial updates</h3>
+        <p>
+          PATCH should mean “merge these fields.” Document null semantics: is <code>null</code> “clear field”
+          or “ignore”? JSON Merge Patch vs JSON Patch — choose one.
+        </p>
+        <div class="dn">
+          <div class="lb">DashNote · Covered</div>
+          Pydantic DTOs per module (<code>notes/schemas.py</code>, <code>files/schemas.py</code>, auth, AI).
+          <code>response_model=</code> on most routes. Notes: <code>NoteCreate</code> / <code>NoteUpdate</code> / <code>NoteRead</code>.
+        </div>
+      </section>
+
+      <!-- ========== VERSIONING ========== -->
+      <section class="ch" id="versioning">
+        <h2><span class="n">05</span> Versioning</h2>
+        <p class="lede">Version when you must break; prefer additive change first.</p>
+        <table>
+          <thead>
+            <tr><th>Strategy</th><th>Example</th><th>Pros</th><th>Cons</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>URL path</strong></td>
+              <td><code>/v1/notes</code></td>
+              <td>Obvious, cache-friendly, easy to route</td>
+              <td>Duplicates surface area</td>
+            </tr>
+            <tr>
+              <td><strong>Header</strong></td>
+              <td><code>Accept: application/vnd.dashnote.v2+json</code></td>
+              <td>Clean URLs</td>
+              <td>Harder to debug; proxy/cache care</td>
+            </tr>
+            <tr>
+              <td><strong>Query</strong></td>
+              <td><code>?api_version=2</code></td>
+              <td>Easy to try</td>
+              <td>Easy to forget; weak for public APIs</td>
+            </tr>
+            <tr>
+              <td><strong>No version + evolve</strong></td>
+              <td>Additive fields only</td>
+              <td>Simple early product</td>
+              <td>Cornered when you need a hard break</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          <div class="lb">Guideline</div>
+          Ship <code>/v1</code> (or equivalent) before external clients lock in. Internal-only apps can delay —
+          but document the compatibility promise.
+        </div>
+        <div class="dn">
+          <div class="lb">DashNote · Gap</div>
+          Routes are unversioned (<code>/notes</code>, <code>/ai/chat</code>). App metadata <code>version="1.0.0"</code> is not an API version.
+          <strong>Should be:</strong> introduce <code>/v1</code> (or header policy) before public/mobile clients proliferate.
+        </div>
+      </section>
+
+      <!-- ========== LISTS ========== -->
+      <section class="ch" id="lists">
+        <h2><span class="n">06</span> Pagination, filtering, sorting</h2>
+        <p class="lede">Unbounded lists are a latency and memory bug waiting to happen.</p>
+
+        <h3>Pagination styles</h3>
+        <div class="grid3">
+          <div class="panel t">
+            <h4>Offset</h4>
+            <p><code>skip</code>/<code>limit</code> or <code>page</code>/<code>page_size</code>. Simple; drifts under concurrent writes.</p>
+          </div>
+          <div class="panel a">
+            <h4>Cursor</h4>
+            <p><code>cursor</code> + <code>limit</code>. Stable for feeds/timelines; harder for “jump to page 50”.</p>
+          </div>
+          <div class="panel b">
+            <h4>Keyset</h4>
+            <p>Order by indexed column + <code>after_id</code>. Best at scale for append-heavy data.</p>
+          </div>
+        </div>
+
+        <h3>List response contract (recommended)</h3>
+<pre><code>{
+  "items": [ /* resources */ ],
+  "total": 1234,          // optional for cursor pages
+  "skip": 0,
+  "limit": 20,
+  "next_cursor": null     // if using cursors
+}</code></pre>
+
+        <h3>Filtering &amp; sorting</h3>
+        <ul>
+          <li>Query params: <code>?is_private=true&amp;created_after=2026-01-01</code></li>
+          <li>Sort: <code>?sort=-created_at</code> or <code>?sort_by=created_at&amp;order=desc</code></li>
+          <li>Allowlist sortable/filterable fields — never pass raw SQL fragments</li>
+          <li>Cap <code>limit</code> (e.g. max 100); document defaults</li>
+          <li>Sparse fieldsets (<code>?fields=id,title</code>) — optional optimization for mobile</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Partial</div>
+          <strong>Covered:</strong> <code>GET /files/?skip=&amp;limit=</code> returns <code>FileListResponse</code> with <code>total</code>.
+          <strong>Gap:</strong> <code>GET /notes/</code>, notebooks, threads, members return full lists without pagination/filter/sort query contracts.
+          <strong>Should be:</strong> same list envelope everywhere; cursor for activity/feed-like AI threads later.
+        </div>
+      </section>
+
+      <!-- ========== ERRORS ========== -->
+      <section class="ch" id="errors">
+        <h2><span class="n">07</span> Error shapes</h2>
+        <p class="lede">Clients automate against errors. Strings alone don’t scale.</p>
+
+        <h3>What a good error includes</h3>
+        <ul>
+          <li>HTTP status that matches the class of failure</li>
+          <li>Stable machine <code>code</code> (e.g. <code>note_not_found</code>, <code>rate_limited</code>)</li>
+          <li>Human <code>message</code> (safe to show; no secrets)</li>
+          <li>Optional <code>details</code> / field errors for validation</li>
+          <li>Optional <code>request_id</code> for support</li>
+        </ul>
+
+        <h3>Recommended envelope (RFC 7807-inspired)</h3>
+<pre><code>{
+  "type": "https://api.dashnote.example/errors/not-found",
+  "title": "Not Found",
+  "status": 404,
+  "code": "note_not_found",
+  "detail": "Note 42 does not exist in this workspace",
+  "instance": "/notes/42",
+  "request_id": "01H..."
+}</code></pre>
+
+        <h3>Status discipline</h3>
+        <table>
+          <thead>
+            <tr><th>Status</th><th>Meaning for API designers</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>400</td><td>Malformed or semantically invalid request you won’t retry as-is</td></tr>
+            <tr><td>401</td><td>Missing/invalid auth</td></tr>
+            <tr><td>403</td><td>Authenticated but not allowed</td></tr>
+            <tr><td>404</td><td>Missing — or hide existence (cross-tenant)</td></tr>
+            <tr><td>409</td><td>Conflict (duplicate, version mismatch)</td></tr>
+            <tr><td>422</td><td>Validation failed (schema/field level)</td></tr>
+            <tr><td>429</td><td>Rate limited — include <code>Retry-After</code></td></tr>
+            <tr><td>500/502/503</td><td>Your problem / dependency / temporary — retry policy differs</td></tr>
+          </tbody>
+        </table>
+        <div class="dn">
+          <div class="lb">DashNote · Partial</div>
+          FastAPI <code>{"detail": "..."}</code> + default 422 + global 500. SSE uses in-band <code>{"type":"error"}</code>.
+          Cross-tenant threads intentionally 404. <strong>Should be:</strong> shared error model + <code>request_id</code> on every error.
+        </div>
+      </section>
+
+      <!-- ========== IDEMPOTENCY ========== -->
+      <section class="ch" id="idempotency">
+        <h2><span class="n">08</span> Idempotency</h2>
+        <p class="lede">Networks retry. Without idempotency, retries create duplicate notes, charges, and emails.</p>
+
+        <h3>Idempotency-Key pattern</h3>
+        <ol>
+          <li>Client sends <code>Idempotency-Key: &lt;uuid&gt;</code> on POST/PATCH that must not double-apply</li>
+          <li>Server stores key → response (or in-flight lock) scoped to user/tenant</li>
+          <li>Replay with same key + same body → same status + body</li>
+          <li>Same key + different body → 409 conflict</li>
+          <li>TTL keys (e.g. 24h); document retention</li>
+        </ol>
+
+        <h3>What must be idempotent</h3>
+        <ul>
+          <li>Payments, invites, provisioning, “send email”, webhook handlers</li>
+          <li>Any create that clients will retry on timeout</li>
+          <li>Worker side effects (upsert by natural key) — necessary but not a substitute for HTTP keys</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Gap (HTTP) / Partial (workers)</div>
+          No <code>Idempotency-Key</code> middleware. Workers upsert embeddings (ops-idempotent). Attach-to-note is DB-safe on retry.
+          <strong>Should be:</strong> keys on create note/upload/invite and any future billing webhook ingress.
+        </div>
+      </section>
+
+      <!-- ========== ASYNC ========== -->
+      <section class="ch" id="async">
+        <h2><span class="n">09</span> Sync RPC vs async job + status</h2>
+        <p class="lede">If work can exceed a few seconds or depends on flaky systems, don’t hold the HTTP request hostage.</p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Stay sync when</h4>
+            <ul>
+              <li>Work is &lt; ~1–2s p95</li>
+              <li>Client needs the result to continue UI</li>
+              <li>Failure should fail the request</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Go async when</h4>
+            <ul>
+              <li>Embedding, OCR, video, big exports</li>
+              <li>Fan-out to many systems</li>
+              <li>You need retries without blocking the user</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Async API patterns</h3>
+        <table>
+          <thead>
+            <tr><th>Pattern</th><th>Response</th><th>Client next step</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>202 + job resource</strong></td>
+              <td><code>202 Accepted</code> + <code>/jobs/{id}</code></td>
+              <td>Poll status until terminal</td>
+            </tr>
+            <tr>
+              <td><strong>200 + side effect</strong></td>
+              <td>Resource created; indexing later</td>
+              <td>Poll resource field or search readiness</td>
+            </tr>
+            <tr>
+              <td><strong>Webhook callback</strong></td>
+              <td>202; notify later</td>
+              <td>Receive event at client URL</td>
+            </tr>
+            <tr>
+              <td><strong>SSE / WebSocket</strong></td>
+              <td>Open stream</td>
+              <td>Consume progress events</td>
+            </tr>
+          </tbody>
+        </table>
+<pre><code>// Recommended job status shape
+{
+  "id": "job_123",
+  "type": "embed_note",
+  "status": "queued" | "running" | "succeeded" | "failed",
+  "progress": 0.4,
+  "result": { "note_id": "42" },
+  "error": null,
+  "created_at": "...",
+  "updated_at": "..."
+}</code></pre>
+        <div class="dn">
+          <div class="lb">DashNote · Partial</div>
+          <code>POST /notes/</code> returns the note immediately and enqueues <code>embed_note_task</code> (never blocks on enqueue failure).
+          File upload emits events similarly. <strong>No</strong> <code>202</code> / <code>/jobs/{id}</code>.
+          <strong>Should be:</strong> expose indexing status (on note/file or job resource) so clients don’t guess “~45s”.
+        </div>
+      </section>
+
+      <!-- ========== WEBHOOKS ========== -->
+      <section class="ch" id="webhooks">
+        <h2><span class="n">10</span> Webhook delivery</h2>
+        <p class="lede">Webhooks push domain events to customer endpoints. Design them like a public API.</p>
+        <ul>
+          <li><strong>Sign payloads</strong> (HMAC) with timestamp; reject skew</li>
+          <li><strong>At-least-once</strong> delivery — receivers must be idempotent</li>
+          <li><strong>Retry with backoff</strong> + dead-letter after N failures</li>
+          <li><strong>Event schema version</strong> in payload or envelope</li>
+          <li><strong>Minimal PII</strong>; prefer IDs + fetch pattern when sensitive</li>
+          <li><strong>Outbound allowlist / SSRF guards</strong> if users supply URLs</li>
+        </ul>
+<pre><code>{
+  "id": "evt_01H...",
+  "type": "note.created",
+  "api_version": "v1",
+  "created_at": "2026-07-18T12:00:00Z",
+  "data": { "note_id": "42", "workspace_id": "7" }
+}</code></pre>
+        <div class="dn">
+          <div class="lb">DashNote · Gap</div>
+          Internal event bus + ARQ only — no customer webhook ingress/egress.
+          <strong>Should be:</strong> when integrations land, ship signed delivery + retries before the first partner depends on you.
+        </div>
+      </section>
+
+      <!-- ========== STREAMING ========== -->
+      <section class="ch" id="streaming">
+        <h2><span class="n">11</span> Streaming APIs</h2>
+        <p class="lede">Streaming is still an API contract — event types, errors, and termination rules matter.</p>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>SSE</h4>
+            <p>One-way server→client over HTTP. Great for tokens/progress. Simple auth via header/cookie.</p>
+          </div>
+          <div class="panel a">
+            <h4>WebSocket</h4>
+            <p>Bidirectional. Presence, collab, multiplexed rooms. Heavier ops story.</p>
+          </div>
+        </div>
+        <ul>
+          <li>Document event schema (<code>token</code>, <code>message</code>, <code>error</code>, <code>done</code>)</li>
+          <li>How errors appear: HTTP before stream opens vs in-band events</li>
+          <li>Heartbeat / comment lines to keep proxies alive</li>
+          <li>Proxy headers: disable buffering (<code>X-Accel-Buffering: no</code>)</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Covered</div>
+          <code>POST /ai/chat/stream</code> and agent SSE with <code>text/event-stream</code> + Nginx-friendly headers.
+          Treat stream event types as versioned contract the same way as JSON routes.
+        </div>
+      </section>
+
+      <!-- ========== AUTH SURFACE ========== -->
+      <section class="ch" id="auth-surface">
+        <h2><span class="n">12</span> Auth in the API contract</h2>
+        <p class="lede">AuthN/Z deep-dive is a separate roadmap topic — but the API must advertise how access works.</p>
+        <ul>
+          <li>Document schemes: Bearer JWT, API keys, cookies, mTLS</li>
+          <li>Which routes are public vs authenticated</li>
+          <li>401 vs 403 vs 404 for authorization failures (enumeration policy)</li>
+          <li>Scopes / roles in token claims vs server-side lookups</li>
+          <li>Login endpoints get stricter rate limits</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Covered</div>
+          <code>/auth/register|login|refresh|logout</code>, Bearer JWT with <code>wid</code>+role, RBAC on mutations,
+          dedicated login rate limit. OpenAPI security schemes when docs enabled.
+        </div>
+      </section>
+
+      <!-- ========== LIMITS ========== -->
+      <section class="ch" id="limits">
+        <h2><span class="n">13</span> Rate limits as part of the contract</h2>
+        <p class="lede">Clients need to know budgets — not discover them via random 429s.</p>
+        <ul>
+          <li>Document limits per IP / user / tenant / route class</li>
+          <li>Return <code>429</code> + <code>Retry-After</code> (and optionally <code>X-RateLimit-*</code>)</li>
+          <li>Separate expensive routes (login, AI, upload) from CRUD budgets</li>
+          <li>Fail-open vs fail-closed when the limiter store is down — pick consciously</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Covered</div>
+          Nginx 10 r/s + Redis app 100/min global + login 5/min; <code>Retry-After</code> on 429.
+          <strong>Should be:</strong> publish limits in docs/OpenAPI description; optional remaining headers for clients.
+        </div>
+      </section>
+
+      <!-- ========== EVOLUTION ========== -->
+      <section class="ch" id="evolution">
+        <h2><span class="n">14</span> Evolution &amp; deprecation</h2>
+        <p class="lede">APIs outlive features. Plan change like a release train.</p>
+
+        <h3>Compatible (usually safe)</h3>
+        <ul>
+          <li>Add optional request fields / new response fields</li>
+          <li>Add new endpoints or enum values clients can ignore</li>
+          <li>Relax validation (accept more)</li>
+        </ul>
+
+        <h3>Breaking (needs version or migration)</h3>
+        <ul>
+          <li>Remove/rename fields; change types or status codes</li>
+          <li>Make optional fields required; tighten validation</li>
+          <li>Change auth scheme or error envelope</li>
+        </ul>
+
+        <h3>Deprecation playbook</h3>
+        <ol>
+          <li>Announce in changelog + <code>Deprecation</code> / <code>Sunset</code> headers</li>
+          <li>Dual-run old+new behavior when possible</li>
+          <li>Metrics on old endpoint usage</li>
+          <li>Remove only after traffic dies or date passes</li>
+        </ol>
+      </section>
+
+      <!-- ========== STYLES ========== -->
+      <section class="ch" id="styles">
+        <h2><span class="n">15</span> REST · RPC · GraphQL — choose deliberately</h2>
+        <table>
+          <thead>
+            <tr><th>Style</th><th>Best for</th><th>Watch-outs</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>REST resources</strong></td>
+              <td>CRUD products, caching, wide client ecosystems</td>
+              <td>Over/under-fetch; chatty lists</td>
+            </tr>
+            <tr>
+              <td><strong>RPC (JSON/gRPC)</strong></td>
+              <td>Actions, internal services, strict schemas, streaming RPC</td>
+              <td>Easy to invent a method swamp</td>
+            </tr>
+            <tr>
+              <td><strong>GraphQL</strong></td>
+              <td>Flexible BFF for complex UIs</td>
+              <td>AuthZ per field, caching, N+1, complexity limits</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          <div class="lb">Guideline</div>
+          One public style per product surface. DashNote’s public shape is REST + a few RPC-like POSTs (<code>/ai/chat</code>) + SSE —
+          that mix is fine if documented. Don’t add GraphQL “because modern” without a BFF pain.
+        </div>
+      </section>
+
+      <!-- ========== OPENAPI ========== -->
+      <section class="ch" id="openapi">
+        <h2><span class="n">16</span> OpenAPI &amp; contract workflow</h2>
+        <p class="lede">The machine-readable contract is how FE, mobile, and partners stay honest.</p>
+        <ul>
+          <li><strong>Code-first</strong> (FastAPI/Nest decorators) or <strong>design-first</strong> (OpenAPI → codegen)</li>
+          <li>CI: breaking-change detection on <code>openapi.json</code> diffs</li>
+          <li>Examples for happy path + 4xx</li>
+          <li>Security schemes, servers, rate-limit notes in description</li>
+          <li>Keep human tutorial docs in sync (<code>docs/user.md</code> style)</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Covered (dev) / Should harden</div>
+          <code>/docs</code>, <code>/redoc</code>, <code>/openapi.json</code> when <code>DEBUG</code>; disabled in prod (good).
+          Human smoke flow in <code>docs/user.md</code>. <strong>Should be:</strong> export OpenAPI in CI for contract tests even when prod docs are off.
+        </div>
+      </section>
+
+      <!-- ========== STATUS ========== -->
+      <section class="ch" id="status">
+        <h2><span class="n">17</span> DashNote scorecard <span class="badge partial">THIS REPO</span></h2>
+        <p class="lede">Full-curriculum lens applied to the current FastAPI surface.</p>
+        <table>
+          <thead>
+            <tr><th>Topic</th><th>Status</th><th>In repo</th><th>Should be</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Resource URLs / methods</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Flat REST + nested where needed; GET/POST/PATCH/DELETE</td>
+              <td>Keep consistency; avoid duplicate semantics</td>
+            </tr>
+            <tr>
+              <td>DTO / response_model</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Per-module Pydantic schemas</td>
+              <td>Shared list/error envelopes</td>
+            </tr>
+            <tr>
+              <td>Tenancy model</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>JWT <code>wid</code> + RBAC</td>
+              <td>Impersonation/admin APIs if needed later</td>
+            </tr>
+            <tr>
+              <td>Auth routes + login limits</td>
+              <td><span class="status covered">Covered</span></td>
+              <td><code>/auth/*</code> + Redis login limit</td>
+              <td>Document in OpenAPI security</td>
+            </tr>
+            <tr>
+              <td>Rate limiting</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Nginx + app global + 429</td>
+              <td>Publish budgets; optional remaining headers</td>
+            </tr>
+            <tr>
+              <td>OpenAPI</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Debug-only docs</td>
+              <td>CI contract export / breaking-change gate</td>
+            </tr>
+            <tr>
+              <td>SSE streaming contract</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Chat/agent streams + proxy headers</td>
+              <td>Version event schema explicitly</td>
+            </tr>
+            <tr>
+              <td>Async side effects</td>
+              <td><span class="status partial">Partial</span></td>
+              <td>ARQ enqueue on create; events</td>
+              <td>Job status or resource indexing fields; consider 202</td>
+            </tr>
+            <tr>
+              <td>Pagination / filter / sort</td>
+              <td><span class="status partial">Partial</span></td>
+              <td>Files only</td>
+              <td>Uniform list contract on notes/threads/members</td>
+            </tr>
+            <tr>
+              <td>Error envelope</td>
+              <td><span class="status partial">Partial</span></td>
+              <td><code>detail</code> string / default 422</td>
+              <td>Stable <code>code</code> + request_id (+ problem+json)</td>
+            </tr>
+            <tr>
+              <td>API versioning</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Unversioned paths</td>
+              <td><code>/v1</code> or header policy before external lock-in</td>
+            </tr>
+            <tr>
+              <td>Idempotency-Key</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Worker upserts only</td>
+              <td>HTTP keys on create/upload/invite</td>
+            </tr>
+            <tr>
+              <td>Webhooks</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Internal bus only</td>
+              <td>Signed outbound delivery when integrations appear</td>
+            </tr>
+            <tr>
+              <td>Job status endpoint</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Fire-and-forget</td>
+              <td><code>/jobs/{id}</code> or visible indexing state</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <div class="lb">Priority upgrades</div>
+          1) Uniform list pagination · 2) Shared error envelope + request_id · 3) Idempotency-Key on writes ·
+          4) Indexing/job visibility · 5) <code>/v1</code> before public clients.
+        </div>
+      </section>
+
+      <!-- ========== EXAMPLES ========== -->
+      <section class="ch" id="examples">
+        <h2><span class="n">18</span> Code examples <span class="badge done">TOGGLE</span></h2>
+        <p class="lede">FastAPI matches DashNote. NestJS is the TypeScript parallel for the same contracts.</p>
+
+        <h3>1. Resource CRUD + PATCH semantics</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Create · read · patch</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI — mirrors notes/schemas.py + router style
+from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+
+class NoteCreate(BaseModel):
+    title: str
+    content: str
+    is_private: bool = False
+
+class NoteUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    is_private: bool | None = None
+
+class NoteRead(BaseModel):
+    id: int
+    title: str
+    content: str
+    is_private: bool
+    created_by: int
+    class Config:
+        from_attributes = True
+
+router = APIRouter(prefix="/notes", tags=["notes"])
+
+@router.post("/", response_model=NoteRead, status_code=201)
+async def create_note(data: NoteCreate): ...
+
+@router.patch("/{note_id}", response_model=NoteRead)
+async def update_note(note_id: int, data: NoteUpdate):
+    note = await repo.get(note_id)
+    if not note:
+        raise HTTPException(404, detail="Note not found")
+    # apply only fields that were sent (exclude_unset)
+    await repo.update(note, data.model_dump(exclude_unset=True))
+    return note</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS — same contract
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { Body, Controller, Param, Patch, Post } from '@nestjs/common';
+
+export class NoteCreateDto {
+  @IsString() title: string;
+  @IsString() content: string;
+  @IsBoolean() @IsOptional() is_private?: boolean = false;
+}
+export class NoteUpdateDto {
+  @IsString() @IsOptional() title?: string;
+  @IsString() @IsOptional() content?: string;
+  @IsBoolean() @IsOptional() is_private?: boolean;
+}
+
+@Controller('notes')
+export class NotesController {
+  @Post()
+  create(@Body() dto: NoteCreateDto) { return this.notes.create(dto); }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: NoteUpdateDto) {
+    return this.notes.update(+id, dto); // service applies defined fields only
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>2. Paginated list envelope</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">skip / limit / total</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI — extend files pattern to all collections
+from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
+
+class NoteRead(BaseModel):
+    id: int
+    title: str
+
+class NoteListResponse(BaseModel):
+    items: list[NoteRead]
+    total: int
+    skip: int
+    limit: int
+
+router = APIRouter(prefix="/notes")
+
+@router.get("/", response_model=NoteListResponse)
+async def list_notes(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    sort: str = Query("-created_at"),
+):
+    rows, total = await repo.list(skip=skip, limit=limit, sort=sort)
+    return NoteListResponse(items=rows, total=total, skip=skip, limit=limit)</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS
+import { Controller, Get, Query, DefaultValuePipe, ParseIntPipe } from '@nestjs/common';
+
+@Controller('notes')
+export class NotesController {
+  @Get()
+  list(
+    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('sort') sort = '-created_at',
+  ) {
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    return this.notes.list({ skip, limit: safeLimit, sort });
+    // → { items, total, skip, limit }
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>3. Idempotency-Key on create</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Should-be write safety</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI — store key → response in Redis (tenant-scoped)
+from fastapi import Header, HTTPException, Request
+
+@router.post("/", response_model=NoteRead, status_code=201)
+async def create_note(
+    data: NoteCreate,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    if idempotency_key:
+        cached = await idem.get(ctx.workspace_id, idempotency_key)
+        if cached:
+            if cached.body_hash != hash_body(data):
+                raise HTTPException(409, detail="Idempotency key reuse with different body")
+            return cached.response  # same status/body
+        lock = await idem.acquire(ctx.workspace_id, idempotency_key)
+        if not lock:
+            raise HTTPException(409, detail="Request in progress for this key")
+
+    note = await repo.create(...)
+    if idempotency_key:
+        await idem.put(ctx.workspace_id, idempotency_key, note, ttl=86400)
+    return note</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS — interceptor or guard reads Idempotency-Key
+import { Headers, Post, Body, ConflictException } from '@nestjs/common';
+
+@Post()
+async create(
+  @Body() dto: NoteCreateDto,
+  @Headers('idempotency-key') key?: string,
+) {
+  if (key) {
+    const cached = await this.idem.get(this.tenantId, key);
+    if (cached) {
+      if (cached.bodyHash !== hash(dto)) {
+        throw new ConflictException('Idempotency key reuse with different body');
+      }
+      return cached.response;
+    }
+  }
+  const note = await this.notes.create(dto);
+  if (key) await this.idem.put(this.tenantId, key, note, 86_400);
+  return note;
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>4. Async job: 202 + status endpoint</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Long work without blocking</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI — alternative to fire-and-forget-only
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+
+@router.post("/notes/{note_id}/reindex", status_code=202)
+async def reindex(note_id: int):
+    job_id = await jobs.enqueue("embed_note_task", note_id=note_id)
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job_id, "status": "queued"},
+        headers={"Location": f"/jobs/{job_id}"},
+    )
+
+@router.get("/jobs/{job_id}")
+async def job_status(job_id: str):
+    job = await jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, detail="Job not found")
+    return job  # status, progress, result, error</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS
+import { Controller, Post, Get, Param, Res, HttpStatus } from '@nestjs/common';
+import { Response } from 'express';
+
+@Controller()
+export class JobsController {
+  @Post('notes/:id/reindex')
+  async reindex(@Param('id') id: string, @Res() res: Response) {
+    const jobId = await this.jobs.enqueue('embed_note_task', { noteId: id });
+    res.setHeader('Location', `/jobs/${jobId}`);
+    return res.status(HttpStatus.ACCEPTED).json({ job_id: jobId, status: 'queued' });
+  }
+
+  @Get('jobs/:id')
+  status(@Param('id') id: string) {
+    return this.jobs.get(id); // 404 if missing
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>5. Structured errors</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Stable error code envelope</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI — shared exception → problem-style JSON
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+class AppError(Exception):
+    def __init__(self, status: int, code: str, detail: str):
+        self.status, self.code, self.detail = status, code, detail
+
+app = FastAPI()
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError):
+    return JSONResponse(
+        status_code=exc.status,
+        content={
+            "title": exc.code,
+            "status": exc.status,
+            "code": exc.code,
+            "detail": exc.detail,
+            "instance": str(request.url.path),
+            "request_id": request.headers.get("x-request-id"),
+        },
+    )
+
+# raise AppError(404, "note_not_found", "Note 42 does not exist")</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS — filter for stable error shape
+import { Catch, ExceptionFilter, ArgumentsHost, HttpException } from '@nestjs/common';
+import { Response, Request } from 'express';
+
+export class AppError extends HttpException {
+  constructor(status: number, public code: string, detail: string) {
+    super({ code, detail }, status);
+  }
+}
+
+@Catch(AppError)
+export class AppErrorFilter implements ExceptionFilter {
+  catch(exc: AppError, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const res = ctx.getResponse&lt;Response&gt;();
+    const req = ctx.getRequest&lt;Request&gt;();
+    const status = exc.getStatus();
+    res.status(status).json({
+      title: exc.code,
+      status,
+      code: exc.code,
+      detail: (exc.getResponse() as any).detail,
+      instance: req.path,
+      request_id: req.headers['x-request-id'],
+    });
+  }
+}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== CHECKLIST ========== -->
+      <section class="ch" id="checklist">
+        <h2><span class="n">19</span> Mastery checklist</h2>
+        <p class="lede">Check when you can design and defend the decision — with or without looking at DashNote.</p>
+
+        <h3>Foundations</h3>
+        <ul class="checklist" data-list="f">
+          <li><input type="checkbox" /> State the 6 design principles in your own words</li>
+          <li><input type="checkbox" /> Model a new domain as resources (flat vs nested vs action)</li>
+          <li><input type="checkbox" /> Map safe / unsafe / idempotent methods correctly</li>
+          <li><input type="checkbox" /> Split Create / Update / Read DTOs and PATCH null semantics</li>
+        </ul>
+
+        <h3>Contracts</h3>
+        <ul class="checklist" data-list="c">
+          <li><input type="checkbox" /> Choose a versioning strategy and compatibility promise</li>
+          <li><input type="checkbox" /> Design a list envelope with pagination + allowlisted sort/filter</li>
+          <li><input type="checkbox" /> Specify a stable error envelope (status, code, detail, request_id)</li>
+          <li><input type="checkbox" /> Explain Idempotency-Key lifecycle (store, conflict, TTL)</li>
+          <li><input type="checkbox" /> Decide sync vs 202-job vs webhook vs SSE for a slow feature</li>
+          <li><input type="checkbox" /> Sketch a signed webhook event + retry policy</li>
+        </ul>
+
+        <h3>Hardening</h3>
+        <ul class="checklist" data-list="h">
+          <li><input type="checkbox" /> Document auth scheme + 401/403/404 enumeration policy</li>
+          <li><input type="checkbox" /> Treat rate limits as published contract</li>
+          <li><input type="checkbox" /> Classify a change as compatible vs breaking + deprecation steps</li>
+          <li><input type="checkbox" /> Pick REST vs RPC vs GraphQL for a given product surface</li>
+          <li><input type="checkbox" /> Wire OpenAPI into CI for breaking-change detection</li>
+        </ul>
+
+        <h3>DashNote gaps you can name</h3>
+        <ul class="checklist" data-list="d">
+          <li><input type="checkbox" /> Uniform pagination beyond files</li>
+          <li><input type="checkbox" /> Shared errors + request_id</li>
+          <li><input type="checkbox" /> Idempotency-Key on writes</li>
+          <li><input type="checkbox" /> Job/indexing status visibility</li>
+          <li><input type="checkbox" /> API versioning before external lock-in</li>
+        </ul>
+
+        <div class="mark">
+          <button class="btn primary" type="button" id="markSection">Mark section visited</button>
+          <button class="btn" type="button" id="resetBtn2">Reset all</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        API Design · Full guidebook · Must #2 ·
+        <code>dashnote-api-design-v1</code>
+        · Prev: <a href="network_http.html" style="color:var(--teal)">Networking</a>
+        · <a href="roadmap.html" style="color:var(--teal)">Roadmap</a>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const KEY = "dashnote-api-design-v1";
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); }
+        catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+
+      let state = load();
+      if (!state.visited) state.visited = {};
+      if (!state.checks) state.checks = {};
+      if (!state.lang) state.lang = "py";
+
+      const fill = document.getElementById("fill");
+      const pct = document.getElementById("pct");
+      const links = [...document.querySelectorAll("nav a[href^='#']")];
+      const sections = [...document.querySelectorAll("section.ch")];
+
+      function updateProgress() {
+        const checks = [...document.querySelectorAll(".checklist input")];
+        const done = checks.filter((c) => c.checked).length;
+        const p = Math.round((done / (checks.length || 1)) * 100);
+        fill.style.width = p + "%";
+        pct.textContent = p + "%";
+      }
+
+      function applyVisited() {
+        links.forEach((a) => {
+          const id = a.getAttribute("href").slice(1);
+          a.classList.toggle("visited", !!state.visited[id]);
+        });
+      }
+
+      function applyLang(lang) {
+        state.lang = lang;
+        save(state);
+        document.querySelectorAll("[data-toggle]").forEach((box) => {
+          box.querySelectorAll(".lang-btn").forEach((b) => {
+            b.classList.toggle("active", b.dataset.lang === lang);
+          });
+          box.querySelectorAll(".code-pane").forEach((p) => {
+            p.classList.toggle("active", p.dataset.pane === lang);
+          });
+        });
+      }
+
+      function resetAll() {
+        state = { visited: {}, checks: {}, lang: "py" };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false;
+          i.closest("li").classList.remove("checked");
+        });
+        applyVisited();
+        applyLang("py");
+        updateProgress();
+      }
+
+      document.getElementById("resetBtn").addEventListener("click", resetAll);
+      document.getElementById("resetBtn2").addEventListener("click", resetAll);
+      document.getElementById("navToggle").addEventListener("click", () => {
+        document.getElementById("sidebar").classList.toggle("open");
+      });
+
+      document.querySelectorAll("[data-toggle]").forEach((box) => {
+        box.querySelectorAll(".lang-btn").forEach((btn) => {
+          btn.addEventListener("click", () => applyLang(btn.dataset.lang));
+        });
+      });
+
+      const obs = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => {
+            if (!e.isIntersecting) return;
+            const id = e.target.id;
+            links.forEach((l) =>
+              l.classList.toggle("active", l.getAttribute("href") === "#" + id)
+            );
+            if (!state.visited[id]) {
+              state.visited[id] = true;
+              save(state);
+              applyVisited();
+            }
+          });
+        },
+        { rootMargin: "-40% 0px -50% 0px", threshold: 0 }
+      );
+      sections.forEach((s) => obs.observe(s));
+
+      document.getElementById("markSection").addEventListener("click", () => {
+        const active = document.querySelector("nav a.active");
+        if (!active) return;
+        state.visited[active.getAttribute("href").slice(1)] = true;
+        save(state);
+        applyVisited();
+      });
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) {
+            input.checked = true;
+            li.classList.add("checked");
+          }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+            updateProgress();
+          });
+        });
+      });
+
+      applyVisited();
+      applyLang(state.lang === "ts" ? "ts" : "py");
+      updateProgress();
+    })();
+  </script>
+</body>
+</html>

@@ -3,1739 +3,954 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Evals & Observability — AI Engineering Guidebook</title>
+  <title>Evals — Golden · Judge · Trajectory — Guide</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --ink: #1a2332;
-      --ink-soft: #3d4a5c;
-      --muted: #5c6b7e;
-      --paper: #f7f4ef;
-      --paper-2: #efeae2;
-      --card: rgba(255, 252, 247, 0.92);
-      --line: rgba(26, 35, 50, 0.12);
-      --accent: #0d6e6e;
-      --accent-2: #c45c26;
-      --accent-3: #2a5a8a;
-      --good: #1f7a4c;
-      --warn: #a67c00;
-      --bad: #a33b3b;
-      --shadow: 0 12px 40px rgba(26, 35, 50, 0.08);
-      --radius: 14px;
-      --nav-w: 280px;
-      --font-display: "Fraunces", Georgia, serif;
-      --font-body: "DM Sans", system-ui, sans-serif;
-      --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --nav-w: 270px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
     }
-
     * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
     body {
-      margin: 0;
-      font-family: var(--font-body);
-      color: var(--ink);
+      margin: 0; font-family: var(--font-b); color: var(--ink);
       background:
-        radial-gradient(1200px 600px at 10% -10%, rgba(13, 110, 110, 0.14), transparent 55%),
-        radial-gradient(900px 500px at 90% 0%, rgba(196, 92, 38, 0.10), transparent 50%),
-        linear-gradient(180deg, #f9f6f1 0%, var(--paper) 40%, #f3efe8 100%);
-      min-height: 100vh;
-      line-height: 1.55;
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
     }
-
-    .grain {
-      pointer-events: none;
-      position: fixed;
-      inset: 0;
-      opacity: 0.035;
-      z-index: 0;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    }
-
-    .layout {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: var(--nav-w) 1fr;
-      min-height: 100vh;
-    }
-
-    /* —— Sidebar —— */
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
     .sidebar {
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      overflow-y: auto;
-      padding: 1.25rem 1rem 2rem;
-      border-right: 1px solid var(--line);
-      background: rgba(247, 244, 239, 0.85);
-      backdrop-filter: blur(10px);
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
     }
-    .brand {
-      font-family: var(--font-display);
-      font-size: 1.15rem;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      margin: 0 0 0.25rem;
-      color: var(--ink);
-    }
-    .brand-sub {
-      font-size: 0.75rem;
-      color: var(--muted);
-      margin: 0 0 1.25rem;
-    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
     .progress-wrap {
-      background: var(--paper-2);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 0.75rem;
-      margin-bottom: 1.25rem;
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
     }
     .progress-label {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.72rem;
-      color: var(--muted);
-      margin-bottom: 0.4rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
     }
-    .progress-bar {
-      height: 6px;
-      background: rgba(26, 35, 50, 0.08);
-      border-radius: 99px;
-      overflow: hidden;
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
     }
-    .progress-fill {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, var(--accent), #1a8f8f);
-      border-radius: 99px;
-      transition: width 0.35s ease;
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.82rem; margin-bottom: 0.1rem;
     }
-
-    .nav-group { margin-bottom: 1rem; }
-    .nav-group h3 {
-      font-size: 0.68rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-      margin: 0 0 0.4rem 0.35rem;
-      font-weight: 600;
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
     }
-    .nav-group a {
-      display: block;
-      padding: 0.4rem 0.55rem;
-      border-radius: 8px;
-      color: var(--ink-soft);
-      text-decoration: none;
-      font-size: 0.875rem;
-      transition: background 0.15s, color 0.15s;
-    }
-    .nav-group a:hover,
-    .nav-group a.active {
-      background: rgba(13, 110, 110, 0.1);
-      color: var(--accent);
-    }
-    .nav-group a .done-dot {
-      display: inline-block;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--good);
-      margin-right: 0.35rem;
-      opacity: 0;
-      vertical-align: middle;
-    }
-    .nav-group a.visited .done-dot { opacity: 1; }
-
+    nav a.visited .dot { opacity: 1; }
     .mobile-toggle {
-      display: none;
-      position: fixed;
-      top: 0.75rem;
-      left: 0.75rem;
-      z-index: 50;
-      border: 1px solid var(--line);
-      background: var(--card);
-      border-radius: 10px;
-      padding: 0.5rem 0.75rem;
-      font-family: var(--font-body);
-      font-size: 0.85rem;
-      cursor: pointer;
-      box-shadow: var(--shadow);
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
     }
-
-    /* —— Main —— */
-    .main {
-      padding: 2rem 2.5rem 4rem;
-      max-width: 920px;
-    }
-
-    .hero {
-      margin-bottom: 2.5rem;
-      padding: 2rem 0 1.5rem;
-      border-bottom: 1px solid var(--line);
-      animation: rise 0.6s ease both;
-    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 820px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
     .eyebrow {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--accent);
-      font-weight: 600;
-      margin: 0 0 0.75rem;
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
     }
     .hero h1 {
-      font-family: var(--font-display);
-      font-size: clamp(2rem, 4vw, 2.75rem);
-      font-weight: 600;
-      letter-spacing: -0.03em;
-      line-height: 1.15;
-      margin: 0 0 0.85rem;
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
     }
-    .hero p {
-      font-size: 1.05rem;
-      color: var(--ink-soft);
-      max-width: 38rem;
-      margin: 0 0 1.25rem;
-    }
-    .hero-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
+    .hero p { color: var(--soft); margin: 0; max-width: 40rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
     .chip {
-      font-size: 0.75rem;
-      padding: 0.3rem 0.65rem;
-      border-radius: 6px;
-      border: 1px solid var(--line);
-      background: var(--card);
-      color: var(--ink-soft);
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
     }
-    .chip.teal { border-color: rgba(13,110,110,0.35); color: var(--accent); background: rgba(13,110,110,0.08); }
-    .chip.clay { border-color: rgba(196,92,38,0.35); color: var(--accent-2); background: rgba(196,92,38,0.08); }
-
-    section.chapter {
-      margin-bottom: 3rem;
-      scroll-margin-top: 1.5rem;
-      animation: rise 0.5s ease both;
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline;
     }
-    section.chapter h2 {
-      font-family: var(--font-display);
-      font-size: 1.65rem;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      margin: 0 0 0.5rem;
-      display: flex;
-      align-items: baseline;
-      gap: 0.6rem;
-    }
-    section.chapter h2 .num {
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-      color: var(--accent);
-      font-weight: 500;
-    }
-    .lede {
-      color: var(--ink-soft);
-      margin: 0 0 1.25rem;
-      font-size: 1.02rem;
-    }
-
-    h3 {
-      font-family: var(--font-display);
-      font-size: 1.15rem;
-      font-weight: 600;
-      margin: 1.75rem 0 0.6rem;
-      letter-spacing: -0.01em;
-    }
-    h4 {
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin: 1.25rem 0 0.45rem;
-      color: var(--ink);
-    }
-    p { margin: 0 0 0.9rem; }
-    ul, ol { margin: 0 0 1rem; padding-left: 1.25rem; }
-    li { margin-bottom: 0.35rem; }
-    strong { font-weight: 600; }
-    code, .mono {
-      font-family: var(--font-mono);
-      font-size: 0.84em;
-      background: rgba(26, 35, 50, 0.06);
-      padding: 0.1em 0.35em;
-      border-radius: 4px;
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
     }
     pre {
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      background: #1a2332;
-      color: #e8e4dc;
-      padding: 1rem 1.1rem;
-      border-radius: 10px;
-      overflow-x: auto;
-      margin: 0 0 1rem;
-      line-height: 1.5;
+      font-family: var(--font-m); font-size: 0.75rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0 0 1rem; line-height: 1.5;
     }
-    pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
-
+    pre code { background: none; padding: 0; color: inherit; }
     .callout {
-      border-left: 3px solid var(--accent);
-      background: rgba(13, 110, 110, 0.06);
-      padding: 0.85rem 1rem;
-      border-radius: 0 10px 10px 0;
-      margin: 1rem 0;
-      font-size: 0.95rem;
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
     }
-    .callout.warn { border-color: var(--accent-2); background: rgba(196, 92, 38, 0.07); }
-    .callout.blue { border-color: var(--accent-3); background: rgba(42, 90, 138, 0.07); }
-    .callout .label {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-weight: 600;
-      color: var(--accent);
-      margin-bottom: 0.25rem;
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
     }
-    .callout.warn .label { color: var(--accent-2); }
-    .callout.blue .label { color: var(--accent-3); }
-
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.85rem;
-      margin: 1rem 0;
-    }
+    .callout.warn .lb { color: var(--amber); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
     .panel {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 1rem 1.1rem;
-      box-shadow: var(--shadow);
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
     }
-    .panel h4 { margin-top: 0; }
-    .panel.accent-edge { border-top: 3px solid var(--accent); }
-    .panel.clay-edge { border-top: 3px solid var(--accent-2); }
-
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid #6b9fd4; }
     table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.88rem;
-      margin: 0.75rem 0 1.25rem;
-      background: var(--card);
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid var(--line);
+      width: 100%; border-collapse: collapse; font-size: 0.83rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
     }
     th, td {
-      text-align: left;
-      padding: 0.65rem 0.75rem;
-      border-bottom: 1px solid var(--line);
-      vertical-align: top;
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
     }
     th {
-      background: rgba(26, 35, 50, 0.04);
-      font-weight: 600;
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--muted);
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
     }
     tr:last-child td { border-bottom: none; }
-
-    /* —— Tabs —— */
-    .tabs { margin: 1rem 0 1.5rem; }
-    .tab-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.35rem;
-      margin-bottom: 0.75rem;
-      border-bottom: 1px solid var(--line);
-      padding-bottom: 0.5rem;
-    }
+    .tabs { margin: 0.85rem 0 1.1rem; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.6rem; }
     .tab-btn {
-      font-family: var(--font-body);
-      font-size: 0.85rem;
-      padding: 0.4rem 0.75rem;
-      border: 1px solid transparent;
-      border-radius: 8px;
-      background: transparent;
-      color: var(--muted);
-      cursor: pointer;
-      transition: all 0.15s;
+      font-family: var(--font-b); font-size: 0.8rem; padding: 0.32rem 0.6rem;
+      border: 1px solid transparent; border-radius: 8px; background: transparent;
+      color: var(--muted); cursor: pointer;
     }
-    .tab-btn:hover { color: var(--ink); background: rgba(26,35,50,0.04); }
     .tab-btn.active {
-      color: var(--accent);
-      background: rgba(13, 110, 110, 0.1);
-      border-color: rgba(13, 110, 110, 0.25);
-      font-weight: 600;
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.3); font-weight: 600;
     }
     .tab-panel { display: none; }
-    .tab-panel.active { display: block; animation: fade 0.25s ease; }
-
-    /* —— Accordion —— */
-    .accordion { margin: 1rem 0; }
+    .tab-panel.active { display: block; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .demo {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1rem; margin: 0.85rem 0;
+    }
+    .demo label {
+      display: block; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600;
+    }
+    .demo select, .demo textarea {
+      width: 100%; font-size: 0.85rem; padding: 0.5rem 0.6rem;
+      border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-2); color: var(--ink); margin-bottom: 0.7rem;
+      font-family: var(--font-m);
+    }
+    .demo textarea { min-height: 64px; resize: vertical; font-size: 0.8rem; }
+    .out {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem;
+      color: #c5d0dc; white-space: pre-wrap; max-height: 240px; overflow-y: auto; line-height: 1.5;
+    }
+    .out .ok { color: var(--teal); }
+    .out .bad { color: var(--bad); }
+    .out .role { color: var(--amber); }
+    .out .dim { color: var(--muted); }
+    .quiz {
+      border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+      background: var(--card); margin: 1rem 0;
+    }
+    .quiz h4 { margin: 0 0 0.45rem; font-family: var(--font-d); }
+    .quiz-opts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.55rem 0; }
+    .quiz-opts button {
+      text-align: left; font-family: var(--font-b); font-size: 0.85rem;
+      padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg-2); color: var(--soft); cursor: pointer;
+    }
+    .quiz-opts button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-dim); }
+    .quiz-opts button.correct { border-color: var(--good); background: rgba(76,175,122,0.15); color: var(--good); font-weight: 600; }
+    .quiz-opts button.wrong { border-color: var(--bad); background: rgba(224,108,108,0.12); color: var(--bad); }
+    .quiz-opts button:disabled { cursor: default; }
+    .quiz-fb { font-size: 0.84rem; color: var(--soft); min-height: 1.2em; margin: 0; }
+    .acc { margin: 0.8rem 0; }
     .acc-item {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      margin-bottom: 0.5rem;
-      background: var(--card);
-      overflow: hidden;
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 0.4rem;
+      background: var(--card); overflow: hidden;
     }
     .acc-btn {
-      width: 100%;
-      text-align: left;
-      padding: 0.85rem 1rem;
-      border: none;
-      background: transparent;
-      font-family: var(--font-body);
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: var(--ink);
-      cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 1rem;
+      width: 100%; text-align: left; padding: 0.75rem 0.9rem; border: none;
+      background: transparent; font-family: var(--font-b); font-size: 0.9rem;
+      font-weight: 600; color: var(--ink); cursor: pointer;
+      display: flex; justify-content: space-between; gap: 0.8rem;
     }
-    .acc-btn:hover { background: rgba(13, 110, 110, 0.04); }
-    .acc-btn .chev {
-      font-family: var(--font-mono);
-      color: var(--muted);
-      transition: transform 0.2s;
-      flex-shrink: 0;
-    }
-    .acc-item.open .acc-btn .chev { transform: rotate(90deg); color: var(--accent); }
+    .acc-btn .chev { font-family: var(--font-m); color: var(--muted); transition: transform 0.2s; }
+    .acc-item.open .acc-btn .chev { transform: rotate(90deg); color: var(--teal); }
     .acc-body {
-      display: none;
-      padding: 0 1rem 1rem;
-      font-size: 0.92rem;
-      color: var(--ink-soft);
-      border-top: 1px solid var(--line);
+      display: none; padding: 0 0.9rem 0.85rem; font-size: 0.88rem;
+      color: var(--soft); border-top: 1px solid var(--line);
     }
-    .acc-item.open .acc-body { display: block; animation: fade 0.2s ease; }
-
-    /* —— Checklist —— */
-    .checklist {
-      list-style: none;
-      padding: 0;
-      margin: 0.75rem 0 1.25rem;
-    }
-    .checklist li {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.65rem;
-      padding: 0.55rem 0.65rem;
-      border-radius: 8px;
-      margin-bottom: 0.35rem;
-      border: 1px solid var(--line);
-      background: var(--card);
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .checklist li:hover { background: rgba(13, 110, 110, 0.04); }
-    .checklist li.checked {
-      background: rgba(31, 122, 76, 0.08);
-      border-color: rgba(31, 122, 76, 0.25);
-    }
-    .checklist input { margin-top: 0.2rem; accent-color: var(--accent); flex-shrink: 0; }
-    .checklist span { font-size: 0.9rem; }
-
-    /* —— Quiz —— */
-    .quiz {
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 1.1rem;
-      background: var(--card);
-      margin: 1.25rem 0;
-      box-shadow: var(--shadow);
-    }
-    .quiz h4 { margin-top: 0; font-family: var(--font-display); }
-    .quiz-opts { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.75rem 0; }
-    .quiz-opts button {
-      text-align: left;
-      font-family: var(--font-body);
-      font-size: 0.9rem;
-      padding: 0.65rem 0.85rem;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--paper);
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .quiz-opts button:hover:not(:disabled) {
-      border-color: var(--accent);
-      background: rgba(13, 110, 110, 0.06);
-    }
-    .quiz-opts button:disabled { cursor: default; }
-    .quiz-opts button.correct {
-      border-color: var(--good);
-      background: rgba(31, 122, 76, 0.12);
-      color: var(--good);
-      font-weight: 600;
-    }
-    .quiz-opts button.wrong {
-      border-color: var(--bad);
-      background: rgba(163, 59, 59, 0.1);
-      color: var(--bad);
-    }
-    .quiz-feedback {
-      font-size: 0.88rem;
-      color: var(--ink-soft);
-      min-height: 1.4em;
-      margin: 0;
-    }
-
-    /* —— Flow diagram —— */
-    .flow {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.4rem;
-      margin: 1rem 0 1.25rem;
-      font-size: 0.82rem;
-    }
-    .flow-node {
-      background: var(--card);
-      border: 1px solid var(--line);
-      padding: 0.45rem 0.7rem;
-      border-radius: 8px;
-      font-weight: 500;
-    }
-    .flow-node.hi {
-      background: rgba(13, 110, 110, 0.12);
-      border-color: rgba(13, 110, 110, 0.35);
-      color: var(--accent);
-    }
-    .flow-arrow { color: var(--muted); font-family: var(--font-mono); }
-
-    /* —— Metric cards —— */
-    .metric-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 0.75rem;
-      margin: 1rem 0;
-    }
-    .metric-card {
-      padding: 0.9rem;
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      background: var(--card);
-      cursor: pointer;
-      transition: transform 0.15s, box-shadow 0.15s;
-    }
-    .metric-card:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow);
-    }
-    .metric-card.selected {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 2px rgba(13, 110, 110, 0.2);
-    }
-    .metric-card .m-name {
-      font-weight: 600;
-      font-size: 0.92rem;
-      margin-bottom: 0.25rem;
-    }
-    .metric-card .m-type {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
-    }
-    .metric-detail {
-      margin-top: 0.75rem;
-      padding: 1rem;
-      border-radius: 10px;
-      border: 1px dashed rgba(13, 110, 110, 0.35);
-      background: rgba(13, 110, 110, 0.04);
-      font-size: 0.9rem;
-      display: none;
-    }
-    .metric-detail.show { display: block; animation: fade 0.2s ease; }
-
-    /* —— Trace visualizer —— */
-    .trace-viz {
-      background: #1a2332;
-      color: #e8e4dc;
-      border-radius: 12px;
-      padding: 1.1rem;
-      margin: 1rem 0;
-      font-family: var(--font-mono);
-      font-size: 0.78rem;
-    }
-    .trace-root {
-      border: 1px solid rgba(232, 228, 220, 0.25);
-      border-radius: 8px;
-      padding: 0.65rem 0.75rem;
-      margin-bottom: 0.5rem;
-      background: rgba(13, 110, 110, 0.25);
-      cursor: pointer;
-    }
-    .trace-span {
-      margin-left: 1.25rem;
-      border: 1px solid rgba(232, 228, 220, 0.15);
-      border-radius: 8px;
-      padding: 0.55rem 0.7rem;
-      margin-bottom: 0.4rem;
-      background: rgba(255,255,255,0.04);
-      cursor: pointer;
-      transition: background 0.15s;
-      position: relative;
-    }
-    .trace-span::before {
-      content: "";
-      position: absolute;
-      left: -0.85rem;
-      top: 50%;
-      width: 0.65rem;
-      height: 1px;
-      background: rgba(232, 228, 220, 0.3);
-    }
-    .trace-span:hover, .trace-span.open {
-      background: rgba(196, 92, 38, 0.2);
-      border-color: rgba(196, 92, 38, 0.45);
-    }
-    .trace-name { color: #7ec8c8; font-weight: 500; }
-    .trace-meta { color: rgba(232, 228, 220, 0.55); margin-top: 0.2rem; }
-    .trace-detail {
-      display: none;
-      margin-top: 0.5rem;
-      padding-top: 0.5rem;
-      border-top: 1px solid rgba(232, 228, 220, 0.12);
-      color: rgba(232, 228, 220, 0.8);
-      white-space: pre-wrap;
-    }
-    .trace-span.open .trace-detail,
-    .trace-root.open .trace-detail { display: block; }
-
-    /* —— Maturity slider —— */
-    .maturity {
-      margin: 1.25rem 0;
-      padding: 1.1rem;
-      border-radius: var(--radius);
-      border: 1px solid var(--line);
-      background: var(--card);
-    }
-    .maturity input[type="range"] {
-      width: 100%;
-      accent-color: var(--accent);
-      margin: 0.75rem 0;
-    }
-    .maturity-labels {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.72rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .maturity-out {
-      margin-top: 0.75rem;
-      padding: 0.85rem;
-      border-radius: 8px;
-      background: rgba(13, 110, 110, 0.06);
-      font-size: 0.92rem;
-      min-height: 4.5rem;
-    }
-    .maturity-out strong { color: var(--accent); }
-
-    /* —— Roadmap steps —— */
-    .roadmap {
-      counter-reset: step;
-      list-style: none;
-      padding: 0;
-      margin: 1rem 0;
-    }
+    .acc-item.open .acc-body { display: block; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.85rem 0; }
     .roadmap > li {
-      position: relative;
-      padding: 0 0 1.25rem 2.5rem;
-      border-left: 2px solid rgba(13, 110, 110, 0.25);
-      margin-left: 0.75rem;
+      position: relative; padding: 0 0 1rem 2.25rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.65rem;
     }
     .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
     .roadmap > li::before {
-      counter-increment: step;
-      content: counter(step);
-      position: absolute;
-      left: -0.85rem;
-      top: 0;
-      width: 1.55rem;
-      height: 1.55rem;
-      border-radius: 50%;
-      background: var(--accent);
-      color: #fff;
-      font-size: 0.75rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: var(--font-mono);
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.75rem; top: 0;
+      width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
     }
-    .roadmap h4 { margin: 0 0 0.35rem; }
-
-    .mark-read {
-      margin-top: 1.5rem;
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
+    .roadmap h4 { margin: 0 0 0.25rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
     }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
     .btn {
-      font-family: var(--font-body);
-      font-size: 0.85rem;
-      font-weight: 600;
-      padding: 0.5rem 0.9rem;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-      background: var(--card);
-      color: var(--ink);
-      cursor: pointer;
-      transition: all 0.15s;
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
     }
-    .btn:hover { border-color: var(--accent); color: var(--accent); }
-    .btn.primary {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
     }
-    .btn.primary:hover { background: #0a5a5a; color: #fff; }
-
-    .footer-note {
-      margin-top: 3rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--line);
-      font-size: 0.85rem;
-      color: var(--muted);
+    .metric-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 0.85rem 0; }
+    .metric-cards button {
+      text-align: left; font-family: var(--font-b); cursor: pointer;
+      background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+      padding: 0.7rem 0.8rem; color: var(--soft);
     }
-
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
+    .metric-cards button.active {
+      border-color: rgba(61,186,160,0.45); background: var(--teal-dim); color: var(--teal);
     }
-    @keyframes fade {
-      from { opacity: 0; }
-      to { opacity: 1; }
+    .metric-cards .mn { font-weight: 600; font-size: 0.88rem; color: inherit; display: block; margin-bottom: 0.2rem; }
+    .metric-cards .md { font-size: 0.72rem; color: var(--muted); }
+    .traj {
+      display: flex; flex-direction: column; gap: 0.35rem; margin: 0.7rem 0;
+      font-family: var(--font-m); font-size: 0.78rem;
     }
-
+    .traj .step {
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.7rem;
+      background: var(--card); display: flex; gap: 0.5rem; align-items: flex-start;
+    }
+    .traj .step.pass { border-left: 3px solid var(--good); }
+    .traj .step.fail { border-left: 3px solid var(--bad); }
+    .traj .step.warn { border-left: 3px solid var(--amber); }
+    .traj .tag { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .conf-matrix {
+      display: grid; grid-template-columns: auto 1fr 1fr; gap: 0.35rem;
+      font-size: 0.78rem; margin: 0.85rem 0; max-width: 360px;
+    }
+    .conf-matrix .h { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; padding: 0.3rem; }
+    .conf-matrix .cell {
+      background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+      padding: 0.65rem; text-align: center;
+    }
+    .conf-matrix .cell.tp { background: rgba(76,175,122,0.12); border-color: rgba(76,175,122,0.35); }
+    .conf-matrix .cell.fp { background: rgba(224,108,108,0.1); border-color: rgba(224,108,108,0.3); }
+    .conf-matrix .cell.fn { background: var(--amber-dim); border-color: rgba(232,163,92,0.35); }
+    .conf-matrix .cell.tn { background: rgba(107,159,212,0.1); border-color: rgba(107,159,212,0.3); }
     @media (max-width: 900px) {
       .layout { grid-template-columns: 1fr; }
       .sidebar {
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: min(300px, 88vw);
-        z-index: 40;
-        transform: translateX(-105%);
-        transition: transform 0.25s ease;
-        box-shadow: var(--shadow);
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
       }
       .sidebar.open { transform: translateX(0); }
       .mobile-toggle { display: block; }
-      .main { padding: 4rem 1.15rem 3rem; }
-      .grid-2 { grid-template-columns: 1fr; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3, .metric-cards { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <div class="grain" aria-hidden="true"></div>
-  <button class="mobile-toggle" id="navToggle" type="button" aria-label="Open navigation">Menu</button>
-
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
   <div class="layout">
     <aside class="sidebar" id="sidebar">
-      <p class="brand">Evals & Observability</p>
-      <p class="brand-sub">AI engineering guidebook · DashNoteSystem</p>
-
+      <p class="brand">Evals</p>
+      <p class="brand-sub">Dark guide · DashNoteSystem</p>
       <div class="progress-wrap">
-        <div class="progress-label">
-          <span>Chapters read</span>
-          <span id="progressPct">0%</span>
-        </div>
-        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-label"><span>Read</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
       </div>
-
       <nav>
-        <div class="nav-group">
-          <h3>Foundations</h3>
-          <a href="#why" data-chapter="why"><span class="done-dot"></span>Why this matters</a>
-          <a href="#map" data-chapter="map"><span class="done-dot"></span>Evals vs observability</a>
-          <a href="#layers" data-chapter="layers"><span class="done-dot"></span>The three layers</a>
+        <div class="nav-g">
+          <h3>Core</h3>
+          <a href="#edd" data-c="edd"><span class="dot"></span>Eval-driven dev</a>
+          <a href="#golden" data-c="golden"><span class="dot"></span>Golden dataset</a>
+          <a href="#bench" data-c="bench"><span class="dot"></span>Benchmarks</a>
+          <a href="#error" data-c="error"><span class="dot"></span>Error analysis</a>
+          <a href="#judge" data-c="judge"><span class="dot"></span>LLM-as-judge</a>
+          <a href="#traj" data-c="traj"><span class="dot"></span>Trajectory eval</a>
         </div>
-        <div class="nav-group">
-          <h3>Evals</h3>
-          <a href="#eval-types" data-chapter="eval-types"><span class="done-dot"></span>Eval types</a>
-          <a href="#datasets" data-chapter="datasets"><span class="done-dot"></span>Datasets & goldens</a>
-          <a href="#metrics" data-chapter="metrics"><span class="done-dot"></span>Core metrics</a>
-          <a href="#judges" data-chapter="judges"><span class="done-dot"></span>Human & LLM judges</a>
-          <a href="#online" data-chapter="online"><span class="done-dot"></span>Online & production</a>
-        </div>
-        <div class="nav-group">
-          <h3>Observability</h3>
-          <a href="#obs-pillars" data-chapter="obs-pillars"><span class="done-dot"></span>Logs · Traces · Metrics</a>
-          <a href="#llm-traces" data-chapter="llm-traces"><span class="done-dot"></span>LLM / RAG tracing</a>
-          <a href="#dashnote-obs" data-chapter="dashnote-obs"><span class="done-dot"></span>DashNote stack</a>
-        </div>
-        <div class="nav-group">
-          <h3>Apply it</h3>
-          <a href="#add-evals" data-chapter="add-evals"><span class="done-dot"></span>Add evals to a project</a>
-          <a href="#add-obs" data-chapter="add-obs"><span class="done-dot"></span>Add observability</a>
-          <a href="#maturity" data-chapter="maturity"><span class="done-dot"></span>Maturity path</a>
-          <a href="#checklist" data-chapter="checklist"><span class="done-dot"></span>Ship checklist</a>
+        <div class="nav-g">
+          <h3>This project</h3>
+          <a href="#map" data-c="map"><span class="dot"></span>DashNote map</a>
+          <a href="#integrate" data-c="integrate"><span class="dot"></span>How to implement</a>
+          <a href="#check" data-c="check"><span class="dot"></span>Checklist</a>
         </div>
       </nav>
     </aside>
 
     <main class="main">
       <header class="hero">
-        <p class="eyebrow">Interactive guidebook</p>
-        <h1>Evals &amp; Observability for AI systems</h1>
+        <p class="eyebrow">Interactive · dark</p>
+        <h1>Eval-driven AI quality</h1>
         <p>
-          A practical field guide for measuring quality and seeing inside LLM apps —
-          grounded in how DashNoteSystem ships RAG, agents, Langfuse, and Prometheus,
-          and written so you can reuse the same playbook on any AI project.
+          Golden sets, benchmarks, error analysis, LLM judges, and agent trajectories —
+          how to measure RAG and agents in DashNote before shipping prompt or model changes.
         </p>
-        <div class="hero-meta">
-          <span class="chip teal">Fundamentals</span>
-          <span class="chip">Offline + online evals</span>
-          <span class="chip">Tracing & metrics</span>
-          <span class="chip clay">DashNote-ready</span>
+        <div class="chips">
+          <span class="chip t">Eval-driven</span>
+          <span class="chip">Golden</span>
+          <span class="chip">Benchmarks</span>
+          <span class="chip">Error analysis</span>
+          <span class="chip a">LLM-as-judge</span>
+          <span class="chip a">Trajectory</span>
         </div>
       </header>
 
-      <!-- 1 WHY -->
-      <section class="chapter" id="why" data-chapter="why">
-        <h2><span class="num">01</span> Why this matters</h2>
+      <!-- 01 EDD -->
+      <section class="ch" id="edd" data-c="edd">
+        <h2><span class="n">01</span> Eval-driven development</h2>
         <p class="lede">
-          Traditional software fails loudly (exceptions, 500s). AI systems fail quietly —
-          wrong citations, shallow retrieval, confident nonsense, tool loops that “succeed” with bad side effects.
+          Change the system only when a metric moves. Prompts, chunk size, and models are
+          hypotheses — goldens are the test suite.
         </p>
-        <div class="grid-2">
-          <div class="panel accent-edge">
-            <h4>Without evals</h4>
-            <ul>
-              <li>Prompt changes are vibes-driven</li>
-              <li>Model swaps break quality unnoticed</li>
-              <li>You discover regressions from users</li>
-            </ul>
-          </div>
-          <div class="panel clay-edge">
-            <h4>Without observability</h4>
-            <ul>
-              <li>You cannot explain a bad answer</li>
-              <li>Latency/cost spikes are opaque</li>
-              <li>Tenant leaks stay invisible</li>
-            </ul>
-          </div>
-        </div>
-        <div class="callout">
-          <div class="label">Product principle</div>
-          In DashNote, the product owns <strong>orchestration, retrieval, tenancy, and evals</strong> —
-          not inference infrastructure. Hosted models are commodities; quality gates are the moat.
-        </div>
-        <div class="quiz" data-quiz="q1">
-          <h4>Quick check</h4>
-          <p>You change the RAG system prompt and scores “feel better.” What’s the minimum next step?</p>
-          <div class="quiz-opts">
-            <button type="button" data-correct="false">Ship immediately — user feedback will catch issues</button>
-            <button type="button" data-correct="true">Re-run a fixed golden set and compare metrics to the previous baseline</button>
-            <button type="button" data-correct="false">Only check one manual chat example in the UI</button>
-          </div>
-          <p class="quiz-feedback"></p>
-        </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="why">Mark chapter read</button>
-        </div>
-      </section>
 
-      <!-- 2 MAP -->
-      <section class="chapter" id="map" data-chapter="map">
-        <h2><span class="num">02</span> Evals vs observability</h2>
-        <p class="lede">They answer different questions. You need both.</p>
-        <table>
-          <thead>
-            <tr><th></th><th>Evals</th><th>Observability</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>Question</strong></td>
-              <td>Is the system <em>good enough</em>?</td>
-              <td>What happened on this request?</td>
-            </tr>
-            <tr>
-              <td><strong>When</strong></td>
-              <td>CI, release gates, scheduled jobs</td>
-              <td>Every (or sampled) production request</td>
-            </tr>
-            <tr>
-              <td><strong>Output</strong></td>
-              <td>Scores, pass/fail, regressions</td>
-              <td>Traces, logs, dashboards, alerts</td>
-            </tr>
-            <tr>
-              <td><strong>DashNote today</strong></td>
-              <td>Manual gates (<code>/ai/test-search</code>, golden cases in docs)</td>
-              <td>Langfuse RAG traces + Prometheus/Grafana</td>
-            </tr>
-          </tbody>
-        </table>
         <div class="flow">
-          <span class="flow-node">Change prompt / model / chunking</span>
-          <span class="flow-arrow">→</span>
-          <span class="flow-node hi">Offline eval gate</span>
-          <span class="flow-arrow">→</span>
-          <span class="flow-node">Deploy</span>
-          <span class="flow-arrow">→</span>
-          <span class="flow-node hi">Traces + metrics</span>
-          <span class="flow-arrow">→</span>
-          <span class="flow-node">Online signals → new goldens</span>
+          <span class="fn am">Hypothesis</span>
+          <span class="fa">→</span>
+          <span class="fn">Change (prompt / model / retrieval)</span>
+          <span class="fa">→</span>
+          <span class="fn hi">Run golden + bench</span>
+          <span class="fa">→</span>
+          <span class="fn">Error analysis</span>
+          <span class="fa">→</span>
+          <span class="fn hi">Ship or revert</span>
         </div>
-        <div class="callout blue">
-          <div class="label">Feedback loop</div>
-          Production traces feed new eval cases. Eval failures drive instrumentation improvements.
-          Treat them as one system, not two tool purchases.
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Do</h4>
+            <ul>
+              <li>Define pass criteria before changing code</li>
+              <li>Keep a stable golden set (versioned)</li>
+              <li>Compare against last known-good score</li>
+              <li>Promote prod failures → new cases</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Don’t</h4>
+            <ul>
+              <li>“Looks better” vibes-only merges</li>
+              <li>Rewrite goldens to match a worse model</li>
+              <li>Only score final answers (miss retrieval bugs)</li>
+              <li>Skip tenant / RBAC cases</li>
+            </ul>
+          </div>
         </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="map">Mark chapter read</button>
+
+        <table>
+          <thead><tr><th>Layer</th><th>What fails</th><th>Eval first</th></tr></thead>
+          <tbody>
+            <tr><td>Retrieval</td><td>Wrong chunks / leak</td><td>recall@k, MRR, isolation</td></tr>
+            <tr><td>RAG answer</td><td>Hallucination / bad cites</td><td>must_contain + citation ⊆ retrieved</td></tr>
+            <tr><td>Agent</td><td>Wrong tools / loops</td><td>Trajectory + side effects</td></tr>
+            <tr><td>Automation</td><td>Bad tags / governance</td><td>Schema validity + decision fixtures</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">DashNote loop</div>
+          Langfuse traces show <em>why</em> a case failed. Goldens decide <em>whether</em> to merge.
+          Manual gates today: <code>/ai/test-search</code>, <code>e2e_agent_test.py</code>. Formal suite = ship-plan Day 12+.
         </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>You tweak <code>RAG_SYSTEM_INSTRUCTION</code>. What’s the eval-driven move?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Merge if one chat answer “feels” better</button>
+            <button type="button" data-ok="true">Re-run the golden set and compare pass rate / citations to baseline</button>
+            <button type="button" data-ok="false">Delete failing goldens so CI stays green</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="edd">Mark read</button></div>
       </section>
 
-      <!-- 3 LAYERS -->
-      <section class="chapter" id="layers" data-chapter="layers">
-        <h2><span class="num">03</span> The three layers of an AI app</h2>
-        <p class="lede">Eval and observe at the layer that can actually fail — don’t only score the final answer.</p>
+      <!-- 02 GOLDEN -->
+      <section class="ch" id="golden" data-c="golden">
+        <h2><span class="n">02</span> Golden dataset</h2>
+        <p class="lede">
+          A small, curated, versioned set of inputs + expected signals. Stable enough to gate PRs;
+          rich enough to catch real regressions.
+        </p>
 
-        <div class="tabs" data-tabs="layers">
-          <div class="tab-list" role="tablist">
-            <button type="button" class="tab-btn active" data-tab="retrieval">1 · Retrieval</button>
-            <button type="button" class="tab-btn" data-tab="generation">2 · Generation</button>
-            <button type="button" class="tab-btn" data-tab="agent">3 · Agent / tools</button>
+        <div class="tabs" data-tabs="golden">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="schema">Schema</button>
+            <button type="button" class="tab-btn" data-tab="sources">Where cases come from</button>
+            <button type="button" class="tab-btn" data-tab="hygiene">Hygiene</button>
           </div>
-          <div class="tab-panel active" data-panel="retrieval">
-            <h4>Retrieval (RAG grounding)</h4>
-            <p>Did we find the right chunks under the right tenant/RBAC constraints?</p>
+          <div class="tab-panel active" data-panel="schema">
+<pre><code>// retrieval.jsonl
+{"id":"r01","query":"When is Q3 launch?",
+ "expect_note_id":"…","expect_substring":"Sept 15","k":5}
+
+// rag_answer.jsonl
+{"id":"a01","query":"When is Q3 launch?",
+ "must_contain":["Sept","15"],"must_not_contain":["2024"],
+ "require_citations":true}
+
+// tenant_isolation.jsonl
+{"id":"t01","as_role":"member","peer_private_note":"…",
+ "query":"secret project X","expect_hits":0}</code></pre>
+          </div>
+          <div class="tab-panel" data-panel="sources">
             <ul>
-              <li><strong>DashNote:</strong> <code>WorkspaceVectorSearch</code> + <code>build_rbac_filter</code></li>
-              <li><strong>Gate:</strong> cosine threshold (~0.4), workspace isolation, member private-note isolation</li>
-              <li><strong>Route:</strong> <code>GET /ai/test-search</code> returns raw scores for tuning</li>
+              <li><strong>Seed demos</strong> — dedicated eval workspace with known notes/files</li>
+              <li><strong>Bug regressions</strong> — every fixed failure → one golden</li>
+              <li><strong>Prod mining</strong> — thumbs-down / high-latency Langfuse traces</li>
+              <li><strong>Adversarial</strong> — empty corpus, cross-tenant, private peer notes</li>
             </ul>
-            <pre><code># Mental model
-query → embed → filter(workspace + RBAC) → ANN → score_threshold → chunks</code></pre>
           </div>
-          <div class="tab-panel" data-panel="generation">
-            <h4>Generation (answer quality)</h4>
-            <p>Given context, is the answer faithful, useful, and cited correctly?</p>
+          <div class="tab-panel" data-panel="hygiene">
             <ul>
-              <li><strong>DashNote:</strong> <code>RagService.answer</code> → structured <code>RAGAnswer</code></li>
-              <li><strong>Critical:</strong> citations grounded against retrieved set — never trust LLM-hallucinated chunk IDs</li>
-              <li><strong>Trace spans:</strong> <code>retrieval</code> → <code>context_building</code> → <code>llm_generation</code></li>
-            </ul>
-          </div>
-          <div class="tab-panel" data-panel="agent">
-            <h4>Agent / tool loop</h4>
-            <p>Did the agent pick the right tools, stop correctly, and avoid unsafe side effects?</p>
-            <ul>
-              <li><strong>DashNote:</strong> LangGraph agent with search / note mutate / summarize tools</li>
-              <li><strong>Governance:</strong> <code>AutomationDecisionEngine</code> for destructive actions (fail-safe block)</li>
-              <li><strong>Eval focus:</strong> trajectory correctness, tool success rate, policy violations</li>
+              <li>Freeze goldens; don’t edit expected text to match a worse model</li>
+              <li>Split <code>golden/</code> (stable) vs <code>regression/</code> (recent bugs)</li>
+              <li>Tag cases: <code>retrieval</code>, <code>rag</code>, <code>tenant</code>, <code>agent</code></li>
+              <li>Target ≥10 cases for v1; ≥5 agent tool scenarios next</li>
             </ul>
           </div>
         </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="layers">Mark chapter read</button>
+
+        <div class="demo">
+          <label for="goldenPick">Inspect a golden case</label>
+          <select id="goldenPick">
+            <option value="ret">Retrieval — Q3 launch in top-k</option>
+            <option value="rag">RAG — must_contain + citations</option>
+            <option value="ten">Tenant — member cannot see peer private</option>
+            <option value="agt">Agent — create_note after confirm</option>
+          </select>
+          <div class="out" id="goldenOut"></div>
         </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="golden">Mark read</button></div>
       </section>
 
-      <!-- 4 EVAL TYPES -->
-      <section class="chapter" id="eval-types" data-chapter="eval-types">
-        <h2><span class="num">04</span> Eval types (what to run when)</h2>
-        <p class="lede">Most used taxonomy in AI engineering — memorize this table.</p>
+      <!-- 03 BENCHMARKS -->
+      <section class="ch" id="bench" data-c="bench">
+        <h2><span class="n">03</span> Benchmarks</h2>
+        <p class="lede">
+          Aggregated scores over the golden set (and optional holdouts). Report numbers with
+          a fixed runner version so experiments are comparable.
+        </p>
 
-        <div class="accordion">
+        <div class="metric-cards" id="metricCards">
+          <button type="button" class="active" data-m="recall">
+            <span class="mn">recall@k</span>
+            <span class="md">Relevant note in top-k?</span>
+          </button>
+          <button type="button" data-m="mrr">
+            <span class="mn">MRR</span>
+            <span class="md">Rank of first relevant</span>
+          </button>
+          <button type="button" data-m="pass">
+            <span class="mn">Pass rate</span>
+            <span class="md">% goldens fully green</span>
+          </button>
+          <button type="button" data-m="cite">
+            <span class="mn">Citation precision</span>
+            <span class="md">cites ⊆ retrieved</span>
+          </button>
+          <button type="button" data-m="lat">
+            <span class="mn">Latency / cost</span>
+            <span class="md">p50 · p95 · $/req</span>
+          </button>
+          <button type="button" data-m="tool">
+            <span class="mn">Tool success</span>
+            <span class="md">Expected tool fired</span>
+          </button>
+        </div>
+        <div class="out" id="metricOut"></div>
+
+        <h3>Experiment log pattern</h3>
+<pre><code># evals/EXPERIMENTS.md
+| Run | Change | recall@5 | rag pass | p95 chat | Notes |
+|-----|--------|----------|----------|----------|-------|
+| 001 | baseline CHUNK=700 | 0.82 | 8/10 | 2.1s | score gate 0.4 |
+| 002 | CHUNK=500 | 0.75 | 7/10 | 1.9s | worse recall — revert |
+| 003 | prompt v3 cite hard | 0.82 | 9/10 | 2.2s | ship </code></pre>
+
+        <div class="callout warn">
+          <div class="lb">Targets (ship-plan)</div>
+          recall@5 ≥ <strong>0.8</strong> on golden · cosine score &gt; <strong>0.4</strong> quality gate ·
+          CI blocks merge when golden fails (Day 45).
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="bench">Mark read</button></div>
+      </section>
+
+      <!-- 04 ERROR ANALYSIS -->
+      <section class="ch" id="error" data-c="error">
+        <h2><span class="n">04</span> Error analysis</h2>
+        <p class="lede">
+          A failing score without taxonomy is noise. Bucket failures, fix the biggest bucket,
+          then re-measure.
+        </p>
+
+        <table>
+          <thead><tr><th>Bucket</th><th>Symptom</th><th>Where to look</th><th>Typical fix</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Retrieval miss</td>
+              <td>Right note not in top-k</td>
+              <td>Langfuse <code>retrieval</code> span</td>
+              <td>Chunk size, embed model, query rewrite</td>
+            </tr>
+            <tr>
+              <td>Retrieval leak</td>
+              <td>Wrong tenant / private hit</td>
+              <td><code>build_rbac_filter</code></td>
+              <td>Filter bug — never ship</td>
+            </tr>
+            <tr>
+              <td>Grounding fail</td>
+              <td>Good chunks, wrong answer</td>
+              <td><code>llm_generation</code> + prompt</td>
+              <td>Stricter system prompt / schema</td>
+            </tr>
+            <tr>
+              <td>Citation fail</td>
+              <td>Invented chunk ids</td>
+              <td>Server-side cite filter</td>
+              <td>Ground against retrieved set</td>
+            </tr>
+            <tr>
+              <td>Agent wrong tool</td>
+              <td>search when create asked</td>
+              <td>Trajectory / tool_start</td>
+              <td>Tool descriptions / prompt</td>
+            </tr>
+            <tr>
+              <td>Loop / max steps</td>
+              <td>Hit <code>AGENT_MAX_ITERATIONS</code></td>
+              <td>Graph steps_taken</td>
+              <td>Tool clarity, stop criteria</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="conf-matrix" aria-label="Error triage matrix">
+          <div></div>
+          <div class="h">Retrieved OK</div>
+          <div class="h">Retrieved bad</div>
+          <div class="h">Answer OK</div>
+          <div class="cell tn">Healthy</div>
+          <div class="cell fp">Lucky / brittle</div>
+          <div class="h">Answer bad</div>
+          <div class="cell fn">Prompt / LLM</div>
+          <div class="cell tp">Retrieval first</div>
+        </div>
+
+        <div class="acc">
           <div class="acc-item open">
-            <button type="button" class="acc-btn">Component evals <span class="chev">›</span></button>
+            <button type="button" class="acc-btn">Weekly ritual<span class="chev">›</span></button>
             <div class="acc-body">
-              <p>Score one stage in isolation (retrieval only, citation grounding only, classifier only).</p>
-              <p><strong>Use when:</strong> debugging “is the bug retrieve or generate?”</p>
-              <p><strong>Example:</strong> given query + corpus, assert top-k contains expected <code>note_id</code> / <code>chunk_id</code>.</p>
+              Export last N thumbs-down or failed goldens → label bucket → count → fix top bucket only →
+              add 1–2 regression cases → re-run bench.
             </div>
           </div>
           <div class="acc-item">
-            <button type="button" class="acc-btn">End-to-end (E2E) evals <span class="chev">›</span></button>
+            <button type="button" class="acc-btn">DashNote evidence<span class="chev">›</span></button>
             <div class="acc-body">
-              <p>Full path: query → retrieve → generate → structured output / tools.</p>
-              <p><strong>Use when:</strong> release gates, model/prompt swaps, regression suites.</p>
-              <p><strong>Tradeoff:</strong> slower and noisier; pair with component evals for diagnosis.</p>
-            </div>
-          </div>
-          <div class="acc-item">
-            <button type="button" class="acc-btn">Offline vs online <span class="chev">›</span></button>
-            <div class="acc-body">
-              <p><strong>Offline:</strong> fixed dataset, repeatable, CI-friendly. Primary quality gate.</p>
-              <p><strong>Online:</strong> live traffic — thumbs, edits, re-asks, latency, cost, safety flags. Catches distribution shift.</p>
-            </div>
-          </div>
-          <div class="acc-item">
-            <button type="button" class="acc-btn">Regression / canary / A-B <span class="chev">›</span></button>
-            <div class="acc-body">
-              <ul>
-                <li><strong>Regression:</strong> same suite before/after a change — must not drop below baseline.</li>
-                <li><strong>Canary:</strong> small % traffic on new prompt/model with online metrics.</li>
-                <li><strong>A/B:</strong> compare variants with statistical care (sample size, metric choice).</li>
-              </ul>
-            </div>
-          </div>
-          <div class="acc-item">
-            <button type="button" class="acc-btn">Security / tenancy evals <span class="chev">›</span></button>
-            <div class="acc-body">
-              <p>Non-negotiable for multi-tenant RAG.</p>
-              <p><strong>DashNote golden:</strong> member B must not retrieve member A’s private notes; <code>workspace_id</code> always from JWT.</p>
-              <p>Fail these → block release even if answer quality looks high.</p>
+              Trace tree: <code>rag.answer</code> → <code>retrieval</code> → <code>context_building</code> →
+              <code>llm_generation</code>. Agent: SSE <code>tool_start</code> / <code>tool_end</code> + Langfuse agent spans.
             </div>
           </div>
         </div>
 
-        <div class="quiz" data-quiz="q2">
+        <div class="quiz">
           <h4>Quick check</h4>
-          <p>Answers are wrong but retrieved chunks look perfect in Langfuse. Which eval should you prioritize?</p>
+          <p>Chunks in Langfuse look perfect; answer invents a date. First move?</p>
           <div class="quiz-opts">
-            <button type="button" data-correct="false">Only more retrieval recall@k tests</button>
-            <button type="button" data-correct="true">Generation faithfulness / groundedness evals on fixed context</button>
-            <button type="button" data-correct="false">Only Prometheus p95 latency</button>
+            <button type="button" data-ok="false">Increase embedding dimension</button>
+            <button type="button" data-ok="true">Treat as grounding failure — tighten prompt / structured cite rules</button>
+            <button type="button" data-ok="false">Disable RBAC filter to get more context</button>
           </div>
-          <p class="quiz-feedback"></p>
+          <p class="quiz-fb"></p>
         </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="eval-types">Mark chapter read</button>
-        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="error">Mark read</button></div>
       </section>
 
-      <!-- 5 DATASETS -->
-      <section class="chapter" id="datasets" data-chapter="datasets">
-        <h2><span class="num">05</span> Datasets &amp; golden sets</h2>
-        <p class="lede">Your eval suite is only as good as the cases you freeze. Start small; grow from production failures.</p>
+      <!-- 05 JUDGE -->
+      <section class="ch" id="judge" data-c="judge">
+        <h2><span class="n">05</span> LLM-as-judge</h2>
+        <p class="lede">
+          Use a model to score open-ended quality when exact string match is too brittle —
+          after deterministic checks pass.
+        </p>
 
-        <h3>Minimal golden schema (any project)</h3>
-<pre><code>{
-  "id": "rag-private-isolation-01",
-  "surface": "rag",                 // rag | agent | retrieval | automation
-  "input": {
-    "message": "What is in Alice's private roadmap?",
-    "role": "member",
-    "user_id": "bob",
-    "workspace_id": "ws_demo"
-  },
-  "expected": {
-    "must_not_retrieve_note_ids": ["note_alice_private"],
-    "answer_should_refuse_or_empty_grounding": true
-  },
-  "tags": ["security", "rbac", "p0"]
-}</code></pre>
-
-        <h3>How to grow the set</h3>
-        <ol>
-          <li><strong>Happy path</strong> — questions your product must nail (10–30 cases).</li>
-          <li><strong>Hard negatives</strong> — similar-but-wrong docs, ambiguous queries.</li>
-          <li><strong>Security</strong> — cross-tenant, private notes, role boundaries.</li>
-          <li><strong>Adversarial</strong> — prompt injection via notes/files, tool abuse.</li>
-          <li><strong>Production mining</strong> — thumbs-down traces → add as golden with labels.</li>
-        </ol>
-
-        <div class="callout warn">
-          <div class="label">Anti-pattern</div>
-          Don’t rewrite goldens every time the model fails. Fix the system or mark the case as
-          <em>expected hard</em>. Constantly moving targets destroy regression value.
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Prefer deterministic first</h4>
+            <ul>
+              <li><code>must_contain</code> / regex</li>
+              <li>Citation ⊆ retrieved chunk ids</li>
+              <li>JSON schema validity</li>
+              <li>Expected tool name fired</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Judge when needed</h4>
+            <ul>
+              <li>Faithfulness to context</li>
+              <li>Helpfulness / tone</li>
+              <li>Summary completeness</li>
+              <li>Policy / safety nuance</li>
+            </ul>
+          </div>
         </div>
 
-        <h3>DashNote starter cases (recommended)</h3>
+        <div class="demo">
+          <label for="judgeCase">Judge rubric demo</label>
+          <select id="judgeCase">
+            <option value="good">Grounded answer</option>
+            <option value="hall">Hallucinated date</option>
+            <option value="refuse">Correct refusal</option>
+          </select>
+          <div class="out" id="judgeOut"></div>
+        </div>
+
+<pre><code># Judge output — validate with Pydantic (like acompletion_structured)
+class JudgeScore(BaseModel):
+    faithfulness: int  # 1–5
+    grounded: bool
+    rationale: str
+    pass_: bool = Field(alias="pass")</code></pre>
+
+        <div class="callout warn">
+          <div class="lb">Calibrate</div>
+          Spot-check judge vs human on 20–30 cases. If agreement &lt; ~70%, fix the rubric —
+          don’t blindly trust scores. Prefer a different/cheaper model than the system under test when possible.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="judge">Mark read</button></div>
+      </section>
+
+      <!-- 06 TRAJECTORY -->
+      <section class="ch" id="traj" data-c="traj">
+        <h2><span class="n">06</span> Trajectory evaluation</h2>
+        <p class="lede">
+          For agents, the <em>path</em> matters: which tools, in what order, with what args,
+          and whether side effects match the user ask. Final text alone is not enough.
+        </p>
+
+        <div class="tabs" data-tabs="traj">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="dims">Dimensions</button>
+            <button type="button" class="tab-btn" data-tab="example">Pass vs fail</button>
+            <button type="button" class="tab-btn" data-tab="schema">Case schema</button>
+          </div>
+          <div class="tab-panel active" data-panel="dims">
+            <ul>
+              <li><strong>Tool selection</strong> — expected tool ∈ calls (or exact sequence)</li>
+              <li><strong>Args</strong> — required fields present; no fabricated note ids</li>
+              <li><strong>Side effects</strong> — DB row created/updated when claimed</li>
+              <li><strong>Budget</strong> — <code>steps_taken</code> ≤ <code>AGENT_MAX_ITERATIONS</code></li>
+              <li><strong>Policy</strong> — no mutate unless user asked; tenant fields from state</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="example">
+            <div class="traj" id="trajViz"></div>
+            <label for="trajPick" style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);font-weight:600;">Scenario</label>
+            <select id="trajPick" style="width:100%;margin-top:0.35rem;font-family:var(--font-m);font-size:0.85rem;padding:0.5rem;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);">
+              <option value="pass">PASS — search then answer</option>
+              <option value="fail">FAIL — create_note without ask</option>
+              <option value="loop">WARN — tool loop then stop</option>
+            </select>
+          </div>
+          <div class="tab-panel" data-panel="schema">
+<pre><code>{"id":"ag02",
+ "message":"Save a note titled Launch with body …",
+ "expect_tools":["create_note"],
+ "forbid_tools":[],
+ "expect_side_effect":{"note_title":"Launch"},
+ "max_steps":6}</code></pre>
+          </div>
+        </div>
+
+        <div class="callout">
+          <div class="lb">DashNote agent surface</div>
+          <code>POST /ai/agent</code> → <code>AgentResponse</code> (<code>steps_taken</code>, <code>tool_calls_made</code>).
+          Stream events: <code>tool_start</code>, <code>tool_end</code>. Graph: START → agent → tools → agent → END.
+          Tools: <code>search_notes</code>, <code>create_note</code>, <code>update_note</code>, <code>summarize_workspace</code>.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="traj">Mark read</button></div>
+      </section>
+
+      <!-- 07 MAP -->
+      <section class="ch" id="map" data-c="map">
+        <h2><span class="n">07</span> DashNote map</h2>
+        <p class="lede">What exists today vs what the eval harness should cover.</p>
+
         <table>
-          <thead>
-            <tr><th>Case</th><th>Assert</th><th>Layer</th></tr>
-          </thead>
+          <thead><tr><th>Surface</th><th>Today</th><th>Eval focus</th></tr></thead>
           <tbody>
             <tr>
-              <td>Relevant note query</td>
-              <td>top result score &gt; ~0.4; correct <code>note_id</code> in top-k</td>
-              <td>Retrieval</td>
+              <td><code>GET /ai/test-search</code></td>
+              <td>Manual quality gate</td>
+              <td>recall@k, score &gt; 0.4, tenant isolation</td>
             </tr>
             <tr>
-              <td>Cross-workspace</td>
-              <td>zero hits from other workspace</td>
-              <td>Security</td>
+              <td><code>POST /ai/chat*</code></td>
+              <td>RAG + citations</td>
+              <td>must_contain, cite ⊆ retrieved, judge optional</td>
             </tr>
             <tr>
-              <td>Member + private</td>
-              <td>cannot see peer private note</td>
-              <td>RBAC</td>
+              <td><code>POST /ai/agent*</code></td>
+              <td>LangGraph tools</td>
+              <td>Trajectory + side effects</td>
             </tr>
             <tr>
-              <td>Citation grounding</td>
-              <td>every citation <code>chunk_id</code> ∈ retrieved set</td>
-              <td>Generation</td>
+              <td>Worker tags / meta</td>
+              <td>Structured LLM</td>
+              <td>Schema validity fixtures</td>
             </tr>
             <tr>
-              <td>Empty corpus</td>
-              <td>graceful empty answer; no invented sources</td>
-              <td>E2E</td>
-            </tr>
-            <tr>
-              <td>Destructive automation</td>
-              <td>evaluator fail → block (fail-safe)</td>
               <td>Governance</td>
+              <td><code>AutomationDecisionEngine</code></td>
+              <td>Decision fixtures (block vs allow)</td>
+            </tr>
+            <tr>
+              <td>Obs</td>
+              <td>Langfuse + Prometheus</td>
+              <td>Error analysis evidence — not a substitute for goldens</td>
             </tr>
           </tbody>
         </table>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="datasets">Mark chapter read</button>
-        </div>
+
+<pre><code>evals/                         # ship-plan Day 12 layout
+  golden/
+    retrieval.jsonl
+    rag_answer.jsonl
+    tenant_isolation.jsonl
+    agent_tools.jsonl          # Day 45
+  fixtures/                    # recorded LLM for CI
+  run_eval.py
+  EXPERIMENTS.md
+  README.md</code></pre>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="map">Mark read</button></div>
       </section>
 
-      <!-- 6 METRICS -->
-      <section class="chapter" id="metrics" data-chapter="metrics">
-        <h2><span class="num">06</span> Core metrics (click to explore)</h2>
-        <p class="lede">Know which metric matches which failure mode. Click a card.</p>
+      <!-- 08 INTEGRATE -->
+      <section class="ch" id="integrate" data-c="integrate">
+        <h2><span class="n">08</span> How to implement (this repo)</h2>
+        <p class="lede">Concrete path aligned with <code>ship-plan.md</code> and architecture laws in <code>ai.md</code>.</p>
 
-        <div class="metric-grid" id="metricGrid">
-          <div class="metric-card selected" data-metric="recall">
-            <div class="m-name">Recall@k / Hit@k</div>
-            <div class="m-type">Retrieval</div>
-          </div>
-          <div class="metric-card" data-metric="mrr">
-            <div class="m-name">MRR / nDCG</div>
-            <div class="m-type">Retrieval ranking</div>
-          </div>
-          <div class="metric-card" data-metric="faith">
-            <div class="m-name">Faithfulness</div>
-            <div class="m-type">Generation</div>
-          </div>
-          <div class="metric-card" data-metric="relev">
-            <div class="m-name">Answer relevance</div>
-            <div class="m-type">Generation</div>
-          </div>
-          <div class="metric-card" data-metric="context">
-            <div class="m-name">Context precision/recall</div>
-            <div class="m-type">RAG context</div>
-          </div>
-          <div class="metric-card" data-metric="cite">
-            <div class="m-name">Citation accuracy</div>
-            <div class="m-type">Grounding</div>
-          </div>
-          <div class="metric-card" data-metric="tool">
-            <div class="m-name">Tool success / trajectory</div>
-            <div class="m-type">Agents</div>
-          </div>
-          <div class="metric-card" data-metric="ops">
-            <div class="m-name">Latency · cost · error</div>
-            <div class="m-type">Ops SLIs</div>
-          </div>
-        </div>
-        <div class="metric-detail show" id="metricDetail"></div>
-
-        <h3>Practical scoring stack</h3>
-        <div class="tabs" data-tabs="score">
-          <div class="tab-list">
-            <button type="button" class="tab-btn active" data-tab="deterministic">Deterministic</button>
-            <button type="button" class="tab-btn" data-tab="reference">Reference-based</button>
-            <button type="button" class="tab-btn" data-tab="judge">LLM-as-judge</button>
-          </div>
-          <div class="tab-panel active" data-panel="deterministic">
-            <p>Best first choice — cheap, stable, CI-safe.</p>
-            <ul>
-              <li>JSON schema / Pydantic validation</li>
-              <li>Exact ID membership (citations ⊆ retrieved)</li>
-              <li>Regex / keyword must-include / must-exclude</li>
-              <li>RBAC filter assertions (empty forbidden set)</li>
-            </ul>
-          </div>
-          <div class="tab-panel" data-panel="reference">
-            <p>Compare to a labeled expected answer or expected chunk set.</p>
-            <ul>
-              <li>Exact match / soft match on short answers</li>
-              <li>Embedding similarity to reference (use carefully)</li>
-              <li>Set overlap metrics on retrieved IDs</li>
-            </ul>
-          </div>
-          <div class="tab-panel" data-panel="judge">
-            <p>Use when answers are open-ended. Always calibrate against humans on a sample.</p>
-            <ul>
-              <li>Score faithfulness, helpfulness, tone on 1–5</li>
-              <li>Require <strong>rationale + evidence spans</strong> from context</li>
-              <li>Use a different model family than the system under test when possible</li>
-            </ul>
-          </div>
-        </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="metrics">Mark chapter read</button>
-        </div>
-      </section>
-
-      <!-- 7 JUDGES -->
-      <section class="chapter" id="judges" data-chapter="judges">
-        <h2><span class="num">07</span> Human &amp; LLM judges</h2>
-        <p class="lede">Judges are evaluators of quality — not a replacement for ground-truth security tests.</p>
-
-        <div class="grid-2">
-          <div class="panel">
-            <h4>Human review</h4>
-            <ul>
-              <li>Gold standard for rubric design</li>
-              <li>Calibrate LLM judges (agreement %)</li>
-              <li>Spot-check production samples weekly</li>
-            </ul>
-          </div>
-          <div class="panel">
-            <h4>LLM-as-judge</h4>
-            <ul>
-              <li>Scales offline suites</li>
-              <li>Needs fixed rubric + few-shot examples</li>
-              <li>Can inherit bias / verbosity preference</li>
-            </ul>
-          </div>
-        </div>
-
-        <h3>Judge rubric template</h3>
-<pre><code>You are evaluating a RAG answer.
-Context chunks (only source of truth):
-{{context}}
-
-User question: {{question}}
-Assistant answer: {{answer}}
-
-Score each 1–5 with short evidence:
-1) faithfulness — claims supported by context?
-2) relevance — answers the question?
-3) citation_quality — cited chunks actually support claims?
-
-Return JSON: {faithfulness, relevance, citation_quality, rationale}</code></pre>
-
-        <div class="callout">
-          <div class="label">DashNote tip</div>
-          Prefer deterministic citation checks first (already in product design). Use LLM judges for open-ended
-          “was this helpful?” — not for tenancy.
-        </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="judges">Mark chapter read</button>
-        </div>
-      </section>
-
-      <!-- 8 ONLINE -->
-      <section class="chapter" id="online" data-chapter="online">
-        <h2><span class="num">08</span> Online &amp; production evals</h2>
-        <p class="lede">Offline suites prevent known regressions. Online signals catch the unknown.</p>
-
-        <table>
-          <thead>
-            <tr><th>Signal</th><th>What it suggests</th><th>Action</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Thumbs down / regenerate</td>
-              <td>Quality miss</td>
-              <td>Label → golden; inspect Langfuse trace</td>
-            </tr>
-            <tr>
-              <td>Re-ask same intent</td>
-              <td>Answer incomplete</td>
-              <td>Context budget / retrieval depth</td>
-            </tr>
-            <tr>
-              <td>Empty retrieval rate ↑</td>
-              <td>Index / embedding / threshold drift</td>
-              <td>Check <code>chunks_retrieved</code> span</td>
-            </tr>
-            <tr>
-              <td>p95 latency ↑</td>
-              <td>Provider / retrieval slow</td>
-              <td>Grafana + span <code>latency_ms</code></td>
-            </tr>
-            <tr>
-              <td>Cost / tokens ↑</td>
-              <td>Prompt bloat or loops</td>
-              <td>Agent tool-loop caps; budget</td>
-            </tr>
-            <tr>
-              <td>5xx on <code>/ai/*</code></td>
-              <td>Provider / infra failure</td>
-              <td>Retry policy; degrade gracefully</td>
-            </tr>
-          </tbody>
-        </table>
+        <ol class="roadmap">
+          <li>
+            <h4>Seed an eval workspace</h4>
+            <p>Dedicated notes/files with known facts. Never pollute prod user data. JWT role fixtures for member vs admin isolation cases.</p>
+          </li>
+          <li>
+            <h4>Add <code>evals/golden/*.jsonl</code> (≥10)</h4>
+            <p>Retrieval + RAG + tenant first. Keep agent trajectories as a second file once chat goldens are green.</p>
+          </li>
+          <li>
+            <h4>Write <code>evals/run_eval.py</code></h4>
+<pre><code># Outline
+# 1. Auth → token for eval workspace
+# 2. For each retrieval case: GET /ai/test-search → score recall@k
+# 3. For each rag case: POST /ai/chat → must_contain + citations ⊆ chunks
+# 4. For each tenant case: assert empty / no peer private
+# 5. Print PASS n/N + list failures; exit 1 on fail
+# Optional: --json for CI artifact; --mock using fixtures/</code></pre>
+          </li>
+          <li>
+            <h4>Wire deterministic checks before judges</h4>
+            <p>Reuse citation grounding already in product design. Add LLM-as-judge only for faithfulness on a subset; call via <code>acompletion_structured</code>.</p>
+          </li>
+          <li>
+            <h4>Agent trajectory harness</h4>
+            <p>Drive <code>POST /ai/agent</code>; assert <code>tool_calls_made</code> and DB side effects via notes API. Cap steps with <code>AGENT_MAX_ITERATIONS</code>.</p>
+          </li>
+          <li>
+            <h4>CI gate</h4>
+            <p>PR job runs golden set against Compose (or fixtures). Intentionally break RBAC once to prove the gate fails. Log runs in <code>EXPERIMENTS.md</code>.</p>
+          </li>
+        </ol>
 
         <div class="callout warn">
-          <div class="label">Privacy</div>
-          Never log raw JWTs. Prefer hashed or truncated IDs. Redact secrets from traces.
-          DashNote metadata uses <code>workspace_id</code>, <code>user_id</code>, <code>role</code> — not tokens.
-        </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="online">Mark chapter read</button>
-        </div>
-      </section>
-
-      <!-- 9 OBS PILLARS -->
-      <section class="chapter" id="obs-pillars" data-chapter="obs-pillars">
-        <h2><span class="num">09</span> Observability pillars</h2>
-        <p class="lede">Classic three pillars — applied to LLM systems.</p>
-
-        <div class="tabs" data-tabs="pillars">
-          <div class="tab-list">
-            <button type="button" class="tab-btn active" data-tab="logs">Logs</button>
-            <button type="button" class="tab-btn" data-tab="traces">Traces</button>
-            <button type="button" class="tab-btn" data-tab="metrics">Metrics</button>
-          </div>
-          <div class="tab-panel active" data-panel="logs">
-            <h4>Structured logs</h4>
-            <p>Append-only events for ops and forensics. Prefer JSON.</p>
-            <p><strong>DashNote schema:</strong> <code>timestamp</code>, <code>level</code>, <code>logger</code>, <code>message</code> + optional <code>request_id</code>, <code>workspace_id</code>, <code>user_id</code>, <code>route</code>, <code>latency_ms</code>.</p>
-            <pre><code>{"timestamp":"...","level":"INFO","logger":"observability.langfuse_client",
- "message":"Langfuse client initialized","extra":{"host":"https://cloud.langfuse.com"}}</code></pre>
-          </div>
-          <div class="tab-panel" data-panel="traces">
-            <h4>Distributed / LLM traces</h4>
-            <p>One request → tree of spans with timing, I/O, tokens, cost.</p>
-            <p>For RAG, spans should mirror pipeline stages so you can see <em>where</em> time and failures live.</p>
-          </div>
-          <div class="tab-panel" data-panel="metrics">
-            <h4>Metrics</h4>
-            <p>Aggregates over time: rates, histograms, gauges. Drive SLOs and alerts.</p>
-            <p><strong>DashNote HTTP:</strong> <code>dashnote_api_http_requests_total</code>, <code>dashnote_api_http_request_duration_seconds</code> → Grafana.</p>
-            <p>Later: custom metrics for <code>rag_empty_retrieval_total</code>, <code>llm_tokens_total</code>, <code>agent_tool_errors_total</code>.</p>
-          </div>
+          <div class="lb">Don’t</div>
+          Call Qdrant from the eval script for assertions that belong in the API ·
+          trust model-supplied <code>workspace_id</code> ·
+          put Langfuse SDK in <code>src/ai/*</code> ·
+          let judges override deterministic citation failures.
         </div>
 
-        <div class="callout blue">
-          <div class="label">Separation of concerns</div>
-          HTTP metrics answer “is the API healthy?” Langfuse answers “why was this answer wrong?”
-          Don’t force one tool to do both jobs poorly.
-        </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="obs-pillars">Mark chapter read</button>
-        </div>
-      </section>
-
-      <!-- 10 LLM TRACES -->
-      <section class="chapter" id="llm-traces" data-chapter="llm-traces">
-        <h2><span class="num">10</span> LLM / RAG tracing (interactive)</h2>
-        <p class="lede">Click each span — this mirrors DashNote’s <code>rag.answer</code> tree in Langfuse.</p>
-
-        <div class="trace-viz" id="traceViz">
-          <div class="trace-root open" data-detail="name: rag.answer
-metadata: workspace_id, user_id, role
-flush: on exit (never raises)
-no-op: when Langfuse keys missing">
-            <div><span class="trace-name">rag.answer</span> · root observation</div>
-            <div class="trace-meta">metadata · flush in finally</div>
-            <div class="trace-detail"></div>
-          </div>
-          <div class="trace-span" data-detail="output:
-  chunks_retrieved: N
-  latency_ms: …
-notes:
-  empty retrieval → often only this span
-  RBAC filter already applied">
-            <div><span class="trace-name">retrieval</span></div>
-            <div class="trace-meta">WorkspaceVectorSearch + score_threshold</div>
-            <div class="trace-detail"></div>
-          </div>
-          <div class="trace-span" data-detail="output:
-  chunks_used: N
-  char_budget: TOKEN_BUDGET_PER_REQUEST
-  latency_ms: …
-notes:
-  history + retrieval packed into budget">
-            <div><span class="trace-name">context_building</span></div>
-            <div class="trace-meta">ContextBuilder / budget fit</div>
-            <div class="trace-detail"></div>
-          </div>
-          <div class="trace-span" data-detail="output:
-  prompt_tokens, completion_tokens, total_tokens
-  cost (when LiteLLM provides)
-  latency_ms: …
-type: generation observation">
-            <div><span class="trace-name">llm_generation</span></div>
-            <div class="trace-meta">LiteLLM completion · usage + cost</div>
-            <div class="trace-detail"></div>
-          </div>
-        </div>
-
-        <h3>Import law (critical)</h3>
-        <ul>
-          <li>Langfuse SDK only in <code>observability/langfuse_client.py</code> + <code>tracing.py</code></li>
-          <li><code>RagService</code> imports <code>observability.tracing</code> only — never the SDK</li>
-          <li>Lazy client — never init Langfuse in <code>main.py</code> lifespan</li>
-          <li>No-op path when keys missing — app must still run</li>
-        </ul>
-
-        <div class="quiz" data-quiz="q3">
+        <div class="quiz">
           <h4>Quick check</h4>
-          <p>Why keep Langfuse out of <code>src/ai/*</code>?</p>
+          <p>First eval suite for DashNote should prioritize…</p>
           <div class="quiz-opts">
-            <button type="button" data-correct="false">Because Langfuse is slower than Prometheus</button>
-            <button type="button" data-correct="true">So AI modules stay reusable in workers/tools and observability stays swappable behind tracing.py</button>
-            <button type="button" data-correct="false">Because FastAPI forbids third-party SDKs in services</button>
+            <button type="button" data-ok="false">Only LLM-as-judge on agent tone</button>
+            <button type="button" data-ok="true">Retrieval recall + RAG must_contain + tenant isolation goldens</button>
+            <button type="button" data-ok="false">Public MMLU / HumanEval leaderboard scores</button>
           </div>
-          <p class="quiz-feedback"></p>
+          <p class="quiz-fb"></p>
         </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="llm-traces">Mark chapter read</button>
-        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="integrate">Mark read</button></div>
       </section>
 
-      <!-- 11 DASHNOTE OBS -->
-      <section class="chapter" id="dashnote-obs" data-chapter="dashnote-obs">
-        <h2><span class="num">11</span> DashNote observability stack</h2>
-        <p class="lede">What already exists — and what to extend next.</p>
-
-        <pre><code>Client → Nginx → FastAPI
-                    ├─ JSON logs (stdout)
-                    ├─ Langfuse  (rag.answer + spans)
-                    └─ GET /metrics → Prometheus → Grafana (API Overview)</code></pre>
-
-        <table>
-          <thead>
-            <tr><th>Layer</th><th>Status</th><th>Where</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>JSON logging</td><td>Done</td><td><code>observability/logging.py</code> · lifespan</td></tr>
-            <tr><td>Langfuse client</td><td>Done</td><td>lazy <code>get_langfuse_client()</code></td></tr>
-            <tr><td>RAG traces</td><td>Done</td><td><code>RagService.answer</code> / <code>stream_answer</code></td></tr>
-            <tr><td>Prometheus HTTP</td><td>Done</td><td><code>dashnote_api_*</code> on <code>/metrics</code></td></tr>
-            <tr><td>Grafana</td><td>Done</td><td>port 3001 · DashNote / API Overview</td></tr>
-            <tr><td>Agent traces</td><td>Natural next</td><td>wrap LangGraph nodes with same <code>rag_trace</code>/<code>rag_span</code></td></tr>
-            <tr><td>Eval suite CI</td><td>Natural next</td><td>golden JSON + pytest / script gate</td></tr>
-          </tbody>
-        </table>
-
-        <h3>Validate locally (PowerShell)</h3>
-<pre><code># Traces module
-$env:PYTHONPATH = "src"
-python -c "from observability import rag_trace, rag_span; print('PASS')"
-
-# Metrics
-curl.exe -sS http://localhost:8000/health
-curl.exe -sS http://localhost:8000/metrics | findstr dashnote_api
-
-# Prometheus target
-# http://localhost:9090/targets → dashnote_api UP
-
-# Trigger a RAG trace (JWT required + LANGFUSE_* in .env)
-curl.exe -sS -X POST http://127.0.0.1/ai/chat `
-  -H "Authorization: Bearer &lt;TOKEN&gt;" `
-  -H "Content-Type: application/json" `
-  -d "{\"message\": \"What is in my notes?\"}"</code></pre>
-
-        <p>Docs: <code>docs/observability.md</code> · <code>docs/documentation/observe.md</code></p>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="dashnote-obs">Mark chapter read</button>
-        </div>
-      </section>
-
-      <!-- 12 ADD EVALS -->
-      <section class="chapter" id="add-evals" data-chapter="add-evals">
-        <h2><span class="num">12</span> How to add evals (any AI project)</h2>
-        <p class="lede">A repeatable recipe — use this on DashNote or a greenfield agent.</p>
-
-        <ol class="roadmap">
-          <li>
-            <h4>Inventory surfaces</h4>
-            <p>List user-facing AI paths: chat, agent, classifiers, extractors. One surface = one suite folder.</p>
-          </li>
-          <li>
-            <h4>Write 15–40 goldens</h4>
-            <p>Include p0 security + happy path. Store as JSON/YAML under <code>evals/datasets/</code>.</p>
-          </li>
-          <li>
-            <h4>Implement runners</h4>
-            <p>Component runners first (retrieval IDs). Then E2E runners that call the same services production uses — not a duplicated “eval-only” pipeline.</p>
-          </li>
-          <li>
-            <h4>Score &amp; baseline</h4>
-            <p>Emit a report JSON: pass rate, metric averages, failing case IDs. Commit a baseline file.</p>
-          </li>
-          <li>
-            <h4>Gate CI</h4>
-            <p>Fail PR if p0 cases fail or aggregate score drops &gt; threshold (e.g. 3%).</p>
-          </li>
-          <li>
-            <h4>Wire production mining</h4>
-            <p>Weekly: export thumbs-down traces → label → promote to goldens.</p>
-          </li>
-        </ol>
-
-        <h3>Suggested DashNote layout</h3>
-<pre><code>evals/
-  datasets/
-    retrieval_rbac.jsonl
-    rag_grounding.jsonl
-    agent_tools.jsonl
-  runners/
-    run_retrieval.py
-    run_rag_e2e.py
-  reports/                 # gitignored or artifact-only
-  baselines/
-    retrieval_rbac.json</code></pre>
-
-        <h3>Pseudo-runner (retrieval)</h3>
-<pre><code>async def eval_case(case, search: WorkspaceVectorSearch):
-    hits = await search.search(
-        workspace_id=case["workspace_id"],
-        user_id=case["user_id"],
-        role=case["role"],
-        query=case["query"],
-        limit=8,
-    )
-    ids = {h.note_id for h in hits}
-    assert case["expected_note_id"] in ids
-    assert not (ids & set(case.get("forbidden_note_ids", [])))
-    assert hits and hits[0].score >= case.get("min_score", 0.4)</code></pre>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="add-evals">Mark chapter read</button>
-        </div>
-      </section>
-
-      <!-- 13 ADD OBS -->
-      <section class="chapter" id="add-obs" data-chapter="add-obs">
-        <h2><span class="num">13</span> How to add observability (any AI project)</h2>
-        <p class="lede">Order of operations that avoids coupling and broken startups.</p>
-
-        <ol class="roadmap">
-          <li>
-            <h4>Structured logging first</h4>
-            <p>JSON logs with request/tenant context. Idempotent setup at process start.</p>
-          </li>
-          <li>
-            <h4>Lazy vendor client</h4>
-            <p>Langfuse / OTEL exporter behind a getter that returns <code>None</code> when disabled. Never crash boot.</p>
-          </li>
-          <li>
-            <h4>Tracing facade</h4>
-            <p><code>trace</code> / <code>span</code> context managers with no-op twins. Domain code imports the facade only.</p>
-          </li>
-          <li>
-            <h4>Instrument critical paths</h4>
-            <p>Start with the highest-value path (RAG answer). Add agent/tool spans next. Record latency + domain outputs.</p>
-          </li>
-          <li>
-            <h4>HTTP metrics</h4>
-            <p>Framework instrumentator → <code>/metrics</code> → Prometheus → 4–6 Grafana panels (rate, errors, p95/p99).</p>
-          </li>
-          <li>
-            <h4>Alerts &amp; runbooks</h4>
-            <p>Alert on error rate and latency. Document “target DOWN” and “no traces” troubleshooting.</p>
-          </li>
-        </ol>
-
-        <div class="callout">
-          <div class="label">Pattern that scales</div>
-          <code>ai/</code> stays free of vendor SDKs · <code>observability/</code> owns vendors ·
-          workers and HTTP share the same tracing helpers.
-        </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="add-obs">Mark chapter read</button>
-        </div>
-      </section>
-
-      <!-- 14 MATURITY -->
-      <section class="chapter" id="maturity" data-chapter="maturity">
-        <h2><span class="num">14</span> Maturity path</h2>
-        <p class="lede">Drag the slider to see what “good enough” looks like at each stage.</p>
-
-        <div class="maturity">
-          <div class="maturity-labels">
-            <span>Ad hoc</span>
-            <span>Baseline</span>
-            <span>Gated</span>
-            <span>Productized</span>
-          </div>
-          <input type="range" id="maturityRange" min="0" max="3" step="1" value="1" />
-          <div class="maturity-out" id="maturityOut"></div>
-        </div>
-
-        <div class="callout blue">
-          <div class="label">Where DashNote sits</div>
-          Observability ≈ <strong>Gated</strong> for HTTP + RAG traces.
-          Evals ≈ <strong>Baseline → Gated</strong>: strong manual gates documented; formal CI suite is the next build.
-        </div>
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="maturity">Mark chapter read</button>
-        </div>
-      </section>
-
-      <!-- 15 CHECKLIST -->
-      <section class="chapter" id="checklist" data-chapter="checklist">
-        <h2><span class="num">15</span> Ship checklist</h2>
-        <p class="lede">Toggle items as you implement — progress is saved in this browser.</p>
-
-        <h3>Evals</h3>
-        <ul class="checklist" data-list="evals">
-          <li><input type="checkbox" /><span>Inventory AI surfaces (chat, agent, automation, retrieval)</span></li>
-          <li><input type="checkbox" /><span>Create golden set with ≥5 p0 security / RBAC cases</span></li>
-          <li><input type="checkbox" /><span>Component retrieval runner (Hit@k + forbidden IDs)</span></li>
-          <li><input type="checkbox" /><span>Citation grounding assertion (IDs ⊆ retrieved)</span></li>
-          <li><input type="checkbox" /><span>E2E RAG runner on frozen dataset</span></li>
-          <li><input type="checkbox" /><span>Baseline file + CI fail on regression</span></li>
-          <li><input type="checkbox" /><span>Process for mining thumbs-down into goldens</span></li>
+      <!-- 09 CHECK -->
+      <section class="ch" id="check" data-c="check">
+        <h2><span class="n">09</span> Checklist</h2>
+        <ul class="checklist" data-list="c">
+          <li><input type="checkbox" /><span>Eval-driven loop: change → measure → ship/revert</span></li>
+          <li><input type="checkbox" /><span>Golden JSONL for retrieval, RAG, tenant (≥10)</span></li>
+          <li><input type="checkbox" /><span>Benchmarks: recall@k / MRR / pass rate logged</span></li>
+          <li><input type="checkbox" /><span>Error buckets used when debugging failures</span></li>
+          <li><input type="checkbox" /><span>Deterministic checks before LLM-as-judge</span></li>
+          <li><input type="checkbox" /><span>Agent trajectory cases (≥5) with side-effect checks</span></li>
+          <li><input type="checkbox" /><span><code>run_eval.py</code> prints PASS n/N; CI can fail the PR</span></li>
+          <li><input type="checkbox" /><span>Langfuse used for analysis, goldens for gates</span></li>
         </ul>
-
-        <h3>Observability</h3>
-        <ul class="checklist" data-list="obs">
-          <li><input type="checkbox" /><span>JSON structured logging at process start</span></li>
-          <li><input type="checkbox" /><span>Lazy LLM-trace client (no-op when disabled)</span></li>
-          <li><input type="checkbox" /><span>Tracing facade; no vendor SDK in domain AI modules</span></li>
-          <li><input type="checkbox" /><span>RAG spans: retrieval → context → generation</span></li>
-          <li><input type="checkbox" /><span>Prometheus HTTP metrics + Grafana overview</span></li>
-          <li><input type="checkbox" /><span>Agent / tool spans (if you have an agent)</span></li>
-          <li><input type="checkbox" /><span>Runbook: missing traces, target DOWN, cost spike</span></li>
-        </ul>
-
-        <h3>Interview one-liners</h3>
-        <div class="accordion">
-          <div class="acc-item">
-            <button type="button" class="acc-btn">“How do you evaluate a RAG system?” <span class="chev">›</span></button>
-            <div class="acc-body">
-              Split retrieval vs generation. Retrieval: Hit@k / recall under RBAC filters.
-              Generation: faithfulness + citation grounding on fixed context. Gate releases with offline goldens;
-              use production traces for new cases.
-            </div>
-          </div>
-          <div class="acc-item">
-            <button type="button" class="acc-btn">“How do you observe LLM apps in prod?” <span class="chev">›</span></button>
-            <div class="acc-body">
-              Structured logs for ops; LLM traces for per-request trees (tokens, cost, spans);
-              Prometheus for SLIs. Keep vendor SDKs behind a facade so domain code stays portable.
-            </div>
-          </div>
-          <div class="acc-item">
-            <button type="button" class="acc-btn">“What’s unique in multi-tenant RAG?” <span class="chev">›</span></button>
-            <div class="acc-body">
-              Tenancy is a correctness property. Eval private-note isolation and workspace filters as p0 —
-              not as optional quality polish.
-            </div>
-          </div>
-        </div>
-
-        <div class="mark-read">
-          <button type="button" class="btn primary mark-btn" data-chapter="checklist">Mark chapter read</button>
-          <button type="button" class="btn" id="resetProgress">Reset progress</button>
+        <div class="mark">
+          <button type="button" class="btn primary mark-btn" data-c="check">Mark read</button>
+          <button type="button" class="btn" id="reset">Reset</button>
         </div>
       </section>
 
-      <footer class="footer-note">
-        Companion docs in this repo: <code>docs/observability.md</code>,
-        <code>docs/documentation/observe.md</code>, <code>docs/documentation/ai.md</code>,
-        <code>docs/documentation/qs.md</code> §17.
-        Open this file in a browser for full interactivity. Progress stores in <code>localStorage</code>.
+      <footer class="foot">
+        Sources: <code>ship-plan.md</code> · <code>ai.md</code> · <code>observe.md</code> ·
+        <code>ai/services/rag_service.py</code> · <code>ai/workflows/workspace_assistant.py</code>.
+        Companions: <code>llm_prompt.html</code> · <code>mcp.html</code> · <code>search_ranking.html</code>.
       </footer>
     </main>
   </div>
 
   <script>
     (function () {
-      const STORAGE_KEY = "dashnote-evals-guide-v1";
-      const CHAPTERS = [
-        "why","map","layers","eval-types","datasets","metrics","judges","online",
-        "obs-pillars","llm-traces","dashnote-obs","add-evals","add-obs","maturity","checklist"
-      ];
+      const KEY = "dashnote-evals-guide-v1";
+      const CH = ["edd","golden","bench","error","judge","traj","map","integrate","check"];
 
-      function loadState() {
-        try {
-          return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-        } catch {
-          return {};
-        }
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
       }
-      function saveState(state) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      }
-
-      let state = loadState();
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+      let state = load();
       if (!state.read) state.read = {};
       if (!state.checks) state.checks = {};
 
-      /* —— Progress —— */
-      function updateProgress() {
-        const n = CHAPTERS.filter((c) => state.read[c]).length;
-        const pct = Math.round((n / CHAPTERS.length) * 100);
-        document.getElementById("progressPct").textContent = pct + "%";
-        document.getElementById("progressFill").style.width = pct + "%";
-        document.querySelectorAll(".nav-group a[data-chapter]").forEach((a) => {
-          a.classList.toggle("visited", !!state.read[a.dataset.chapter]);
+      function progress() {
+        const n = CH.filter((c) => state.read[c]).length;
+        const p = Math.round((n / CH.length) * 100);
+        document.getElementById("pct").textContent = p + "%";
+        document.getElementById("fill").style.width = p + "%";
+        document.querySelectorAll("nav a[data-c]").forEach((a) => {
+          a.classList.toggle("visited", !!state.read[a.dataset.c]);
         });
       }
 
       document.querySelectorAll(".mark-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
-          state.read[btn.dataset.chapter] = true;
-          saveState(state);
-          updateProgress();
+          state.read[btn.dataset.c] = true;
+          save(state);
+          progress();
           btn.textContent = "Read ✓";
-          btn.classList.add("primary");
         });
       });
-
-      document.getElementById("resetProgress").addEventListener("click", () => {
-        if (!confirm("Reset chapter progress and checklists?")) return;
-        state = { read: {}, checks: {} };
-        saveState(state);
-        document.querySelectorAll(".checklist input").forEach((i) => {
-          i.checked = false;
-          i.closest("li").classList.remove("checked");
-        });
-        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark chapter read"; });
-        updateProgress();
-      });
-
-      /* restore mark buttons */
-      CHAPTERS.forEach((c) => {
+      CH.forEach((c) => {
         if (state.read[c]) {
-          document.querySelectorAll('.mark-btn[data-chapter="' + c + '"]').forEach((b) => {
+          document.querySelectorAll('.mark-btn[data-c="' + c + '"]').forEach((b) => {
             b.textContent = "Read ✓";
           });
         }
       });
-      updateProgress();
+      progress();
 
-      /* —— Nav active on scroll —— */
-      const links = [...document.querySelectorAll(".nav-group a[data-chapter]")];
-      const sections = CHAPTERS.map((id) => document.getElementById(id)).filter(Boolean);
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((e) => {
-            if (!e.isIntersecting) return;
-            links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
-          });
-        },
-        { rootMargin: "-30% 0px -55% 0px", threshold: 0 }
-      );
-      sections.forEach((s) => observer.observe(s));
-
-      /* —— Mobile nav —— */
-      const sidebar = document.getElementById("sidebar");
-      const navToggle = document.getElementById("navToggle");
-      navToggle.addEventListener("click", () => {
-        sidebar.classList.toggle("open");
-        navToggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!confirm("Reset progress?")) return;
+        state = { read: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false; i.closest("li").classList.remove("checked");
+        });
+        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark read"; });
+        progress();
       });
-      links.forEach((l) =>
-        l.addEventListener("click", () => {
-          sidebar.classList.remove("open");
-          navToggle.textContent = "Menu";
-        })
-      );
 
-      /* —— Tabs —— */
+      const links = [...document.querySelectorAll("nav a[data-c]")];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+        });
+      }, { rootMargin: "-28% 0px -55% 0px" });
+      CH.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("navToggle");
+      toggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        toggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      });
+      links.forEach((l) => l.addEventListener("click", () => {
+        sidebar.classList.remove("open"); toggle.textContent = "Menu";
+      }));
+
       document.querySelectorAll("[data-tabs]").forEach((root) => {
         const btns = root.querySelectorAll(".tab-btn");
         const panels = root.querySelectorAll(".tab-panel");
-        btns.forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const id = btn.dataset.tab;
-            btns.forEach((b) => b.classList.toggle("active", b === btn));
-            panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === id));
-          });
-        });
+        btns.forEach((btn) => btn.addEventListener("click", () => {
+          btns.forEach((b) => b.classList.toggle("active", b === btn));
+          panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+        }));
       });
 
-      /* —— Accordion —— */
       document.querySelectorAll(".acc-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
           const item = btn.closest(".acc-item");
@@ -1745,135 +960,156 @@ curl.exe -sS -X POST http://127.0.0.1/ai/chat `
         });
       });
 
-      /* —— Quizzes —— */
       document.querySelectorAll(".quiz").forEach((quiz) => {
-        const feedback = quiz.querySelector(".quiz-feedback");
+        const fb = quiz.querySelector(".quiz-fb");
         quiz.querySelectorAll(".quiz-opts button").forEach((btn) => {
           btn.addEventListener("click", () => {
-            const correct = btn.dataset.correct === "true";
+            const ok = btn.dataset.ok === "true";
             quiz.querySelectorAll(".quiz-opts button").forEach((b) => {
               b.disabled = true;
-              if (b.dataset.correct === "true") b.classList.add("correct");
+              if (b.dataset.ok === "true") b.classList.add("correct");
             });
-            if (!correct) btn.classList.add("wrong");
-            feedback.textContent = correct
-              ? "Correct — that’s the engineering habit."
-              : "Not quite — see the highlighted correct option.";
+            if (!ok) btn.classList.add("wrong");
+            fb.textContent = ok ? "Correct." : "See the highlighted option.";
           });
         });
       });
 
-      /* —— Metrics explorer —— */
-      const METRICS = {
-        recall: {
-          title: "Recall@k / Hit@k",
-          body: "Fraction of queries where at least one relevant doc appears in the top-k. Hit@k is the binary version (0/1 per query). Primary retrieval gate for RAG. DashNote: assert expected note_id in top results from /ai/test-search or WorkspaceVectorSearch."
-        },
-        mrr: {
-          title: "MRR / nDCG",
-          body: "MRR rewards relevant docs ranked higher (1/rank). nDCG accounts for graded relevance. Use when ranking quality matters more than mere presence — e.g. many similar notes."
-        },
-        faith: {
-          title: "Faithfulness",
-          body: "Are claims supported by provided context? Catches hallucinations. Score with LLM-as-judge or entailment checks. Pair with citation accuracy for DashNote RAGAnswer."
-        },
-        relev: {
-          title: "Answer relevance",
-          body: "Does the answer address the user question? A system can be faithful to wrong/irrelevant context. Separate metric from faithfulness."
-        },
-        context: {
-          title: "Context precision / recall",
-          body: "Of chunks sent to the LLM, how many were useful (precision)? Of useful corpus chunks, how many made it into context (recall)? Diagnoses budget and retrieval depth issues (TOKEN_BUDGET_PER_REQUEST)."
-        },
-        cite: {
-          title: "Citation accuracy",
-          body: "Every cited chunk_id must exist in the retrieved set; ideally the chunk actually supports the claim. DashNote grounds citations server-side — make this a deterministic CI assert."
-        },
-        tool: {
-          title: "Tool success / trajectory",
-          body: "Did the agent call expected tools in a sensible order? Did tools succeed? Did it stop? Score trajectories against expected tool sequences; separately score final user-visible outcome."
-        },
-        ops: {
-          title: "Latency · cost · error rate",
-          body: "Not quality metrics, but release blockers. Track p95 latency, tokens/cost per request, 5xx rate on /ai/*. DashNote: Grafana for HTTP; Langfuse span latency_ms + tokens for LLM path."
-        }
+      const GOLDEN = {
+        ret:
+          '<span class="role">case r01 · retrieval</span>\n' +
+          'query: "When is Q3 launch?"\n' +
+          'k: 5 · expect_substring: "Sept 15"\n\n' +
+          '<span class="ok">PASS if note in top-5 and score &gt; 0.4</span>\n' +
+          '<span class="dim">Runner: GET /ai/test-search?q=…</span>',
+        rag:
+          '<span class="role">case a01 · rag_answer</span>\n' +
+          'must_contain: ["Sept","15"]\n' +
+          'require_citations: true\n\n' +
+          '<span class="ok">PASS if answer matches + cites ⊆ retrieved ids</span>\n' +
+          '<span class="dim">Runner: POST /ai/chat</span>',
+        ten:
+          '<span class="role">case t01 · tenant_isolation</span>\n' +
+          'as_role: member · peer has private "secret X"\n' +
+          'expect_hits: 0\n\n' +
+          '<span class="bad">FAIL = RBAC leak — block merge</span>',
+        agt:
+          '<span class="role">case ag02 · agent_tools</span>\n' +
+          'message: "Save a note titled Launch…"\n' +
+          'expect_tools: ["create_note"]\n' +
+          'expect_side_effect: note exists\n\n' +
+          '<span class="ok">PASS if tool + DB row; steps ≤ max</span>'
       };
-
-      const detail = document.getElementById("metricDetail");
-      function showMetric(key) {
-        const m = METRICS[key];
-        detail.innerHTML = "<strong>" + m.title + "</strong><p style='margin:0.5rem 0 0'>" + m.body + "</p>";
-        detail.classList.add("show");
-        document.querySelectorAll(".metric-card").forEach((c) => c.classList.toggle("selected", c.dataset.metric === key));
+      function renderGolden() {
+        document.getElementById("goldenOut").innerHTML = GOLDEN[document.getElementById("goldenPick").value];
       }
+      document.getElementById("goldenPick").addEventListener("change", renderGolden);
+      renderGolden();
+
+      const METRICS = {
+        recall:
+          '<span class="role">recall@k</span>\n' +
+          'Fraction of queries where a relevant note appears in top-k.\n' +
+          '<span class="ok">DashNote target: recall@5 ≥ 0.8</span>\n' +
+          '<span class="dim">Tune CHUNK_SIZE, embed model, score gate 0.4</span>',
+        mrr:
+          '<span class="role">MRR (mean reciprocal rank)</span>\n' +
+          'Average of 1/rank of first relevant hit.\n' +
+          'Higher when the right note is #1 more often.\n' +
+          '<span class="dim">Useful when k is large but ranking quality matters</span>',
+        pass:
+          '<span class="role">Pass rate</span>\n' +
+          'Cases with all assertions green / total.\n' +
+          '<span class="ok">run_eval.py → PASS: 10/10</span>\n' +
+          'Primary CI gate metric.',
+        cite:
+          '<span class="role">Citation precision</span>\n' +
+          'cited_chunk_ids ⊆ retrieved set (server-side).\n' +
+          '<span class="bad">Invented UUIDs = hard fail</span>\n' +
+          'Already part of RagService design — assert in evals.',
+        lat:
+          '<span class="role">Latency & cost</span>\n' +
+          'p50 / p95 latency; avg $/request from Langfuse.\n' +
+          'Track per /ai/chat and /ai/agent.\n' +
+          '<span class="dim">Not a quality substitute — a ship constraint</span>',
+        tool:
+          '<span class="role">Tool success</span>\n' +
+          '% of agent cases where expect_tools ⊆ tool_calls_made\n' +
+          'and side effects verified.\n' +
+          '<span class="ok">Trajectory eval metric</span>'
+      };
+      const cards = document.querySelectorAll("#metricCards button");
+      const metricOut = document.getElementById("metricOut");
+      function showMetric(m) {
+        cards.forEach((b) => b.classList.toggle("active", b.dataset.m === m));
+        metricOut.innerHTML = METRICS[m];
+      }
+      cards.forEach((b) => b.addEventListener("click", () => showMetric(b.dataset.m)));
       showMetric("recall");
-      document.querySelectorAll(".metric-card").forEach((card) => {
-        card.addEventListener("click", () => showMetric(card.dataset.metric));
-      });
 
-      /* —— Trace viz —— */
-      document.querySelectorAll("#traceViz .trace-span, #traceViz .trace-root").forEach((el) => {
-        const box = el.querySelector(".trace-detail");
-        box.textContent = el.dataset.detail || "";
-        el.addEventListener("click", () => {
-          const was = el.classList.contains("open");
-          document.querySelectorAll("#traceViz .trace-span, #traceViz .trace-root").forEach((x) => x.classList.remove("open"));
-          if (!was) el.classList.add("open");
-        });
-      });
-
-      /* —— Maturity —— */
-      const MATURITY = [
-        {
-          name: "Ad hoc",
-          text: "Manual chat testing only. Logs are plain text. No traces. Prompt changes ship on gut feel. Risk: silent quality cliffs."
-        },
-        {
-          name: "Baseline",
-          text: "Small golden set + manual /ai/test-search gates. JSON logs. Optional Langfuse on RAG. You can explain some failures after the fact."
-        },
-        {
-          name: "Gated",
-          text: "CI eval gate on p0 cases. RAG (and ideally agent) fully traced. Prometheus + Grafana SLIs. Prompt/model PRs blocked on regression."
-        },
-        {
-          name: "Productized",
-          text: "Online feedback → auto-candidate goldens. Custom quality metrics. Canaries for prompt rolls. Alerts on empty-retrieval and cost anomalies. Eval reports as team ritual."
-        }
-      ];
-      const range = document.getElementById("maturityRange");
-      const out = document.getElementById("maturityOut");
-      function renderMaturity() {
-        const m = MATURITY[+range.value];
-        out.innerHTML = "<strong>" + m.name + "</strong><br/>" + m.text;
+      const JUDGE = {
+        good:
+          '<span class="role">rubric</span> faithfulness 1–5 · grounded bool · pass\n\n' +
+          'context: [CHUNK] Q3 launch is Sept 15.\n' +
+          'answer: "Q3 launch is September 15."\n\n' +
+          '<span class="ok">{ faithfulness: 5, grounded: true, pass: true }</span>',
+        hall:
+          'context: [CHUNK] Q3 launch is Sept 15.\n' +
+          'answer: "Launch is October 1 per board memo."\n\n' +
+          '<span class="bad">{ faithfulness: 1, grounded: false, pass: false }</span>\n' +
+          '<span class="dim">Deterministic must_contain("Sept") would also fail</span>',
+        refuse:
+          'context: (no date in chunks)\n' +
+          'answer: "I don\'t have that in your notes."\n\n' +
+          '<span class="ok">{ faithfulness: 5, grounded: true, pass: true }</span>\n' +
+          '<span class="dim">Correct refusal scores high on faithfulness</span>'
+      };
+      function renderJudge() {
+        document.getElementById("judgeOut").innerHTML = JUDGE[document.getElementById("judgeCase").value];
       }
-      range.addEventListener("input", renderMaturity);
-      renderMaturity();
+      document.getElementById("judgeCase").addEventListener("change", renderJudge);
+      renderJudge();
 
-      /* —— Checklists —— */
+      const TRAJ = {
+        pass: [
+          { cls: "pass", tag: "user", text: "What did we decide about Q3 launch?" },
+          { cls: "pass", tag: "tool", text: "search_notes(query=…)" },
+          { cls: "pass", tag: "tool_end", text: "chunks returned" },
+          { cls: "pass", tag: "assistant", text: "Sept 15 — grounded answer · steps=2" }
+        ],
+        fail: [
+          { cls: "pass", tag: "user", text: "Just summarize my notes" },
+          { cls: "fail", tag: "tool", text: "create_note(…)  ← unexpected" },
+          { cls: "fail", tag: "assert", text: "FAIL: forbid create unless asked" }
+        ],
+        loop: [
+          { cls: "pass", tag: "user", text: "Update the launch note" },
+          { cls: "warn", tag: "tool", text: "search_notes" },
+          { cls: "warn", tag: "tool", text: "search_notes again" },
+          { cls: "warn", tag: "assert", text: "WARN: steps high; no update_note" }
+        ]
+      };
+      function renderTraj() {
+        const v = document.getElementById("trajPick").value;
+        const root = document.getElementById("trajViz");
+        root.innerHTML = TRAJ[v].map((s) =>
+          '<div class="step ' + s.cls + '"><div><div class="tag">' + s.tag + '</div>' + s.text + '</div></div>'
+        ).join("");
+      }
+      document.getElementById("trajPick").addEventListener("change", renderTraj);
+      renderTraj();
+
       document.querySelectorAll(".checklist").forEach((list) => {
-        const listId = list.dataset.list;
+        const id = list.dataset.list;
         list.querySelectorAll("li").forEach((li, idx) => {
           const input = li.querySelector("input");
-          const key = listId + ":" + idx;
-          if (state.checks[key]) {
-            input.checked = true;
-            li.classList.add("checked");
-          }
-          const toggle = () => {
-            input.checked = !input.checked;
-            li.classList.toggle("checked", input.checked);
-            state.checks[key] = input.checked;
-            saveState(state);
-          };
+          const k = id + ":" + idx;
+          if (state.checks[k]) { input.checked = true; li.classList.add("checked"); }
           li.addEventListener("click", (e) => {
-            if (e.target === input) {
-              li.classList.toggle("checked", input.checked);
-              state.checks[key] = input.checked;
-              saveState(state);
-              return;
-            }
-            toggle();
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
           });
         });
       });

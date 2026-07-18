@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG — Retrieval · Embeddings · Index · Search — Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --blue: #6b9fd4;
+      --nav-w: 270px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.8rem; margin-bottom: 0.1rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 820px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 40rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px; letter-spacing: 0.02em;
+    }
+    .badge.done { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .badge.todo { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--line); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.75rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0 0 1rem; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid var(--blue); }
+    .panel.d { border-top: 3px solid var(--bad); }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .tabs { margin: 0.85rem 0 1.1rem; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.6rem; }
+    .tab-btn {
+      font-family: var(--font-b); font-size: 0.8rem; padding: 0.32rem 0.6rem;
+      border: 1px solid transparent; border-radius: 8px; background: transparent;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.3); font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .demo {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1rem; margin: 0.85rem 0;
+    }
+    .demo label {
+      display: block; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600;
+    }
+    .demo select, .demo input[type="range"], .demo textarea, .demo input[type="text"] {
+      width: 100%; font-family: var(--font-m); font-size: 0.85rem;
+      padding: 0.5rem 0.6rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-2); color: var(--ink); margin-bottom: 0.7rem;
+      accent-color: var(--teal);
+    }
+    .demo textarea { min-height: 72px; resize: vertical; font-size: 0.8rem; }
+    .demo input[type="range"] { padding: 0; }
+    .range-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin: -0.4rem 0 0.7rem; }
+    .out {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem;
+      color: #c5d0dc; white-space: pre-wrap; line-height: 1.5; max-height: 320px; overflow-y: auto;
+    }
+    .out .ok { color: var(--teal); }
+    .out .am { color: var(--amber); }
+    .out .dim { color: var(--muted); }
+    .out .bad { color: var(--bad); }
+    .rank-list { list-style: none; padding: 0; margin: 0; }
+    .rank-list li {
+      display: grid; grid-template-columns: 1.5rem 1fr auto; gap: 0.5rem;
+      align-items: center; padding: 0.45rem 0.55rem; margin-bottom: 0.3rem;
+      border-radius: 8px; border: 1px solid var(--line); background: var(--bg-2);
+      font-size: 0.84rem; color: var(--soft); transition: transform 0.25s, border-color 0.25s;
+    }
+    .rank-list li .rk { font-family: var(--font-m); color: var(--teal); font-weight: 600; }
+    .rank-list li .sc { font-family: var(--font-m); font-size: 0.75rem; color: var(--muted); }
+    .quiz {
+      border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+      background: var(--card); margin: 1rem 0;
+    }
+    .quiz h4 { margin: 0 0 0.45rem; font-family: var(--font-d); }
+    .quiz-opts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.55rem 0; }
+    .quiz-opts button {
+      text-align: left; font-family: var(--font-b); font-size: 0.85rem;
+      padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg-2); color: var(--soft); cursor: pointer;
+    }
+    .quiz-opts button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-dim); }
+    .quiz-opts button.correct { border-color: var(--good); background: rgba(76,175,122,0.15); color: var(--good); font-weight: 600; }
+    .quiz-opts button.wrong { border-color: var(--bad); background: rgba(224,108,108,0.12); color: var(--bad); }
+    .quiz-opts button:disabled { cursor: default; }
+    .quiz-fb { font-size: 0.84rem; color: var(--soft); min-height: 1.2em; margin: 0; }
+    .acc { margin: 0.8rem 0; }
+    .acc-item {
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 0.4rem;
+      background: var(--card); overflow: hidden;
+    }
+    .acc-btn {
+      width: 100%; text-align: left; padding: 0.75rem 0.9rem; border: none;
+      background: transparent; font-family: var(--font-b); font-size: 0.9rem;
+      font-weight: 600; color: var(--ink); cursor: pointer;
+      display: flex; justify-content: space-between; gap: 0.8rem;
+    }
+    .acc-btn .chev { font-family: var(--font-m); color: var(--muted); transition: transform 0.2s; }
+    .acc-item.open .acc-btn .chev { transform: rotate(90deg); color: var(--teal); }
+    .acc-body {
+      display: none; padding: 0 0.9rem 0.85rem; font-size: 0.88rem;
+      color: var(--soft); border-top: 1px solid var(--line);
+    }
+    .acc-item.open .acc-body { display: block; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.85rem 0; }
+    .roadmap > li {
+      position: relative; padding: 0 0 1rem 2.25rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.65rem;
+    }
+    .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .roadmap > li::before {
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.75rem; top: 0;
+      width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
+    }
+    .roadmap h4 { margin: 0 0 0.25rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .status-row {
+      display: grid; grid-template-columns: 110px 1fr; gap: 0.45rem 0.65rem;
+      margin: 0.7rem 0; font-size: 0.84rem; align-items: start;
+    }
+    .status-row .st {
+      font-family: var(--font-m); font-size: 0.65rem; padding: 0.2rem 0.4rem;
+      border-radius: 4px; font-weight: 600; text-align: center; white-space: nowrap;
+    }
+    .st.y { background: rgba(76,175,122,0.15); color: var(--good); }
+    .st.p { background: var(--amber-dim); color: var(--amber); }
+    .st.n { background: rgba(255,255,255,0.05); color: var(--muted); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .vec-grid {
+      display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px;
+      margin: 0.6rem 0 0.9rem;
+    }
+    .vec-grid span {
+      aspect-ratio: 1; border-radius: 3px; background: var(--bg-2);
+      border: 1px solid var(--line);
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+      .status-row { grid-template-columns: 90px 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">RAG Guidebook</p>
+      <p class="brand-sub">Dark guide · DashNoteSystem</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Read</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Core</h3>
+          <a href="#overview" data-c="overview"><span class="dot"></span>What is RAG</a>
+          <a href="#pipeline" data-c="pipeline"><span class="dot"></span>End-to-end pipeline</a>
+          <a href="#embeddings" data-c="embeddings"><span class="dot"></span>Embeddings</a>
+          <a href="#chunking" data-c="chunking"><span class="dot"></span>Chunking</a>
+          <a href="#indexing" data-c="indexing"><span class="dot"></span>Indexing</a>
+          <a href="#vectordb" data-c="vectordb"><span class="dot"></span>Vector database</a>
+        </div>
+        <div class="nav-g">
+          <h3>Retrieval</h3>
+          <a href="#similarity" data-c="similarity"><span class="dot"></span>Similarity search</a>
+          <a href="#hybrid" data-c="hybrid"><span class="dot"></span>Hybrid search</a>
+          <a href="#rerank" data-c="rerank"><span class="dot"></span>Reranking</a>
+          <a href="#agentic" data-c="agentic"><span class="dot"></span>Agentic RAG</a>
+        </div>
+        <div class="nav-g">
+          <h3>Advanced</h3>
+          <a href="#context" data-c="context"><span class="dot"></span>Context &amp; citations</a>
+          <a href="#query" data-c="query"><span class="dot"></span>Query rewriting</a>
+          <a href="#eval" data-c="eval"><span class="dot"></span>Evaluation</a>
+        </div>
+        <div class="nav-g">
+          <h3>DashNote</h3>
+          <a href="#status" data-c="status"><span class="dot"></span>Done · partial · not</a>
+          <a href="#implement" data-c="implement"><span class="dot"></span>Implement here</a>
+          <a href="#check" data-c="check"><span class="dot"></span>Checklist</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Interactive · knowledge backbone · dark</p>
+        <h1>Retrieval-Augmented Generation</h1>
+        <p>
+          Full field guide to RAG: embeddings, chunking, indexing, vector search,
+          hybrid + rerank, and agentic retrieval — mapped onto what DashNote
+          already ships and what to build next.
+        </p>
+        <div class="chips">
+          <span class="chip t">Dense RAG ✓</span>
+          <span class="chip t">Qdrant ✓</span>
+          <span class="chip t">Agent tools ✓</span>
+          <span class="chip a">Hybrid ✗</span>
+          <span class="chip a">Rerank ✗</span>
+        </div>
+      </header>
+
+      <!-- 01 OVERVIEW -->
+      <section class="ch" id="overview" data-c="overview">
+        <h2><span class="n">01</span> What is RAG <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          RAG grounds an LLM in <em>your</em> documents at query time — retrieve first, then generate —
+          so answers cite real notes instead of inventing them.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Without RAG</h4>
+            <ul>
+              <li>Model only knows training data</li>
+              <li>Hallucinates workspace facts</li>
+              <li>No citations to your notes</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>With RAG</h4>
+            <ul>
+              <li>Fetch relevant chunks from Qdrant</li>
+              <li>Stuff them into the prompt</li>
+              <li>Answer + grounded citations</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="flow">
+          <span class="fn">user question</span><span class="fa">→</span>
+          <span class="fn hi">retrieve</span><span class="fa">→</span>
+          <span class="fn hi">budget context</span><span class="fa">→</span>
+          <span class="fn hi">LLM</span><span class="fa">→</span>
+          <span class="fn am">answer + citations</span>
+        </div>
+
+        <div class="callout">
+          <div class="lb">DashNote</div>
+          Fast path: <code>POST /ai/chat</code> → <code>RagService.answer()</code>.
+          Agent path: <code>POST /ai/agent</code> tools call the same service.
+          Never replace chat with agent — they coexist.
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>What problem does RAG primarily solve?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Making the model faster</button>
+            <button type="button" data-ok="true">Grounding answers in private / fresh docs</button>
+            <button type="button" data-ok="false">Training a smaller model</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="overview">Mark read</button></div>
+      </section>
+
+      <!-- 02 PIPELINE -->
+      <section class="ch" id="pipeline" data-c="pipeline">
+        <h2><span class="n">02</span> End-to-end pipeline</h2>
+        <p class="lede">Two phases: <strong>index-time</strong> (offline) and <strong>query-time</strong> (online).</p>
+
+        <div class="tabs" data-tabs="phases">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="index">Index-time</button>
+            <button type="button" class="tab-btn" data-tab="query">Query-time</button>
+            <button type="button" class="tab-btn" data-tab="dash">DashNote map</button>
+          </div>
+          <div class="tab-panel active" data-panel="index">
+            <div class="flow">
+              <span class="fn">document</span><span class="fa">→</span>
+              <span class="fn">chunk</span><span class="fa">→</span>
+              <span class="fn">embed</span><span class="fa">→</span>
+              <span class="fn hi">upsert vectors</span>
+            </div>
+            <p>Notes: create → ARQ <code>embed_note_task</code>. Files: upload → extract text → <code>index_file_chunks</code>.</p>
+          </div>
+          <div class="tab-panel" data-panel="query">
+            <div class="flow">
+              <span class="fn">query</span><span class="fa">→</span>
+              <span class="fn">embed query</span><span class="fa">→</span>
+              <span class="fn hi">ANN search + RBAC</span><span class="fa">→</span>
+              <span class="fn">budget</span><span class="fa">→</span>
+              <span class="fn">generate</span>
+            </div>
+            <p>Optional upgrades: query rewrite → hybrid fuse → rerank → generate.</p>
+          </div>
+          <div class="tab-panel" data-panel="dash">
+            <table>
+              <thead><tr><th>Stage</th><th>Module</th></tr></thead>
+              <tbody>
+                <tr><td>Chunk</td><td><code>ai/embeddings/chunker.py</code></td></tr>
+                <tr><td>Embed + cache</td><td><code>litellm_provider</code> · Redis <code>embed:v1:…</code></td></tr>
+                <tr><td>Index</td><td><code>NoteVectorIndexer</code> / <code>FileVectorIndexer</code></td></tr>
+                <tr><td>Search</td><td><code>WorkspaceVectorSearch</code></td></tr>
+                <tr><td>Answer</td><td><code>RagService</code> · <code>ai/prompts/rag.py</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="pipeline">Mark read</button></div>
+      </section>
+
+      <!-- 03 EMBEDDINGS -->
+      <section class="ch" id="embeddings" data-c="embeddings">
+        <h2><span class="n">03</span> Embeddings <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          An embedding maps text → a dense vector so “similar meaning” becomes “nearby points”
+          in high-dimensional space.
+        </p>
+
+        <div class="grid3">
+          <div class="panel t"><h4>Dense</h4><p>Semantic meaning. DashNote’s path.</p></div>
+          <div class="panel a"><h4>Sparse</h4><p>BM25 / SPLADE — keyword precision.</p></div>
+          <div class="panel b"><h4>Multi-vector</h4><p>ColBERT-style late interaction.</p></div>
+        </div>
+
+        <h3>Properties that matter</h3>
+        <ul>
+          <li><strong>Dimension</strong> — must match collection (DashNote: <code>3072</code>)</li>
+          <li><strong>Same model</strong> for index and query — never mix families</li>
+          <li><strong>Batching + cache</strong> — cut cost and latency on re-embeds</li>
+        </ul>
+
+        <div class="callout">
+          <div class="lb">DashNote settings</div>
+          <code>EMBEDDING_MODEL=gemini/gemini-embedding-2</code> ·
+          <code>EMBEDDING_DIMENSION=3072</code> ·
+          Redis cache <code>embed:v1:{sha256(text)}</code> ·
+          retries in <code>ai/embeddings/litellm_provider.py</code>
+        </div>
+
+        <div class="demo">
+          <label>Toy “embedding” demo — cosine of bag-of-words vectors</label>
+          <input type="text" id="embA" value="Q3 launch roadmap deadline" />
+          <input type="text" id="embB" value="roadmap for third quarter launch" />
+          <button type="button" class="btn primary" id="embRun">Compare</button>
+          <div class="out" id="embOut" style="margin-top:0.7rem"></div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>You change embedding model but keep the old Qdrant points. What happens?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Scores stay comparable</button>
+            <button type="button" data-ok="true">Similarity becomes meaningless — re-index everything</button>
+            <button type="button" data-ok="false">Only dimension must match</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="embeddings">Mark read</button></div>
+      </section>
+
+      <!-- 04 CHUNKING -->
+      <section class="ch" id="chunking" data-c="chunking">
+        <h2><span class="n">04</span> Chunking <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          Chunking decides the unit of retrieval. Too big → noisy context. Too small → lost meaning.
+        </p>
+
+        <table>
+          <thead><tr><th>Strategy</th><th>When</th><th>DashNote</th></tr></thead>
+          <tbody>
+            <tr><td>Fixed size</td><td>Simple corpora</td><td>Size+overlap via RecursiveCharacter</td></tr>
+            <tr><td>Recursive / markdown-aware</td><td>Notes, docs</td><td>✓ separators <code>\n\n → . → space</code></td></tr>
+            <tr><td>Semantic</td><td>High quality, costly</td><td>Not yet</td></tr>
+            <tr><td>Parent–child</td><td>Retrieve small, expand parent</td><td>Not yet</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">DashNote chunker</div>
+          <code>CHUNK_SIZE=1000</code> · <code>CHUNK_OVERLAP=150</code> · <code>CHUNK_MIN_LENGTH=50</code>.
+          Title prepended as H1 so every chunk carries note context.
+          Deterministic <code>chunk_id = uuid5(note_id:index)</code> → idempotent upserts.
+        </div>
+
+        <div class="demo">
+          <label>Chunk size (chars)</label>
+          <input type="range" id="chunkSize" min="200" max="1200" step="50" value="1000" />
+          <div class="range-row"><span>200</span><span id="chunkSizeLbl">1000</span><span>1200</span></div>
+          <label>Overlap</label>
+          <input type="range" id="chunkOv" min="0" max="300" step="25" value="150" />
+          <div class="range-row"><span>0</span><span id="chunkOvLbl">150</span><span>300</span></div>
+          <label>Sample note</label>
+          <textarea id="chunkText"># Launch plan
+
+Q3 goals include shipping hybrid search.
+
+## Risks
+Latency and embedding cost.
+
+## Owners
+Alice owns retrieval; Bob owns agent tools.</textarea>
+          <button type="button" class="btn primary" id="chunkRun">Split</button>
+          <div class="out" id="chunkOut" style="margin-top:0.7rem"></div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="chunking">Mark read</button></div>
+      </section>
+
+      <!-- 05 INDEXING -->
+      <section class="ch" id="indexing" data-c="indexing">
+        <h2><span class="n">05</span> Indexing <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          Indexing writes vectors + payload into the vector DB so search can filter and score later.
+        </p>
+
+        <h3>Write pattern</h3>
+        <div class="flow">
+          <span class="fn">delete old note points</span><span class="fa">→</span>
+          <span class="fn hi">embed chunks</span><span class="fa">→</span>
+          <span class="fn hi">upsert</span>
+        </div>
+        <p>
+          DashNote uses delete-then-upsert per source so updates never leave orphan vectors.
+          Worker path only — routers never write Qdrant directly.
+        </p>
+
+        <h3>Payload fields (notes)</h3>
+        <table>
+          <thead><tr><th>Field</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td><code>workspace_id</code></td><td>Tenant isolation — mandatory filter</td></tr>
+            <tr><td><code>note_id</code>, <code>chunk_id</code>, <code>chunk_index</code></td><td>Identity / ordering</td></tr>
+            <tr><td><code>text</code> / <code>chunk_text</code>, <code>title</code></td><td>Prompt context</td></tr>
+            <tr><td><code>created_by</code>, <code>visibility</code></td><td>Member RBAC</td></tr>
+          </tbody>
+        </table>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>notes_chunks</h4>
+            <p>Slice 1 · note create/update → <code>embed_note_task</code></p>
+          </div>
+          <div class="panel a">
+            <h4>files_chunks</h4>
+            <p>Slice 7 · extract → <code>index_file_chunks</code></p>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Soft dependency</div>
+          If Qdrant is down at boot, API still starts. Embeddings may run with
+          <code>qdrant_indexed=false</code>. <code>/ai/*</code> degrades until Qdrant is reachable.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="indexing">Mark read</button></div>
+      </section>
+
+      <!-- 06 VECTOR DB -->
+      <section class="ch" id="vectordb" data-c="vectordb">
+        <h2><span class="n">06</span> Vector database <span class="badge done">Qdrant</span></h2>
+        <p class="lede">
+          A vector DB stores embeddings and runs approximate nearest-neighbor (ANN) search
+          with metadata filters.
+        </p>
+
+        <div class="tabs" data-tabs="vdb">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="why">Why a VDB</button>
+            <button type="button" class="tab-btn" data-tab="ann">ANN vs exact</button>
+            <button type="button" class="tab-btn" data-tab="qdrant">Qdrant here</button>
+          </div>
+          <div class="tab-panel active" data-panel="why">
+            <ul>
+              <li>Postgres + pgvector works at small scale; dedicated VDBs shine with filters + HNSW</li>
+              <li>Payload filters (tenant, RBAC) applied <em>during</em> search, not after</li>
+              <li>Collections isolate schemas (notes vs files)</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="ann">
+            <p><strong>Exact</strong> cosine over all points — O(n), correct, slow.</p>
+            <p><strong>ANN (HNSW)</strong> — approximate top-k, sublinear, good enough for RAG.</p>
+            <p>Trade recall for latency. For RAG, high recall on top-20 + rerank beats exact top-5 of a weak embedding.</p>
+          </div>
+          <div class="tab-panel" data-panel="qdrant">
+            <ul>
+              <li>Collections: <code>notes_chunks</code>, <code>files_chunks</code></li>
+              <li>Distance: cosine · dim <strong>3072</strong></li>
+              <li>Client singleton in <code>ai/retrieval/client.py</code></li>
+              <li>Search only via <code>WorkspaceVectorSearch</code> — never raw client in routers</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="demo">
+          <label>Visualize filter + ANN (toy)</label>
+          <select id="vdbRole">
+            <option value="owner">Role: owner (all in workspace)</option>
+            <option value="member">Role: member (public + own)</option>
+          </select>
+          <div class="out" id="vdbOut"></div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="vectordb">Mark read</button></div>
+      </section>
+
+      <!-- 07 SIMILARITY -->
+      <section class="ch" id="similarity" data-c="similarity">
+        <h2><span class="n">07</span> Similarity search <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          Embed the query, find nearest chunk vectors, drop below a score threshold, return top-k.
+        </p>
+
+        <table>
+          <thead><tr><th>Metric</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Cosine</td><td>DashNote default — angle between vectors</td></tr>
+            <tr><td>Dot product</td><td>Common when vectors are normalized</td></tr>
+            <tr><td>Euclidean</td><td>Less common for text embeddings</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">DashNote thresholds</div>
+          Wrapper default <code>score_threshold=0.3</code>. Quality gate for tuning:
+          relevant content often &gt; <strong>0.4</strong>. Probe with <code>GET /ai/test-search?q=…</code>.
+        </div>
+
+        <div class="demo">
+          <label>Query type</label>
+          <select id="simScene">
+            <option value="para">Paraphrase (“when is the Q3 launch?”)</option>
+            <option value="exact">Exact ID (“INV-2048”)</option>
+            <option value="noise">Vague (“stuff from last week”)</option>
+          </select>
+          <ul class="rank-list" id="simList"></ul>
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Where must <code>workspace_id</code> come from on search?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Query string or body</button>
+            <button type="button" data-ok="true">JWT → RequestContext only</button>
+            <button type="button" data-ok="false">Qdrant collection name</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="similarity">Mark read</button></div>
+      </section>
+
+      <!-- 08 HYBRID -->
+      <section class="ch" id="hybrid" data-c="hybrid">
+        <h2><span class="n">08</span> Hybrid search <span class="badge todo">not yet</span></h2>
+        <p class="lede">
+          Combine dense (semantic) and sparse (keyword) signals so paraphrases <em>and</em> exact tokens hit.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Dense wins</h4>
+            <ul>
+              <li>“deadline for Q3 plan” ≈ roadmap note</li>
+              <li>Synonyms &amp; paraphrases</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Sparse wins</h4>
+            <ul>
+              <li>Codes: <code>INV-2048</code></li>
+              <li>Error strings, rare names</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Fusion</h3>
+        <ul>
+          <li><strong>RRF</strong> (Reciprocal Rank Fusion) — rank-based, scale-free, usually best first try</li>
+          <li><strong>Weighted sum</strong> — needs score calibration</li>
+          <li><strong>Qdrant prefetch + fusion</strong> — dense + sparse in one query API</li>
+        </ul>
+
+        <div class="demo">
+          <label>Scenario</label>
+          <select id="hyScene">
+            <option value="semantic">Semantic paraphrase</option>
+            <option value="id">Exact ID</option>
+            <option value="mixed">Mixed</option>
+          </select>
+          <label>Mode — <span id="hyModeLbl">Dense only</span></label>
+          <input type="range" id="hyMode" min="0" max="2" step="1" value="0" />
+          <div class="range-row"><span>Dense</span><span>Hybrid</span><span>Hybrid+Rerank</span></div>
+          <ul class="rank-list" id="hyList"></ul>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Gap</div>
+          Today <code>WorkspaceVectorSearch</code> is dense-only (comment says “hybrid-ready”).
+          Next step: BM25 or sparse vectors + RRF inside the wrapper — keep RBAC filter on both branches.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="hybrid">Mark read</button></div>
+      </section>
+
+      <!-- 09 RERANK -->
+      <section class="ch" id="rerank" data-c="rerank">
+        <h2><span class="n">09</span> Reranking <span class="badge todo">not yet</span></h2>
+        <p class="lede">
+          Retrieve broad (top 20–50), then score query–document pairs with a cross-encoder
+          and keep top 5 for the LLM.
+        </p>
+
+        <div class="flow">
+          <span class="fn">ANN top-30</span><span class="fa">→</span>
+          <span class="fn am">cross-encoder</span><span class="fa">→</span>
+          <span class="fn hi">top-5 context</span>
+        </div>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Why</h4>
+            <p>Bi-encoders are fast but shallow. Cross-encoders see full query+chunk together.</p>
+          </div>
+          <div class="panel a">
+            <h4>Cost</h4>
+            <p>Latency + GPU/API. Only score a shortlist — never the whole corpus.</p>
+          </div>
+        </div>
+
+        <div class="acc">
+          <div class="acc-item">
+            <button type="button" class="acc-btn">Options for DashNote <span class="chev">›</span></button>
+            <div class="acc-body">
+              <ul>
+                <li>Cohere / Voyage / Jina rerank API</li>
+                <li>Local <code>bge-reranker</code> in worker sidecar</li>
+                <li>LLM-as-reranker (slow, expensive — last resort)</li>
+              </ul>
+              <p>Place after fusion, before <code>TOKEN_BUDGET_PER_REQUEST</code> truncation in <code>RagService</code>.</p>
+            </div>
+          </div>
+          <div class="acc-item">
+            <button type="button" class="acc-btn">Failure modes <span class="chev">›</span></button>
+            <div class="acc-body">
+              <ul>
+                <li>Reranker unavailable → fall back to dense order (fail-open)</li>
+                <li>Never drop RBAC filter to “improve” recall</li>
+                <li>Don’t send private chunks to a third-party reranker without a DPA</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="rerank">Mark read</button></div>
+      </section>
+
+      <!-- 10 AGENTIC -->
+      <section class="ch" id="agentic" data-c="agentic">
+        <h2><span class="n">10</span> Agentic RAG <span class="badge partial">partial</span></h2>
+        <p class="lede">
+          Classic RAG: one retrieve → one generate. Agentic RAG: the model decides
+          when/how to retrieve (and may loop, rewrite, or use tools).
+        </p>
+
+        <div class="tabs" data-tabs="agentic">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="classic">Classic</button>
+            <button type="button" class="tab-btn" data-tab="agent">Agentic</button>
+            <button type="button" class="tab-btn" data-tab="patterns">Patterns</button>
+          </div>
+          <div class="tab-panel active" data-panel="classic">
+            <div class="flow">
+              <span class="fn">q</span><span class="fa">→</span>
+              <span class="fn hi">retrieve</span><span class="fa">→</span>
+              <span class="fn hi">generate</span>
+            </div>
+            <p>DashNote: <code>/ai/chat*</code> — low latency, fixed pipeline, citations in metadata.</p>
+          </div>
+          <div class="tab-panel" data-panel="agent">
+            <div class="flow">
+              <span class="fn">q</span><span class="fa">→</span>
+              <span class="fn am">agent</span><span class="fa">→</span>
+              <span class="fn hi">search_notes</span><span class="fa">→</span>
+              <span class="fn am">maybe tools again</span><span class="fa">→</span>
+              <span class="fn">answer</span>
+            </div>
+            <p>DashNote: LangGraph <code>/ai/agent*</code> with <code>search_notes</code>, <code>summarize_workspace</code>, create/update note.</p>
+          </div>
+          <div class="tab-panel" data-panel="patterns">
+            <ul>
+              <li><strong>Tool-calling RAG</strong> — model invokes search (✓ you have this)</li>
+              <li><strong>Self-RAG / CRAG</strong> — critique retrieval, re-query if weak</li>
+              <li><strong>Multi-hop</strong> — answer needs several notes chained</li>
+              <li><strong>Router</strong> — send simple Q to chat, complex to agent</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <div class="lb">Architecture law</div>
+          Agent tools call <code>RagService.answer(...)</code> with plain strings — never
+          <code>RequestContext</code>. Mutations go through <code>NoteService</code>, not repositories.
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Should <code>/ai/agent</code> replace <code>/ai/chat</code>?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Yes — one path is simpler</button>
+            <button type="button" data-ok="true">No — fast RAG and agent coexist</button>
+            <button type="button" data-ok="false">Only keep agent streaming</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="agentic">Mark read</button></div>
+      </section>
+
+      <!-- 11 CONTEXT -->
+      <section class="ch" id="context" data-c="context">
+        <h2><span class="n">11</span> Context budget &amp; citations <span class="badge done">shipped</span></h2>
+        <p class="lede">
+          Retrieval quality dies if you dump too much text or trust the model’s chunk IDs blindly.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Budget</h4>
+            <p><code>TOKEN_BUDGET_PER_REQUEST=8000</code> chars shared with thread history via <code>ContextBuilder</code>.</p>
+          </div>
+          <div class="panel a">
+            <h4>Citations</h4>
+            <p>Ground against retrieved set server-side. SSE: citations only in final <code>metadata</code> event.</p>
+          </div>
+        </div>
+
+        <h3>Also worth knowing</h3>
+        <ul>
+          <li><strong>Lost-in-the-middle</strong> — put best chunks first/last, not only middle</li>
+          <li><strong>Dedup</strong> — same note, many chunks → diversify before budget cut</li>
+          <li><strong>Structured prompt</strong> — clear “CONTEXT FROM YOUR NOTES” boundary (injection defense)</li>
+        </ul>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="context">Mark read</button></div>
+      </section>
+
+      <!-- 12 QUERY -->
+      <section class="ch" id="query" data-c="query">
+        <h2><span class="n">12</span> Query rewriting <span class="badge todo">not yet</span></h2>
+        <p class="lede">
+          Users ask poorly. Rewrite / expand the query before embedding to boost recall.
+        </p>
+
+        <div class="grid3">
+          <div class="panel t"><h4>HyDE</h4><p>Generate a fake answer, embed that.</p></div>
+          <div class="panel a"><h4>Multi-query</h4><p>3 paraphrases → union results.</p></div>
+          <div class="panel b"><h4>History rewrite</h4><p>Resolve “that note” using thread.</p></div>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Gap</div>
+          DashNote embeds the raw user message. Thread history is in the generation budget,
+          not used to rewrite the retrieval query. Good next slice for multi-turn chat.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="query">Mark read</button></div>
+      </section>
+
+      <!-- 13 EVAL -->
+      <section class="ch" id="eval" data-c="eval">
+        <h2><span class="n">13</span> Evaluation <span class="badge partial">observability</span></h2>
+        <p class="lede">You can’t improve RAG without measuring retrieval and answer quality separately.</p>
+
+        <table>
+          <thead><tr><th>Layer</th><th>Metrics</th><th>DashNote</th></tr></thead>
+          <tbody>
+            <tr><td>Retrieval</td><td>Recall@k, MRR, nDCG</td><td>Manual via test-search scores</td></tr>
+            <tr><td>Answer</td><td>Faithfulness, relevance</td><td>Langfuse RAG traces</td></tr>
+            <tr><td>Ops</td><td>Latency, cost, empty hits</td><td>Prometheus + tracing spans</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">Trace spans</div>
+          <code>rag_trace</code> → <code>retrieval</code> · <code>context_building</code> · <code>llm_generation</code>
+          in <code>observability/tracing.py</code>.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="eval">Mark read</button></div>
+      </section>
+
+      <!-- 14 STATUS -->
+      <section class="ch" id="status" data-c="status">
+        <h2><span class="n">14</span> What we have · what we don’t</h2>
+        <p class="lede">Honest inventory against this guidebook’s topics.</p>
+
+        <div class="status-row">
+          <span class="st y">DONE</span>
+          <span>RAG chat JSON + SSE · embeddings · chunking · Qdrant index · dense similarity · RBAC filters · citations · token budget · threads · Langfuse traces · files_chunks indexing</span>
+        </div>
+        <div class="status-row">
+          <span class="st p">PARTIAL</span>
+          <span>Agentic RAG (tool search exists; no self-critique / multi-hop planner) · eval (traces, not gold-set metrics) · hybrid-ready wrapper (API shape only)</span>
+        </div>
+        <div class="status-row">
+          <span class="st n">NOT YET</span>
+          <span>Hybrid / BM25 · reranking · query rewrite / HyDE · semantic chunking · parent–child · cross-collection search (notes+files in one call) · retrieval eval harness</span>
+        </div>
+
+        <h3>Key paths</h3>
+<pre><code>src/ai/embeddings/chunker.py
+src/ai/embeddings/litellm_provider.py
+src/ai/workflows/pipeline.py
+src/ai/retrieval/wrapper.py          # WorkspaceVectorSearch
+src/ai/retrieval/filters.py           # build_rbac_filter
+src/ai/services/rag_service.py
+src/ai/prompts/rag.py
+src/ai_routes/chat.py                 # /ai/chat*
+src/ai/workflows/workspace_assistant.py  # agent + tools
+</code></pre>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="status">Mark read</button></div>
+      </section>
+
+      <!-- 15 IMPLEMENT -->
+      <section class="ch" id="implement" data-c="implement">
+        <h2><span class="n">15</span> Implement in DashNote</h2>
+        <p class="lede">Concrete upgrade order that respects import laws and RBAC.</p>
+
+        <ol class="roadmap">
+          <li>
+            <h4>Hybrid inside WorkspaceVectorSearch</h4>
+            <p>
+              Add sparse path (Postgres full-text on note content, or Qdrant sparse vectors).
+              Fuse with RRF. Apply <code>build_rbac_filter</code> to both branches.
+              Keep routers calling the same wrapper — zero API change.
+            </p>
+          </li>
+          <li>
+            <h4>Rerank shortlist in RagService</h4>
+            <p>
+              After search, before budget: <code>rerank(query, chunks) → top_n</code>.
+              Setting <code>RERANK_ENABLED</code> / provider. Fail-open to dense order.
+              Do not put rerank in routers.
+            </p>
+          </li>
+          <li>
+            <h4>Conversational query rewrite</h4>
+            <p>
+              In chat with <code>thread_id</code>, rewrite retrieval query from last N messages
+              before embed. Keep rewrite LLM call short; fall back to raw message on failure.
+            </p>
+          </li>
+          <li>
+            <h4>Unified notes + files retrieve</h4>
+            <p>
+              Search both collections (or multi-query), tag source type in payload,
+              merge ranks. Agent <code>search_notes</code> may become <code>search_workspace</code>.
+            </p>
+          </li>
+          <li>
+            <h4>Eval set + CI gate</h4>
+            <p>
+              30–50 labeled (query → note_id) pairs. Script hits test-search / RagService;
+              fail PR if Recall@5 drops. Store in <code>tests/ai/fixtures/rag_eval.json</code>.
+            </p>
+          </li>
+        </ol>
+
+        <h3>Minimal hybrid sketch</h3>
+<pre><code># ai/retrieval/wrapper.py (conceptual)
+dense = await qdrant.query_points(... dense ..., query_filter=rbac)
+sparse = await sparse_search(... same rbac ...)
+fused = rrf([dense, sparse], k=60)[:limit]
+return [to_search_result(p) for p in fused]
+</code></pre>
+
+        <div class="callout">
+          <div class="lb">Laws to keep</div>
+          <code>workspace_id</code> only from JWT · search only via wrapper ·
+          writes only via indexer · <code>RagService</code> takes plain strings ·
+          append-only settings / compose / requirements.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="implement">Mark read</button></div>
+      </section>
+
+      <!-- 16 CHECK -->
+      <section class="ch" id="check" data-c="check">
+        <h2><span class="n">16</span> Checklist</h2>
+        <p class="lede">Track learning + next build steps. Saved in localStorage.</p>
+
+        <h3>Understand</h3>
+        <ul class="checklist" data-list="learn">
+          <li><input type="checkbox" /> RAG = retrieve then generate with citations</li>
+          <li><input type="checkbox" /> Same embedding model at index &amp; query time</li>
+          <li><input type="checkbox" /> Chunk size/overlap tradeoffs</li>
+          <li><input type="checkbox" /> Why vector DB + payload filters beat post-filtering</li>
+          <li><input type="checkbox" /> Hybrid = dense + sparse + fusion</li>
+          <li><input type="checkbox" /> Rerank scores a shortlist, not the corpus</li>
+          <li><input type="checkbox" /> Agentic RAG loops tools; chat stays the fast path</li>
+        </ul>
+
+        <h3>Build next</h3>
+        <ul class="checklist" data-list="build">
+          <li><input type="checkbox" /> Hybrid + RRF in WorkspaceVectorSearch</li>
+          <li><input type="checkbox" /> Optional cross-encoder rerank in RagService</li>
+          <li><input type="checkbox" /> Thread-aware query rewrite</li>
+          <li><input type="checkbox" /> Joint notes + files retrieval</li>
+          <li><input type="checkbox" /> Gold-set Recall@k eval in CI</li>
+        </ul>
+
+        <div class="mark">
+          <button type="button" class="btn primary mark-btn" data-c="check">Mark read</button>
+          <button type="button" class="btn" id="reset">Reset progress</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Sources: <code>docs/documentation/ai.md</code>, <code>docs/documentation/system.md</code>,
+        <code>src/ai/services/rag_service.py</code>, <code>src/ai/retrieval/*</code>.
+        Companion: <code>search_ranking.html</code> (hybrid/rerank deep dive).
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const KEY = "dashnote-rag-guide-v1";
+      const CH = [
+        "overview","pipeline","embeddings","chunking","indexing","vectordb",
+        "similarity","hybrid","rerank","agentic","context","query","eval",
+        "status","implement","check"
+      ];
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+      let state = load();
+      if (!state.read) state.read = {};
+      if (!state.checks) state.checks = {};
+
+      function progress() {
+        const n = CH.filter((c) => state.read[c]).length;
+        const p = Math.round((n / CH.length) * 100);
+        document.getElementById("pct").textContent = p + "%";
+        document.getElementById("fill").style.width = p + "%";
+        document.querySelectorAll("nav a[data-c]").forEach((a) => {
+          a.classList.toggle("visited", !!state.read[a.dataset.c]);
+        });
+      }
+
+      document.querySelectorAll(".mark-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.read[btn.dataset.c] = true;
+          save(state);
+          progress();
+          btn.textContent = "Read ✓";
+        });
+      });
+      CH.forEach((c) => {
+        if (state.read[c]) {
+          document.querySelectorAll('.mark-btn[data-c="' + c + '"]').forEach((b) => {
+            b.textContent = "Read ✓";
+          });
+        }
+      });
+      progress();
+
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!confirm("Reset progress?")) return;
+        state = { read: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false; i.closest("li").classList.remove("checked");
+        });
+        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark read"; });
+        progress();
+      });
+
+      const links = [...document.querySelectorAll("nav a[data-c]")];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+        });
+      }, { rootMargin: "-28% 0px -55% 0px" });
+      CH.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("navToggle");
+      toggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        toggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      });
+      links.forEach((l) => l.addEventListener("click", () => {
+        sidebar.classList.remove("open"); toggle.textContent = "Menu";
+      }));
+
+      document.querySelectorAll("[data-tabs]").forEach((root) => {
+        const btns = root.querySelectorAll(".tab-btn");
+        const panels = root.querySelectorAll(".tab-panel");
+        btns.forEach((btn) => btn.addEventListener("click", () => {
+          btns.forEach((b) => b.classList.toggle("active", b === btn));
+          panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+        }));
+      });
+
+      document.querySelectorAll(".acc-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = btn.closest(".acc-item");
+          const open = item.classList.contains("open");
+          item.parentElement.querySelectorAll(".acc-item").forEach((i) => i.classList.remove("open"));
+          if (!open) item.classList.add("open");
+        });
+      });
+
+      document.querySelectorAll(".quiz").forEach((quiz) => {
+        const fb = quiz.querySelector(".quiz-fb");
+        quiz.querySelectorAll(".quiz-opts button").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const ok = btn.dataset.ok === "true";
+            quiz.querySelectorAll(".quiz-opts button").forEach((b) => {
+              b.disabled = true;
+              if (b.dataset.ok === "true") b.classList.add("correct");
+            });
+            if (!ok) btn.classList.add("wrong");
+            fb.textContent = ok ? "Correct." : "See the highlighted option.";
+          });
+        });
+      });
+
+      /* Embedding toy cosine */
+      function bow(s) {
+        const m = {};
+        s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean).forEach((w) => {
+          m[w] = (m[w] || 0) + 1;
+        });
+        return m;
+      }
+      function cos(a, b) {
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        let dot = 0, na = 0, nb = 0;
+        keys.forEach((k) => {
+          const x = a[k] || 0, y = b[k] || 0;
+          dot += x * y; na += x * x; nb += y * y;
+        });
+        if (!na || !nb) return 0;
+        return dot / (Math.sqrt(na) * Math.sqrt(nb));
+      }
+      document.getElementById("embRun").addEventListener("click", () => {
+        const a = document.getElementById("embA").value;
+        const b = document.getElementById("embB").value;
+        const s = cos(bow(a), bow(b));
+        document.getElementById("embOut").innerHTML =
+          '<span class="dim">bag-of-words cosine (toy — real models use dense dims)</span>\n' +
+          '<span class="ok">similarity = ' + s.toFixed(3) + "</span>\n" +
+          (s > 0.5
+            ? '<span class="ok">Likely same intent → good dense hit</span>'
+            : '<span class="am">Weak lexical overlap → may need hybrid / rewrite</span>');
+      });
+      document.getElementById("embRun").click();
+
+      /* Chunk demo */
+      function splitChunks(text, size, overlap) {
+        const chunks = [];
+        let i = 0;
+        while (i < text.length) {
+          const end = Math.min(i + size, text.length);
+          chunks.push(text.slice(i, end));
+          if (end >= text.length) break;
+          i = Math.max(0, end - overlap);
+        }
+        return chunks;
+      }
+      function renderChunks() {
+        const size = +document.getElementById("chunkSize").value;
+        const ov = +document.getElementById("chunkOv").value;
+        document.getElementById("chunkSizeLbl").textContent = size;
+        document.getElementById("chunkOvLbl").textContent = ov;
+        const text = document.getElementById("chunkText").value;
+        const chunks = splitChunks(text, size, ov);
+        document.getElementById("chunkOut").innerHTML =
+          '<span class="ok">' + chunks.length + " chunks</span> " +
+          '<span class="dim">(toy splitter — DashNote uses RecursiveCharacterTextSplitter)</span>\n\n' +
+          chunks.map((c, i) =>
+            '<span class="am">[' + i + "]</span> " +
+            c.replace(/\n/g, "↵ ").slice(0, 120) +
+            (c.length > 120 ? "…" : "")
+          ).join("\n\n");
+      }
+      document.getElementById("chunkRun").addEventListener("click", renderChunks);
+      document.getElementById("chunkSize").addEventListener("input", renderChunks);
+      document.getElementById("chunkOv").addEventListener("input", renderChunks);
+      renderChunks();
+
+      /* VDB RBAC demo */
+      const CORPUS = [
+        { title: "Public roadmap", vis: "public", owner: "alice", ws: "w1" },
+        { title: "Alice private goals", vis: "private", owner: "alice", ws: "w1" },
+        { title: "Bob private draft", vis: "private", owner: "bob", ws: "w1" },
+        { title: "Other tenant note", vis: "public", owner: "x", ws: "w2" }
+      ];
+      function renderVdb() {
+        const role = document.getElementById("vdbRole").value;
+        const uid = "alice";
+        const visible = CORPUS.filter((n) => {
+          if (n.ws !== "w1") return false;
+          if (role === "owner") return true;
+          return n.vis === "public" || n.owner === uid;
+        });
+        document.getElementById("vdbOut").innerHTML =
+          '<span class="dim">workspace_id=w1 · user=alice · filter before ANN</span>\n\n' +
+          visible.map((n) =>
+            '<span class="ok">✓</span> ' + n.title +
+            ' <span class="dim">(' + n.vis + ")</span>"
+          ).join("\n") +
+          "\n\n" +
+          CORPUS.filter((n) => !visible.includes(n)).map((n) =>
+            '<span class="bad">✗</span> ' + n.title +
+            ' <span class="dim">filtered</span>'
+          ).join("\n");
+      }
+      document.getElementById("vdbRole").addEventListener("change", renderVdb);
+      renderVdb();
+
+      /* Similarity scenes */
+      const SIM = {
+        para: [
+          { t: "Q3 launch roadmap", s: 0.72 },
+          { t: "Marketing calendar", s: 0.41 },
+          { t: "INV-2048 refund bug", s: 0.28 }
+        ],
+        exact: [
+          { t: "Q3 launch roadmap", s: 0.38 },
+          { t: "Marketing calendar", s: 0.22 },
+          { t: "INV-2048 refund bug", s: 0.31 }
+        ],
+        noise: [
+          { t: "Q3 launch roadmap", s: 0.35 },
+          { t: "Marketing calendar", s: 0.34 },
+          { t: "Alice private goals", s: 0.33 }
+        ]
+      };
+      function renderSim() {
+        const sc = document.getElementById("simScene").value;
+        const ul = document.getElementById("simList");
+        ul.innerHTML = "";
+        const items = [...SIM[sc]].sort((a, b) => b.s - a.s);
+        items.forEach((it, i) => {
+          const li = document.createElement("li");
+          const pass = it.s >= 0.3;
+          li.innerHTML =
+            '<span class="rk">' + (i + 1) + "</span>" +
+            "<span>" + it.t + (pass ? "" : " · below threshold") + "</span>" +
+            '<span class="sc">' + it.s.toFixed(2) + "</span>";
+          if (!pass) li.style.opacity = "0.45";
+          ul.appendChild(li);
+        });
+        if (sc === "exact") {
+          const note = document.createElement("li");
+          note.style.gridTemplateColumns = "1fr";
+          note.innerHTML = '<span class="dim" style="grid-column:1/-1;font-size:0.78rem">Dense alone under-ranks exact IDs — hybrid fixes this.</span>';
+          ul.appendChild(note);
+        }
+      }
+      document.getElementById("simScene").addEventListener("change", renderSim);
+      renderSim();
+
+      /* Hybrid rank demo */
+      const HY = {
+        semantic: [
+          { title: "Q3 launch roadmap", dense: 0.78, sparse: 0.25, rerank: 0.91 },
+          { title: "Marketing calendar", dense: 0.45, sparse: 0.20, rerank: 0.40 },
+          { title: "INV-2048 refund bug", dense: 0.22, sparse: 0.10, rerank: 0.12 },
+          { title: "Alice private goals", dense: 0.30, sparse: 0.15, rerank: 0.18 }
+        ],
+        id: [
+          { title: "Q3 launch roadmap", dense: 0.40, sparse: 0.15, rerank: 0.25 },
+          { title: "Marketing calendar", dense: 0.28, sparse: 0.12, rerank: 0.15 },
+          { title: "INV-2048 refund bug", dense: 0.35, sparse: 0.95, rerank: 0.96 },
+          { title: "Alice private goals", dense: 0.20, sparse: 0.08, rerank: 0.10 }
+        ],
+        mixed: [
+          { title: "Q3 launch roadmap", dense: 0.55, sparse: 0.40, rerank: 0.50 },
+          { title: "Marketing calendar", dense: 0.42, sparse: 0.20, rerank: 0.28 },
+          { title: "INV-2048 refund bug", dense: 0.35, sparse: 0.70, rerank: 0.82 },
+          { title: "Alice private goals", dense: 0.48, sparse: 0.35, rerank: 0.44 }
+        ]
+      };
+      const HY_MODES = ["Dense only", "Hybrid (RRF-ish)", "Hybrid + rerank"];
+      function scoreHy(item, mode) {
+        if (mode === 0) return item.dense;
+        if (mode === 1) return 0.55 * item.dense + 0.45 * item.sparse;
+        return item.rerank;
+      }
+      function renderHy() {
+        const sc = document.getElementById("hyScene").value;
+        const mode = +document.getElementById("hyMode").value;
+        document.getElementById("hyModeLbl").textContent = HY_MODES[mode];
+        const items = HY[sc].map((x) => ({ ...x, s: scoreHy(x, mode) }));
+        items.sort((a, b) => b.s - a.s);
+        const ul = document.getElementById("hyList");
+        ul.innerHTML = "";
+        items.forEach((it, i) => {
+          const li = document.createElement("li");
+          li.innerHTML =
+            '<span class="rk">' + (i + 1) + "</span>" +
+            "<span>" + it.title + "</span>" +
+            '<span class="sc">' + it.s.toFixed(2) + "</span>";
+          ul.appendChild(li);
+        });
+      }
+      document.getElementById("hyScene").addEventListener("change", renderHy);
+      document.getElementById("hyMode").addEventListener("input", renderHy);
+      renderHy();
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) { input.checked = true; li.classList.add("checked"); }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

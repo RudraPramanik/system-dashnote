@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Context Engineering — Compaction · Rot · Selection — Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --nav-w: 270px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.8rem; margin-bottom: 0.1rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 820px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 40rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px; letter-spacing: 0.02em;
+    }
+    .badge.done { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .badge.todo { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--line); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.75rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0 0 1rem; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout.bad { border-color: var(--bad); background: rgba(224,108,108,0.1); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .callout.bad .lb { color: var(--bad); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.55rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid #6b9fd4; }
+    .panel.d { border-top: 3px solid var(--bad); }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .tabs { margin: 0.85rem 0 1.1rem; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.6rem; }
+    .tab-btn {
+      font-family: var(--font-b); font-size: 0.8rem; padding: 0.32rem 0.6rem;
+      border: 1px solid transparent; border-radius: 8px; background: transparent;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.3); font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fn.bad { background: rgba(224,108,108,0.12); border-color: rgba(224,108,108,0.4); color: var(--bad); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .demo {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1rem; margin: 0.85rem 0;
+    }
+    .demo label {
+      display: block; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600;
+    }
+    .demo select, .demo input[type="range"] {
+      width: 100%; font-family: var(--font-m); font-size: 0.85rem;
+      padding: 0.5rem 0.6rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-2); color: var(--ink); margin-bottom: 0.7rem;
+    }
+    .demo input[type="range"] { padding: 0; accent-color: var(--teal); }
+    .out {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem;
+      color: #c5d0dc; white-space: pre-wrap; line-height: 1.5; max-height: 340px; overflow-y: auto;
+    }
+    .out .ok { color: var(--teal); }
+    .out .bad { color: var(--bad); }
+    .out .role { color: var(--amber); }
+    .out .dim { color: var(--muted); }
+    .quiz {
+      border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+      background: var(--card); margin: 1rem 0;
+    }
+    .quiz h4 { margin: 0 0 0.45rem; font-family: var(--font-d); }
+    .quiz-opts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.55rem 0; }
+    .quiz-opts button {
+      text-align: left; font-family: var(--font-b); font-size: 0.85rem;
+      padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg-2); color: var(--soft); cursor: pointer;
+    }
+    .quiz-opts button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-dim); }
+    .quiz-opts button.correct { border-color: var(--good); background: rgba(76,175,122,0.15); color: var(--good); font-weight: 600; }
+    .quiz-opts button.wrong { border-color: var(--bad); background: rgba(224,108,108,0.12); color: var(--bad); }
+    .quiz-opts button:disabled { cursor: default; }
+    .quiz-fb { font-size: 0.84rem; color: var(--soft); min-height: 1.2em; margin: 0; }
+    .acc { margin: 0.8rem 0; }
+    .acc-item {
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 0.4rem;
+      background: var(--card); overflow: hidden;
+    }
+    .acc-btn {
+      width: 100%; text-align: left; padding: 0.75rem 0.9rem; border: none;
+      background: transparent; font-family: var(--font-b); font-size: 0.9rem;
+      font-weight: 600; color: var(--ink); cursor: pointer;
+      display: flex; justify-content: space-between; gap: 0.8rem;
+    }
+    .acc-btn .chev { font-family: var(--font-m); color: var(--muted); transition: transform 0.2s; }
+    .acc-item.open .acc-btn .chev { transform: rotate(90deg); color: var(--teal); }
+    .acc-body {
+      display: none; padding: 0 0.9rem 0.85rem; font-size: 0.88rem;
+      color: var(--soft); border-top: 1px solid var(--line);
+    }
+    .acc-item.open .acc-body { display: block; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.85rem 0; }
+    .roadmap > li {
+      position: relative; padding: 0 0 1rem 2.25rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.65rem;
+    }
+    .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .roadmap > li::before {
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.75rem; top: 0;
+      width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
+    }
+    .roadmap h4 { margin: 0 0 0.25rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .stack {
+      display: flex; flex-direction: column; gap: 0.3rem; margin: 0.85rem 0;
+      font-size: 0.78rem; font-family: var(--font-m);
+    }
+    .stack .slot {
+      display: grid; grid-template-columns: 120px 1fr auto; gap: 0.5rem;
+      align-items: center; padding: 0.45rem 0.6rem; border-radius: 8px;
+      border: 1px solid var(--line); background: var(--bg-2);
+    }
+    .stack .slot .k { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .stack .slot .v { color: var(--soft); }
+    .stack .slot .pct { color: var(--teal); font-size: 0.7rem; }
+    .stack .slot.sys { border-left: 3px solid #6b9fd4; }
+    .stack .slot.hist { border-left: 3px solid var(--amber); }
+    .stack .slot.ctx { border-left: 3px solid var(--teal); }
+    .stack .slot.q { border-left: 3px solid var(--good); }
+    .bar-row {
+      display: grid; grid-template-columns: 100px 1fr 52px; gap: 0.4rem;
+      align-items: center; margin: 0.25rem 0; font-size: 0.78rem;
+    }
+    .bar-row .nm { color: var(--muted); font-family: var(--font-m); font-size: 0.7rem; }
+    .bar-row .track {
+      height: 8px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden;
+    }
+    .bar-row .fill { height: 100%; border-radius: 99px; background: var(--teal); }
+    .bar-row .fill.warn { background: var(--amber); }
+    .bar-row .fill.bad { background: var(--bad); }
+    .bar-row .sc { font-family: var(--font-m); font-size: 0.7rem; color: var(--soft); }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3, .grid4 { grid-template-columns: 1fr; }
+      .stack .slot { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">Context Engineering</p>
+      <p class="brand-sub">Dark guide · DashNoteSystem</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Read</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Core</h3>
+          <a href="#overview" data-c="overview"><span class="dot"></span>Why context wins</a>
+          <a href="#engineering" data-c="engineering"><span class="dot"></span>Context engineering</a>
+          <a href="#compaction" data-c="compaction"><span class="dot"></span>Compaction</a>
+          <a href="#rot" data-c="rot"><span class="dot"></span>Context rot</a>
+        </div>
+        <div class="nav-g">
+          <h3>Skills</h3>
+          <a href="#select" data-c="select"><span class="dot"></span>Select · Write · Isolate</a>
+          <a href="#structure" data-c="structure"><span class="dot"></span>Structure &amp; order</a>
+          <a href="#budget" data-c="budget"><span class="dot"></span>Budget simulator</a>
+        </div>
+        <div class="nav-g">
+          <h3>This project</h3>
+          <a href="#map" data-c="map"><span class="dot"></span>DashNote status</a>
+          <a href="#integrate" data-c="integrate"><span class="dot"></span>How to implement</a>
+          <a href="#check" data-c="check"><span class="dot"></span>Checklist</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Interactive · dark</p>
+        <h1>Context engineering</h1>
+        <p>
+          Selecting, structuring, compacting, and defending the window —
+          the skill that often beats model swaps for RAG and agents in DashNote.
+        </p>
+        <div class="chips">
+          <span class="chip t">Context engineering</span>
+          <span class="chip a">Compaction</span>
+          <span class="chip a">Context rot</span>
+          <span class="chip">Select · Isolate</span>
+        </div>
+      </header>
+
+      <!-- 00 OVERVIEW -->
+      <section class="ch" id="overview" data-c="overview">
+        <h2><span class="n">00</span> Why context wins</h2>
+        <p class="lede">
+          Prompt engineering writes instructions. <strong>Context engineering</strong> decides
+          <em>what else</em> enters the model: history, retrieved notes, tool results, schemas —
+          under a finite budget. Most “mysterious” RAG failures are context problems
+          (see <code>performance.html</code>: lost-in-the-middle, semantic miss).
+        </p>
+
+        <div class="grid2">
+          <div class="panel a">
+            <h4>Prompt engineering</h4>
+            <ul>
+              <li>System / few-shot wording</li>
+              <li>Tone and rules</li>
+              <li>Output format hints</li>
+            </ul>
+          </div>
+          <div class="panel t">
+            <h4>Context engineering</h4>
+            <ul>
+              <li>What to retrieve / omit</li>
+              <li>How to order &amp; delimit</li>
+              <li>When to summarize or offload</li>
+              <li>How to fight rot as threads grow</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <div class="lb">Rule of thumb</div>
+          Bigger windows do not replace good context. A tight, ranked, well-labeled
+          4k of evidence often beats a noisy 100k dump.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="overview">Mark read</button></div>
+      </section>
+
+      <!-- 01 ENGINEERING -->
+      <section class="ch" id="engineering" data-c="engineering">
+        <h2>
+          <span class="n">01</span> Context engineering
+          <span class="badge partial">ContextBuilder live</span>
+        </h2>
+        <p class="lede">
+          The discipline of assembling the highest-signal token set for the next model call —
+          for this user, this goal, this turn.
+        </p>
+
+        <div class="stack" aria-label="DashNote context stack">
+          <div class="slot sys"><span class="k">System</span><span class="v">RAG_SYSTEM_INSTRUCTION</span><span class="pct">fixed</span></div>
+          <div class="slot hist"><span class="k">History</span><span class="v">AIThread messages (≤70% budget)</span><span class="pct">trim old</span></div>
+          <div class="slot ctx"><span class="k">Retrieval</span><span class="v">[CHUNK:id] notes from Qdrant</span><span class="pct">≥30%</span></div>
+          <div class="slot q"><span class="k">Question</span><span class="v">merged in user message (end)</span><span class="pct">current</span></div>
+        </div>
+
+        <div class="tabs" data-tabs="ce">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="goals">Goals</button>
+            <button type="button" class="tab-btn" data-tab="layers">Layers</button>
+            <button type="button" class="tab-btn" data-tab="dash">DashNote turn</button>
+          </div>
+          <div class="tab-panel active" data-panel="goals">
+            <ul>
+              <li><strong>Relevance</strong> — only evidence that can answer this question</li>
+              <li><strong>Sufficiency</strong> — enough to ground; refuse if not</li>
+              <li><strong>Clarity</strong> — delimit data vs instructions</li>
+              <li><strong>Economy</strong> — leave headroom; avoid starving retrieval with history</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="layers">
+            <ul>
+              <li><strong>Instructions</strong> — system / developer policy</li>
+              <li><strong>State</strong> — tenant ids, thread_id (not model-writable)</li>
+              <li><strong>Memory</strong> — recent turns or compacted summary</li>
+              <li><strong>Knowledge</strong> — RAG / files (external memory)</li>
+              <li><strong>Tools</strong> — schemas + last tool results (agent)</li>
+              <li><strong>Scratch</strong> — optional working notes (future)</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="dash">
+<pre><code># RagService turn
+retrieve (RBAC) → ContextBuilder.build() → litellm → ground citations
+
+# Agent turn
+checkpointer messages + tools + tenant in state
+# Tool results re-enter the message list each step
+# AGENT_MAX_ITERATIONS bounds context growth from tools</code></pre>
+          </div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Best definition of context engineering?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Only writing a clever system prompt</button>
+            <button type="button" data-ok="true">Curating what enters the window — select, structure, compact, defend against noise</button>
+            <button type="button" data-ok="false">Always maxing out the model’s context limit</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="engineering">Mark read</button></div>
+      </section>
+
+      <!-- 02 COMPACTION -->
+      <section class="ch" id="compaction" data-c="compaction">
+        <h2>
+          <span class="n">02</span> Context compaction
+          <span class="badge todo">summarize missing</span>
+        </h2>
+        <p class="lede">
+          <strong>Compaction</strong> shrinks prior context while preserving decision-critical facts —
+          so new evidence and the current question still fit.
+        </p>
+
+        <div class="grid3">
+          <div class="panel t">
+            <h4>Truncate</h4>
+            <p>Drop oldest turns / lowest-ranked chunks. Cheap; can lose key facts.</p>
+          </div>
+          <div class="panel a">
+            <h4>Summarize</h4>
+            <p>LLM or extractive summary of old turns → one “memory” message.</p>
+          </div>
+          <div class="panel b">
+            <h4>Structured digest</h4>
+            <p>Keep bullets: goals, decisions, open questions, IDs — not prose.</p>
+          </div>
+        </div>
+
+        <div class="demo">
+          <label for="compScene">Compaction strategy</label>
+          <select id="compScene">
+            <option value="trim">DashNote today — trim oldest history</option>
+            <option value="sum">Summarize old turns</option>
+            <option value="hier">Hierarchical memory</option>
+            <option value="tool">Agent tool-result trim</option>
+          </select>
+          <div class="out" id="compOut"></div>
+        </div>
+
+<pre><code># ContextBuilder today (char budget ≈ tokens)
+history_budget = TOKEN_BUDGET_PER_REQUEST * 0.7   # 8000 * 0.7
+# fit oldest→newest until full; remaining → chunks (min 1)
+
+# Compaction upgrade (sketch)
+if history_chars > history_budget:
+    summary = await summarize_turns(old_turns)  # structured digest
+    fitted_history = [{"role":"system","content": f"THREAD SUMMARY:\n{summary}"},
+                      *recent_turns]</code></pre>
+
+        <div class="callout warn">
+          <div class="lb">Compaction risk</div>
+          Bad summaries introduce hallucinations into “memory.” Prefer structured fields,
+          cite source message ids, and keep last N raw turns verbatim.
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>History alone fills 90% of the budget. Best next step?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Drop all retrieved chunks so history is complete</button>
+            <button type="button" data-ok="true">Compact or trim history; keep ≥30% for retrieval (DashNote already reserves this)</button>
+            <button type="button" data-ok="false">Disable the system prompt to free tokens</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="compaction">Mark read</button></div>
+      </section>
+
+      <!-- 03 ROT -->
+      <section class="ch" id="rot" data-c="rot">
+        <h2>
+          <span class="n">03</span> Context rot
+          <span class="badge partial">watch chunks_used</span>
+        </h2>
+        <p class="lede">
+          <strong>Context rot</strong> is quality decay as the window fills with noise, contradictions,
+          stale facts, or buried gold — the model still runs; answers get worse.
+        </p>
+
+        <div class="grid2">
+          <div class="panel d">
+            <h4>Symptoms</h4>
+            <ul>
+              <li>Ignores a chunk that is present</li>
+              <li>Mixes two topics from long history</li>
+              <li>Follows outdated user preference</li>
+              <li><code>chunks_used ≪ chunks_retrieved</code></li>
+              <li>Agent loops on old tool spam</li>
+            </ul>
+          </div>
+          <div class="panel t">
+            <h4>Causes</h4>
+            <ul>
+              <li>Stuffing “just in case”</li>
+              <li>No compaction of long threads</li>
+              <li>Lost-in-the-middle packing</li>
+              <li>Duplicate / near-duplicate chunks</li>
+              <li>Tool results never pruned</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="demo">
+          <label for="rotSlider">Thread length / noise — <span id="rotVal">low</span></label>
+          <input type="range" id="rotSlider" min="0" max="4" value="1" step="1" />
+          <div id="rotBars"></div>
+          <div class="out" id="rotOut" style="margin-top:0.7rem"></div>
+        </div>
+
+        <table>
+          <thead><tr><th>Rot type</th><th>Example</th><th>Countermeasure</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Noise rot</td>
+              <td>20 weak chunks</td>
+              <td>Rerank → top 5</td>
+            </tr>
+            <tr>
+              <td>Stale rot</td>
+              <td>Old “deadline Friday” in history</td>
+              <td>Prefer fresh retrieval; timestamp digests</td>
+            </tr>
+            <tr>
+              <td>Contradiction rot</td>
+              <td>Two notes disagree</td>
+              <td>Surface conflict; ask user</td>
+            </tr>
+            <tr>
+              <td>Position rot</td>
+              <td>Gold in middle of dump</td>
+              <td>Best-first / U-pack</td>
+            </tr>
+            <tr>
+              <td>Tool rot</td>
+              <td>Huge tool_end blobs</td>
+              <td>Truncate / summarize tool outputs</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">Related</div>
+          Lost-in-the-middle is a special case of position rot —
+          see <code>performance.html</code>. Compaction fights history rot;
+          selection fights retrieval rot.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="rot">Mark read</button></div>
+      </section>
+
+      <!-- 04 SELECT -->
+      <section class="ch" id="select" data-c="select">
+        <h2><span class="n">04</span> Select · Write · Isolate · Offload</h2>
+        <p class="lede">
+          Four complementary moves (beyond compaction) that complete a context-engineering toolkit.
+        </p>
+
+        <div class="grid4">
+          <div class="panel t">
+            <h4>Select</h4>
+            <p>Retrieve / filter only what this turn needs. Hybrid + rerank.</p>
+          </div>
+          <div class="panel a">
+            <h4>Write</h4>
+            <p>Persist notes, tags, digests outside the window for later select.</p>
+          </div>
+          <div class="panel b">
+            <h4>Isolate</h4>
+            <p>Sub-agent / tool with narrow context; return a summary to parent.</p>
+          </div>
+          <div class="panel d">
+            <h4>Offload</h4>
+            <p>Don’t paste the corpus — RAG is external memory. Search again next turn.</p>
+          </div>
+        </div>
+
+        <div class="acc">
+          <div class="acc-item open">
+            <button type="button" class="acc-btn">DashNote mapping<span class="chev">›</span></button>
+            <div class="acc-body">
+              <strong>Select:</strong> Qdrant + RBAC + budget fit.
+              <strong>Write:</strong> notes/files/tags/threads in Postgres.
+              <strong>Isolate:</strong> not yet (single agent); research sub-agent would return a brief.
+              <strong>Offload:</strong> don’t dump whole notebooks into the prompt — <code>search_notes</code> each need.
+            </div>
+          </div>
+          <div class="acc-item">
+            <button type="button" class="acc-btn">Scratchpad (optional)<span class="chev">›</span></button>
+            <div class="acc-body">
+              Short “working memory” block the agent updates (plans, constraints).
+              Keep tiny; rewrite each turn; don’t let it become a second rotting history.
+            </div>
+          </div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="select">Mark read</button></div>
+      </section>
+
+      <!-- 05 STRUCTURE -->
+      <section class="ch" id="structure" data-c="structure">
+        <h2>
+          <span class="n">05</span> Structure &amp; order
+          <span class="badge done">CHUNK tags</span>
+        </h2>
+        <p class="lede">
+          How you delimit and place content changes whether the model treats text as
+          data, instruction, or noise.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>DashNote packing</h4>
+<pre><code>system
+… history …
+user:
+  CONTEXT FROM YOUR NOTES:
+  [CHUNK:uuid] (from: Title)
+  …
+
+  QUESTION: …</code></pre>
+          </div>
+          <div class="panel a">
+            <h4>Good habits</h4>
+            <ul>
+              <li>Question near the end (recency)</li>
+              <li>Best chunks first (or U-pack)</li>
+              <li>Clear section headers</li>
+              <li>Stable IDs for citations</li>
+              <li>Never mix instructions into chunk text unlabeled</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Indirect injection</div>
+          Retrieved notes are untrusted data. Structure helps, but policy + tool gates
+          still required — <code>security.html</code>.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="structure">Mark read</button></div>
+      </section>
+
+      <!-- 06 BUDGET -->
+      <section class="ch" id="budget" data-c="budget">
+        <h2><span class="n">06</span> Budget simulator</h2>
+        <p class="lede">
+          Interactive model of DashNote’s 70/30 history vs retrieval split
+          (<code>TOKEN_BUDGET_PER_REQUEST = 8000</code> chars.
+        </p>
+
+        <div class="demo">
+          <label for="histChars">History size (chars) — <span id="histLbl">2000</span></label>
+          <input type="range" id="histChars" min="0" max="10000" value="2000" step="200" />
+          <label for="chunkChars">Retrieved chunks total (chars) — <span id="chunkLbl">4000</span></label>
+          <input type="range" id="chunkChars" min="0" max="12000" value="4000" step="200" />
+          <div class="out" id="budgetOut"></div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="budget">Mark read</button></div>
+      </section>
+
+      <!-- 07 MAP -->
+      <section class="ch" id="map" data-c="map">
+        <h2><span class="n">07</span> DashNote status</h2>
+        <p class="lede">What context engineering you already have vs gaps that cause rot.</p>
+
+        <table>
+          <thead><tr><th>Capability</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Char budget + 70/30 split</td>
+              <td><span class="badge done">done</span></td>
+              <td><code>ContextBuilder</code></td>
+            </tr>
+            <tr>
+              <td>Thread history load</td>
+              <td><span class="badge done">done</span></td>
+              <td><code>AI_THREAD_MESSAGE_LIMIT=20</code></td>
+            </tr>
+            <tr>
+              <td>CHUNK delimiters + question last</td>
+              <td><span class="badge done">done</span></td>
+              <td><code>build_rag_user_message</code></td>
+            </tr>
+            <tr>
+              <td>Offload via RAG / search tool</td>
+              <td><span class="badge done">done</span></td>
+              <td>Not dumping notebooks</td>
+            </tr>
+            <tr>
+              <td>Min 1 chunk if available</td>
+              <td><span class="badge done">done</span></td>
+              <td>Avoid empty-context LLM</td>
+            </tr>
+            <tr>
+              <td>History summarization</td>
+              <td><span class="badge todo">todo</span></td>
+              <td>Trim only today</td>
+            </tr>
+            <tr>
+              <td>Rerank / best-first pack</td>
+              <td><span class="badge todo">todo</span></td>
+              <td>Fights rot + LITM</td>
+            </tr>
+            <tr>
+              <td>Dedupe near-duplicate chunks</td>
+              <td><span class="badge todo">todo</span></td>
+              <td>Noise rot</td>
+            </tr>
+            <tr>
+              <td>Tool-result compaction</td>
+              <td><span class="badge todo">todo</span></td>
+              <td>Agent message growth</td>
+            </tr>
+            <tr>
+              <td>True tokenizer budget</td>
+              <td><span class="badge partial">partial</span></td>
+              <td>Chars ≈ tokens; upgrade later</td>
+            </tr>
+          </tbody>
+        </table>
+
+<pre><code>Key paths
+  ai/memory/context_builder.py
+  ai/prompts/rag.py
+  ai/services/rag_service.py
+  ai/memory/service.py · ai_memory/*
+  config.py — TOKEN_BUDGET_PER_REQUEST, AI_THREAD_MESSAGE_LIMIT
+  ai/workflows/workspace_assistant.py  # agent message growth</code></pre>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="map">Mark read</button></div>
+      </section>
+
+      <!-- 08 INTEGRATE -->
+      <section class="ch" id="integrate" data-c="integrate">
+        <h2><span class="n">08</span> How to implement in DashNote</h2>
+        <p class="lede">Ordered upgrades that deepen context engineering without breaking Slice laws.</p>
+
+        <ol class="roadmap">
+          <li>
+            <h4>Instrument rot signals (P0)</h4>
+<pre><code># Already logged: history_messages_used, context_chunks_used, budget
+# Add to Langfuse / metrics:
+chunks_retrieved - chunks_used   # starvation or over-retrieve
+history_chars / budget           # history pressure
+# Alert when history &gt; 60% and chunks_used == 1</code></pre>
+          </li>
+          <li>
+            <h4>Selection quality before more budget (P0)</h4>
+            <p>Hybrid + rerank → top 5 (<code>search_ranking.html</code>). Raising
+            <code>TOKEN_BUDGET</code> without selection often increases rot.</p>
+          </li>
+          <li>
+            <h4>Best-first packing (P0)</h4>
+<pre><code># Before ContextBuilder chunk fit:
+chunks = sorted(retrieved, key=lambda c: -c["score"])[:8]
+# Optional U-pack after taking top 5 (performance.html)</code></pre>
+          </li>
+          <li>
+            <h4>Thread summarization / compaction (P1)</h4>
+<pre><code># ai/memory/compaction.py
+async def compact_history(messages: list[dict]) -> list[dict]:
+    if estimate(messages) &lt; threshold:
+        return messages
+    old, recent = messages[:-6], messages[-6:]
+    digest = await acompletion_structured(..., schema=ThreadDigest)
+    return [{"role":"system","content": format_digest(digest)}, *recent]
+
+# Call from ContextBuilder or ThreadService.load_history</code></pre>
+          </li>
+          <li>
+            <h4>Dedupe retrieved chunks (P1)</h4>
+            <p>Skip chunks with high Jaccard / embedding similarity to ones already fitted.
+            Reduces noise rot from overlapping note sections.</p>
+          </li>
+          <li>
+            <h4>Agent tool-result compaction (P1)</h4>
+<pre><code># After tool_end, store truncated text in messages
+# e.g. keep first 1500 chars + "…[truncated]"
+# Or summarize long search_notes returns before re-entering graph</code></pre>
+          </li>
+          <li>
+            <h4>Tokenizer-aware budget (P2)</h4>
+            <p>Replace char counts with tiktoken / provider token estimate when
+            multi-lingual notes make char≈token unreliable.</p>
+          </li>
+          <li>
+            <h4>Validate</h4>
+<pre><code>python -m pytest tests/ai/ -q  # + ContextBuilder unit cases
+# Unit: history 10k chars → still ≥1 chunk if retrieved
+# Unit: summarization keeps last 6 turns raw
+# Manual long thread: answer still cites fresh retrieval
+# Compare chunks_used before/after rerank</code></pre>
+          </li>
+        </ol>
+
+        <div class="callout bad">
+          <div class="lb">Don’t</div>
+          Paste entire notebooks into the system prompt · raise budget to “fix” bad retrieval ·
+          summarize without keeping recent raw turns · let tool dumps dominate agent state ·
+          treat retrieved text as trusted instructions · starve retrieval below the 30% reserve.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="integrate">Mark read</button></div>
+      </section>
+
+      <!-- 09 CHECK -->
+      <section class="ch" id="check" data-c="check">
+        <h2><span class="n">09</span> Checklist</h2>
+        <ul class="checklist" data-list="c">
+          <li><input type="checkbox" /><span>Context engineering ≠ only prompt wording</span></li>
+          <li><input type="checkbox" /><span>Layers: system · history · retrieval · question · tools</span></li>
+          <li><input type="checkbox" /><span>Compaction: truncate / summarize / structured digest</span></li>
+          <li><input type="checkbox" /><span>Rot: noise, stale, contradiction, position, tool</span></li>
+          <li><input type="checkbox" /><span>Select · write · isolate · offload toolkit clear</span></li>
+          <li><input type="checkbox" /><span>DashNote: ContextBuilder 70/30 done; summarize/rerank todo</span></li>
+          <li><input type="checkbox" /><span>Next: instrument → select/pack → compact history → tool trim</span></li>
+        </ul>
+        <div class="mark">
+          <button type="button" class="btn primary mark-btn" data-c="check">Mark read</button>
+          <button type="button" class="btn" id="reset">Reset</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Sources: <code>context_builder.py</code> · <code>rag.py</code> · <code>rag_service.py</code> ·
+        <code>ai.md</code> Slice 5 · <code>config.py</code>.
+        Companions: <code>performance.html</code> · <code>search_ranking.html</code> ·
+        <code>llm_prompt.html</code> · <code>agent.html</code> · <code>cost_optimization.html</code>.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const KEY = "dashnote-context-engineering-v1";
+      const CH = [
+        "overview","engineering","compaction","rot","select",
+        "structure","budget","map","integrate","check"
+      ];
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+      let state = load();
+      if (!state.read) state.read = {};
+      if (!state.checks) state.checks = {};
+
+      function progress() {
+        const n = CH.filter((c) => state.read[c]).length;
+        const p = Math.round((n / CH.length) * 100);
+        document.getElementById("pct").textContent = p + "%";
+        document.getElementById("fill").style.width = p + "%";
+        document.querySelectorAll("nav a[data-c]").forEach((a) => {
+          a.classList.toggle("visited", !!state.read[a.dataset.c]);
+        });
+      }
+
+      document.querySelectorAll(".mark-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.read[btn.dataset.c] = true;
+          save(state);
+          progress();
+          btn.textContent = "Read ✓";
+        });
+      });
+      CH.forEach((c) => {
+        if (state.read[c]) {
+          document.querySelectorAll('.mark-btn[data-c="' + c + '"]').forEach((b) => {
+            b.textContent = "Read ✓";
+          });
+        }
+      });
+      progress();
+
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!confirm("Reset progress?")) return;
+        state = { read: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false; i.closest("li").classList.remove("checked");
+        });
+        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark read"; });
+        progress();
+      });
+
+      const links = [...document.querySelectorAll("nav a[data-c]")];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+        });
+      }, { rootMargin: "-28% 0px -55% 0px" });
+      CH.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("navToggle");
+      toggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        toggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      });
+      links.forEach((l) => l.addEventListener("click", () => {
+        sidebar.classList.remove("open"); toggle.textContent = "Menu";
+      }));
+
+      document.querySelectorAll("[data-tabs]").forEach((root) => {
+        const btns = root.querySelectorAll(".tab-btn");
+        const panels = root.querySelectorAll(".tab-panel");
+        btns.forEach((btn) => btn.addEventListener("click", () => {
+          btns.forEach((b) => b.classList.toggle("active", b === btn));
+          panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+        }));
+      });
+
+      document.querySelectorAll(".acc-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = btn.closest(".acc-item");
+          const open = item.classList.contains("open");
+          item.parentElement.querySelectorAll(".acc-item").forEach((i) => i.classList.remove("open"));
+          if (!open) item.classList.add("open");
+        });
+      });
+
+      document.querySelectorAll(".quiz").forEach((quiz) => {
+        const fb = quiz.querySelector(".quiz-fb");
+        quiz.querySelectorAll(".quiz-opts button").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const ok = btn.dataset.ok === "true";
+            quiz.querySelectorAll(".quiz-opts button").forEach((b) => {
+              b.disabled = true;
+              if (b.dataset.ok === "true") b.classList.add("correct");
+            });
+            if (!ok) btn.classList.add("wrong");
+            fb.textContent = ok ? "Correct." : "See the highlighted option.";
+          });
+        });
+      });
+
+      const COMP = {
+        trim:
+          '<span class="role">DashNote today</span>\n' +
+          'Fit history oldest→newest until 70% budget\n' +
+          'Drop remaining oldest entirely (no summary)\n' +
+          '<span class="ok">Pros:</span> simple, no extra LLM\n' +
+          '<span class="bad">Cons:</span> can drop early constraints / decisions',
+        sum:
+          '<span class="role">Summarize compaction</span>\n' +
+          'old turns → THREAD SUMMARY (structured)\n' +
+          'keep last 4–6 turns raw\n' +
+          '<span class="ok">Preserves gist</span> · watch summary hallucination',
+        hier:
+          '<span class="role">Hierarchical</span>\n' +
+          'session digest + daily digest + raw recent\n' +
+          'Good for long workspaces\n' +
+          '<span class="dim">Heavier — later DashNote slice</span>',
+        tool:
+          '<span class="role">Agent tool trim</span>\n' +
+          'search_notes returns 2k chars → keep 800 + truncate\n' +
+          'or replace old tool_end with one-line stub\n' +
+          '<span class="ok">Slows message-list rot across iterations</span>'
+      };
+      function renderComp() {
+        document.getElementById("compOut").innerHTML = COMP[document.getElementById("compScene").value];
+      }
+      document.getElementById("compScene").addEventListener("change", renderComp);
+      renderComp();
+
+      const ROT_LEVELS = ["low", "mild", "moderate", "high", "severe"];
+      function renderRot() {
+        const lv = +document.getElementById("rotSlider").value;
+        document.getElementById("rotVal").textContent = ROT_LEVELS[lv];
+        const metrics = [
+          { n: "signal", v: [0.9, 0.75, 0.55, 0.35, 0.2][lv] },
+          { n: "noise", v: [0.1, 0.25, 0.45, 0.65, 0.85][lv] },
+          { n: "use@gold", v: [0.85, 0.7, 0.5, 0.3, 0.15][lv] }
+        ];
+        const bars = document.getElementById("rotBars");
+        bars.innerHTML = "";
+        metrics.forEach((m) => {
+          const cls = m.v > 0.65 ? "" : m.v > 0.4 ? "warn" : "bad";
+          const inv = m.n === "noise" ? (m.v > 0.5 ? "bad" : m.v > 0.3 ? "warn" : "") : cls;
+          const row = document.createElement("div");
+          row.className = "bar-row";
+          row.innerHTML =
+            '<span class="nm">' + m.n + '</span>' +
+            '<div class="track"><div class="fill ' + inv + '" style="width:' + Math.round(m.v * 100) + '%"></div></div>' +
+            '<span class="sc">' + m.v.toFixed(2) + '</span>';
+          bars.appendChild(row);
+        });
+        const tips = [
+          '<span class="ok">Healthy</span> — tight context, gold easy to use',
+          '<span class="role">Mild rot</span> — trim weak chunks; watch history growth',
+          '<span class="role">Moderate</span> — compact history; rerank to top-5',
+          '<span class="bad">High rot</span> — answers ignore middle evidence; start new thread or summarize',
+          '<span class="bad">Severe</span> — model mixes topics / stale prefs; hard reset + offload to RAG'
+        ];
+        document.getElementById("rotOut").innerHTML =
+          tips[lv] + '\n<span class="dim">Schematic — use chunks_used / history pressure in production</span>';
+      }
+      document.getElementById("rotSlider").addEventListener("input", renderRot);
+      renderRot();
+
+      const BUDGET = 8000;
+      function renderBudget() {
+        const hist = +document.getElementById("histChars").value;
+        const chunks = +document.getElementById("chunkChars").value;
+        document.getElementById("histLbl").textContent = hist;
+        document.getElementById("chunkLbl").textContent = chunks;
+        const histCap = Math.floor(BUDGET * 0.7);
+        const histUsed = Math.min(hist, histCap);
+        const histDropped = Math.max(0, hist - histCap);
+        const remain = BUDGET - histUsed;
+        const chunksUsed = Math.min(chunks, Math.max(remain, chunks > 0 ? 1 : 0));
+        // mimic: at least 1 chunk if any — approximate by allowing overflow of one chunk when remain small
+        let fitted = 0;
+        if (chunks > 0) {
+          fitted = Math.min(chunks, remain);
+          if (fitted === 0) fitted = Math.min(chunks, Math.max(remain, 500)); // first chunk allowed past empty
+          if (remain <= 0 && chunks > 0) fitted = Math.min(chunks, 800);
+        }
+        const starved = chunks > 0 && fitted < chunks * 0.3;
+        let verdict;
+        if (histDropped > 0 && !starved) {
+          verdict = '<span class="role">History trimmed</span> — dropped ~' + histDropped + ' chars of oldest turns';
+        } else if (starved) {
+          verdict = '<span class="bad">Retrieval starved</span> — compact history; do not raise k blindly';
+        } else if (chunks === 0) {
+          verdict = '<span class="role">No retrieval</span> — refuse path if answering from notes';
+        } else {
+          verdict = '<span class="ok">Balanced</span> — history and chunks both fit with headroom';
+        }
+        document.getElementById("budgetOut").innerHTML =
+          'budget = ' + BUDGET + ' · history_cap = ' + histCap + '\n' +
+          'history_used ≈ ' + histUsed + ' · remain ≈ ' + remain + '\n' +
+          'chunks_offered = ' + chunks + ' · chunks_fitted ≈ ' + fitted + '\n\n' +
+          verdict + '\n' +
+          '<span class="dim">Mirrors ContextBuilder: 70% history reserve, min 1 chunk when available</span>';
+      }
+      document.getElementById("histChars").addEventListener("input", renderBudget);
+      document.getElementById("chunkChars").addEventListener("input", renderBudget);
+      renderBudget();
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) { input.checked = true; li.classList.add("checked"); }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

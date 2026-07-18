@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM · Prompts · Structured · Tools — Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --nav-w: 260px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.83rem; margin-bottom: 0.1rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 800px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 38rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.75rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0 0 1rem; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.83rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .tabs { margin: 0.85rem 0 1.1rem; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.6rem; }
+    .tab-btn {
+      font-family: var(--font-b); font-size: 0.8rem; padding: 0.32rem 0.6rem;
+      border: 1px solid transparent; border-radius: 8px; background: transparent;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.3); font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .demo {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1rem; margin: 0.85rem 0;
+    }
+    .demo label {
+      display: block; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600;
+    }
+    .demo textarea, .demo select {
+      width: 100%; font-family: var(--font-b); font-size: 0.88rem;
+      padding: 0.55rem 0.65rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-2); color: var(--ink); margin-bottom: 0.7rem;
+    }
+    .demo textarea { min-height: 72px; resize: vertical; font-family: var(--font-m); font-size: 0.8rem; }
+    .demo select { font-family: var(--font-m); }
+    .prompt-out {
+      font-family: var(--font-m); font-size: 0.75rem; background: #080b10;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem;
+      color: #c5d0dc; white-space: pre-wrap; max-height: 220px; overflow-y: auto;
+    }
+    .prompt-out .role { color: var(--amber); }
+    .prompt-out .ok { color: var(--teal); }
+    .prompt-out .bad { color: #e06c6c; }
+    .quiz {
+      border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+      background: var(--card); margin: 1rem 0;
+    }
+    .quiz h4 { margin: 0 0 0.45rem; font-family: var(--font-d); }
+    .quiz-opts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.55rem 0; }
+    .quiz-opts button {
+      text-align: left; font-family: var(--font-b); font-size: 0.85rem;
+      padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg-2); color: var(--soft); cursor: pointer;
+    }
+    .quiz-opts button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-dim); }
+    .quiz-opts button.correct { border-color: var(--good); background: rgba(76,175,122,0.15); color: var(--good); font-weight: 600; }
+    .quiz-opts button.wrong { border-color: #e06c6c; background: rgba(224,108,108,0.12); color: #e06c6c; }
+    .quiz-opts button:disabled { cursor: default; }
+    .quiz-fb { font-size: 0.84rem; color: var(--soft); min-height: 1.2em; margin: 0; }
+    .acc { margin: 0.8rem 0; }
+    .acc-item {
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 0.4rem;
+      background: var(--card); overflow: hidden;
+    }
+    .acc-btn {
+      width: 100%; text-align: left; padding: 0.75rem 0.9rem; border: none;
+      background: transparent; font-family: var(--font-b); font-size: 0.9rem;
+      font-weight: 600; color: var(--ink); cursor: pointer;
+      display: flex; justify-content: space-between; gap: 0.8rem;
+    }
+    .acc-btn .chev { font-family: var(--font-m); color: var(--muted); transition: transform 0.2s; }
+    .acc-item.open .acc-btn .chev { transform: rotate(90deg); color: var(--teal); }
+    .acc-body {
+      display: none; padding: 0 0.9rem 0.85rem; font-size: 0.88rem;
+      color: var(--soft); border-top: 1px solid var(--line);
+    }
+    .acc-item.open .acc-body { display: block; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.85rem 0; }
+    .roadmap > li {
+      position: relative; padding: 0 0 1rem 2.25rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.65rem;
+    }
+    .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .roadmap > li::before {
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.75rem; top: 0;
+      width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
+    }
+    .roadmap h4 { margin: 0 0 0.25rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .msg-stack { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.7rem 0; }
+    .msg {
+      border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.8rem;
+      border: 1px solid var(--line); font-family: var(--font-m);
+    }
+    .msg.sys { border-left: 3px solid var(--amber); background: var(--amber-dim); color: #f0d0a8; }
+    .msg.user { border-left: 3px solid var(--teal); background: var(--teal-dim); color: #b8e8dc; }
+    .msg.asst { border-left: 3px solid #6b9fd4; background: rgba(107,159,212,0.12); color: #b8d4f0; }
+    .msg.tool { border-left: 3px solid #8b7bb8; background: rgba(139,123,184,0.12); color: #d0c4f0; }
+    .msg .tag { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(280px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">LLM · Prompts · Tools</p>
+      <p class="brand-sub">Dark guide · DashNoteSystem</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Read</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Core</h3>
+          <a href="#fund" data-c="fund"><span class="dot"></span>LLM fundamentals</a>
+          <a href="#prompt" data-c="prompt"><span class="dot"></span>Prompt engineering</a>
+          <a href="#struct" data-c="struct"><span class="dot"></span>Structured outputs</a>
+          <a href="#tools" data-c="tools"><span class="dot"></span>Function calling</a>
+        </div>
+        <div class="nav-g">
+          <h3>This project</h3>
+          <a href="#map" data-c="map"><span class="dot"></span>DashNote map</a>
+          <a href="#integrate" data-c="integrate"><span class="dot"></span>How to integrate</a>
+          <a href="#check" data-c="check"><span class="dot"></span>Checklist</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Interactive · dark</p>
+        <h1>LLM fundamentals, prompts &amp; tools</h1>
+        <p>
+          How chat models work, how to prompt them, how to force JSON schemas,
+          and how tool loops run — tied to DashNote’s LiteLLM + LangGraph paths.
+        </p>
+        <div class="chips">
+          <span class="chip t">Fundamentals</span>
+          <span class="chip">Prompts</span>
+          <span class="chip">Structured JSON</span>
+          <span class="chip a">Function calling</span>
+        </div>
+      </header>
+
+      <!-- 01 FUNDAMENTALS -->
+      <section class="ch" id="fund" data-c="fund">
+        <h2><span class="n">01</span> LLM fundamentals</h2>
+        <p class="lede">A chat LLM predicts the next tokens given a message list. Your app owns context, tools, and validation.</p>
+
+        <div class="msg-stack">
+          <div class="msg sys"><div class="tag">system</div>Behaviour contract (who you are, rules)</div>
+          <div class="msg user"><div class="tag">user</div>Question + optional retrieved context</div>
+          <div class="msg asst"><div class="tag">assistant</div>Answer text and/or tool_calls</div>
+          <div class="msg tool"><div class="tag">tool</div>Tool result → fed back for next round</div>
+        </div>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>You control</h4>
+            <ul>
+              <li>Messages &amp; system prompt</li>
+              <li><code>temperature</code>, <code>max_tokens</code></li>
+              <li>Tools / response schema</li>
+              <li>Retries &amp; fail-safes</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Model controls</h4>
+            <ul>
+              <li>Token probabilities</li>
+              <li>Whether it follows tools</li>
+              <li>Hallucination risk</li>
+              <li>Latency / cost per call</li>
+            </ul>
+          </div>
+        </div>
+
+        <table>
+          <thead><tr><th>Knob</th><th>Effect</th><th>DashNote</th></tr></thead>
+          <tbody>
+            <tr><td><code>temperature</code></td><td>0 = deterministic; higher = creative</td><td><code>LLM_TEMPERATURE=0.0</code></td></tr>
+            <tr><td><code>max_tokens</code></td><td>Caps completion length / cost</td><td>2048 chat; 256 tags</td></tr>
+            <tr><td>Model string</td><td>Provider + capability</td><td><code>LLM_MODEL</code> via LiteLLM</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">DashNote split</div>
+          <strong>/ai/chat*</strong> = one-shot RAG (no tools).
+          <strong>/ai/agent*</strong> = LangGraph tool loop. Don’t merge them.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="fund">Mark read</button></div>
+      </section>
+
+      <!-- 02 PROMPTS -->
+      <section class="ch" id="prompt" data-c="prompt">
+        <h2><span class="n">02</span> Prompt engineering</h2>
+        <p class="lede">Prompts are product code. Keep them isolated, short, and testable.</p>
+
+        <div class="tabs" data-tabs="pe">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="rules">Core rules</button>
+            <button type="button" class="tab-btn" data-tab="rag">RAG pattern</button>
+            <button type="button" class="tab-btn" data-tab="agent">Agent pattern</button>
+          </div>
+          <div class="tab-panel active" data-panel="rules">
+            <ul>
+              <li><strong>Role + constraints</strong> first (“ONLY use context”)</li>
+              <li><strong>Refusal path</strong> when info is missing</li>
+              <li><strong>Output shape</strong> (markdown / JSON fields)</li>
+              <li><strong>Don’t leak</strong> system instructions to the user</li>
+              <li>Keep system prompt lean — budget belongs to context</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="rag">
+            <p>File: <code>ai/prompts/rag.py</code> — only place for RAG prompt strings.</p>
+            <ul>
+              <li><code>RAG_SYSTEM_INSTRUCTION</code> — grounding rules</li>
+              <li><code>build_rag_user_message()</code> — question + <code>[CHUNK:uuid]</code> blocks</li>
+              <li>Citations grounded server-side against retrieved set</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="agent">
+            <p><code>WORKSPACE_ASSISTANT_PROMPT</code> in <code>workspace_assistant.py</code>.</p>
+            <ul>
+              <li>Pass frozen <code>workspace_id</code> / <code>user_id</code> / <code>role</code></li>
+              <li>Search before inventing note IDs</li>
+              <li>Mutate only when user asks</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Prompt lab</h3>
+        <div class="demo">
+          <label>Style</label>
+          <select id="pStyle">
+            <option value="good">Good — grounded RAG</option>
+            <option value="vague">Weak — vague / vibes</option>
+            <option value="agent">Good — agent tools</option>
+          </select>
+          <label>User question</label>
+          <textarea id="pQ">What is the Q3 deadline?</textarea>
+          <label>Assembled messages (preview)</label>
+          <div class="prompt-out" id="pOut"></div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Where should RAG prompt text live in DashNote?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Inside <code>RagService.answer()</code> as an f-string</button>
+            <button type="button" data-ok="true">In <code>ai/prompts/rag.py</code> only</button>
+            <button type="button" data-ok="false">In the FastAPI router</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="prompt">Mark read</button></div>
+      </section>
+
+      <!-- 03 STRUCTURED -->
+      <section class="ch" id="struct" data-c="struct">
+        <h2><span class="n">03</span> Structured outputs</h2>
+        <p class="lede">Don’t regex free text. Define a schema, ask for JSON, validate with Pydantic.</p>
+
+        <div class="flow">
+          <span class="fn">Pydantic schema</span><span class="fa">→</span>
+          <span class="fn hi">LLM JSON</span><span class="fa">→</span>
+          <span class="fn">salvage fences</span><span class="fa">→</span>
+          <span class="fn hi">model_validate</span>
+        </div>
+
+<pre><code>class RAGAnswer(BaseModel):
+    answer: str
+    cited_chunk_ids: list[str] = []
+
+# RagService: response_format=RAGAnswer
+# Automation: acompletion_structured(..., schema=TagsSchema)</code></pre>
+
+        <table>
+          <thead><tr><th>Use case</th><th>Mechanism</th><th>On failure</th></tr></thead>
+          <tbody>
+            <tr><td>RAG chat</td><td><code>response_format=RAGAnswer</code></td><td>Retry / error path in service</td></tr>
+            <tr><td>Tags / file metadata</td><td><code>acompletion_structured</code></td><td>ARQ retries job</td></tr>
+            <tr><td>Governance decision</td><td>structured + salvage</td><td><strong>Fail-safe block</strong></td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout warn">
+          <div class="lb">Never trust LLM IDs alone</div>
+          <code>cited_chunk_ids</code> are filtered against the retrieved set.
+          Hallucinated chunk UUIDs are dropped.
+        </div>
+
+        <div class="acc">
+          <div class="acc-item open">
+            <button type="button" class="acc-btn">JSON salvage <span class="chev">›</span></button>
+            <div class="acc-body">
+              Models often wrap JSON in markdown fences or preambles.
+              <code>extract_json_blob()</code> strips fences / “Here is the JSON” then finds the outermost <code>{…}</code>.
+            </div>
+          </div>
+          <div class="acc-item">
+            <button type="button" class="acc-btn">Why temperature 0? <span class="chev">›</span></button>
+            <div class="acc-body">
+              Structured + tool calls want stability. Creative temperature increases invalid JSON and wrong tool args.
+            </div>
+          </div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="struct">Mark read</button></div>
+      </section>
+
+      <!-- 04 TOOLS -->
+      <section class="ch" id="tools" data-c="tools">
+        <h2><span class="n">04</span> Function calling</h2>
+        <p class="lede">The model returns a tool name + JSON args. Your code executes; the model never touches the DB directly.</p>
+
+        <div class="flow">
+          <span class="fn">user</span><span class="fa">→</span>
+          <span class="fn hi">agent (LLM+tools)</span><span class="fa">→</span>
+          <span class="fn">tool_calls?</span><span class="fa">→</span>
+          <span class="fn hi">execute tools</span><span class="fa">→</span>
+          <span class="fn">agent …</span><span class="fa">→</span>
+          <span class="fn">final answer</span>
+        </div>
+
+        <div class="tabs" data-tabs="fc">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="shape">Tool shape</button>
+            <button type="button" class="tab-btn" data-tab="loop">DashNote loop</button>
+            <button type="button" class="tab-btn" data-tab="safety">Safety</button>
+          </div>
+          <div class="tab-panel active" data-panel="shape">
+<pre><code>{
+  "type": "function",
+  "function": {
+    "name": "create_note",
+    "description": "Create a note in the workspace",
+    "parameters": { /* JSON Schema from Pydantic args_schema */ }
+  }
+}</code></pre>
+            <p>LiteLLM gets OpenAI-style <code>tools=[...]</code> — <strong>not</strong> LangChain <code>bind_tools()</code>.</p>
+          </div>
+          <div class="tab-panel" data-panel="loop">
+            <p><code>workspace_assistant.py</code>: START → agent → (tools ↔ agent) → END</p>
+            <ul>
+              <li><code>call_model</code> → <code>acompletion_with_retry(..., tools=)</code></li>
+              <li><code>execute_tools</code> → <code>ToolNode</code> + <code>db_session_var</code></li>
+              <li><code>should_continue</code> stops at <code>AGENT_MAX_ITERATIONS</code></li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="safety">
+            <ul>
+              <li>Tools call <strong>services</strong>, never repositories from the LLM layer</li>
+              <li>Tenant IDs frozen from JWT — not from model args for scope</li>
+              <li>Destructive automation → <code>AutomationDecisionEngine</code></li>
+              <li>Exhausted LLM retries → HTTP <strong>503</strong></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Why not use LangChain <code>bind_tools()</code> here?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">LangChain is banned by FastAPI</button>
+            <button type="button" data-ok="true">Chat goes through LiteLLM — pass OpenAI-style tool defs to <code>acompletion</code></button>
+            <button type="button" data-ok="false">Tools only work with OpenAI’s official SDK</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="tools">Mark read</button></div>
+      </section>
+
+      <!-- 05 MAP -->
+      <section class="ch" id="map" data-c="map">
+        <h2><span class="n">05</span> DashNote map</h2>
+        <p class="lede">Which path uses which pattern.</p>
+
+        <table>
+          <thead><tr><th>Surface</th><th>Prompt</th><th>Output</th><th>Tools?</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>POST /ai/chat*</code></td>
+              <td><code>ai/prompts/rag.py</code></td>
+              <td><code>RAGAnswer</code> structured</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td><code>POST /ai/agent*</code></td>
+              <td>Workspace assistant prompt</td>
+              <td>Free text + tool loop</td>
+              <td>Yes — note tools</td>
+            </tr>
+            <tr>
+              <td>Auto-tags / file meta</td>
+              <td>Task prompts in worker</td>
+              <td><code>acompletion_structured</code></td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>Governance</td>
+              <td>Decision prompt</td>
+              <td><code>AutomationDecision</code></td>
+              <td>No (gate only)</td>
+            </tr>
+          </tbody>
+        </table>
+
+<pre><code>shared/llm/
+  env.py          configure_litellm_env
+  retry.py        acompletion_with_retry
+  structured.py   acompletion_structured + JSON salvage
+
+ai/prompts/rag.py          RAG_SYSTEM + RAGAnswer
+ai/services/rag_service.py one-shot RAG
+ai/workflows/workspace_assistant.py  agent + tools
+ai/tools/note_tools.py     StructuredTool defs</code></pre>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="map">Mark read</button></div>
+      </section>
+
+      <!-- 06 INTEGRATE -->
+      <section class="ch" id="integrate" data-c="integrate">
+        <h2><span class="n">06</span> How to integrate (this repo)</h2>
+        <p class="lede">Recipes for adding a new prompted / structured / tool feature without breaking laws.</p>
+
+        <ol class="roadmap">
+          <li>
+            <h4>New RAG-style answer</h4>
+            <p>Add schema + prompt in <code>ai/prompts/</code>. Call from a service with plain <code>workspace_id</code> strings. Use <code>response_format=YourModel</code> or <code>acompletion_structured</code>. Ground any IDs server-side.</p>
+          </li>
+          <li>
+            <h4>New short structured job (tags-like)</h4>
+            <p>Worker task → <code>acompletion_structured(messages, schema, max_tokens=256)</code>. Keep tokens low. No FastAPI imports in worker/AI.</p>
+          </li>
+          <li>
+            <h4>New agent tool</h4>
+            <p>Add <code>StructuredTool</code> + Pydantic <code>args_schema</code> in <code>ai/tools/</code>. Implement via <strong>service</strong> layer. Register in <code>get_note_tools()</code>. Graph already loops — no router changes for tool wiring.</p>
+          </li>
+          <li>
+            <h4>Always use shared LLM helpers</h4>
+<pre><code>from shared.llm.retry import acompletion_with_retry
+from shared.llm.structured import acompletion_structured
+# model=settings.LLM_MODEL  (or future resolve_chat_model)</code></pre>
+          </li>
+          <li>
+            <h4>Validate</h4>
+<pre><code>python scripts/test_nvidia_nim.py          # chat + structured + tools
+python scripts/e2e_agent_test.py           # agent path
+# RAG: POST /ai/chat with JWT — check citations ⊆ retrieved</code></pre>
+          </li>
+        </ol>
+
+        <div class="callout warn">
+          <div class="lb">Don’t</div>
+          Put prompts in routers · call Qdrant from tools · trust model-supplied <code>workspace_id</code> ·
+          skip Pydantic on structured paths · let the agent loop forever (use <code>AGENT_MAX_ITERATIONS</code>).
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>You need “extract action items as JSON from a note.” Best fit?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Force it through the LangGraph agent with 5 tools</button>
+            <button type="button" data-ok="true">Service/worker + Pydantic schema + <code>acompletion_structured</code></button>
+            <button type="button" data-ok="false">Parse bullet points from streaming tokens with regex</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="integrate">Mark read</button></div>
+      </section>
+
+      <!-- 07 CHECK -->
+      <section class="ch" id="check" data-c="check">
+        <h2><span class="n">07</span> Checklist</h2>
+        <ul class="checklist" data-list="c">
+          <li><input type="checkbox" /><span>Know system / user / assistant / tool roles</span></li>
+          <li><input type="checkbox" /><span>Prompts live in <code>ai/prompts/</code> (or one named constant) — not routers</span></li>
+          <li><input type="checkbox" /><span>Structured = schema + validate (+ salvage)</span></li>
+          <li><input type="checkbox" /><span>Citations / IDs grounded server-side</span></li>
+          <li><input type="checkbox" /><span>Tools = OpenAI defs via LiteLLM; execute in ToolNode/services</span></li>
+          <li><input type="checkbox" /><span>Chat vs agent coexistence understood</span></li>
+          <li><input type="checkbox" /><span>Retries via <code>shared/llm</code>; agent → 503 when exhausted</span></li>
+        </ul>
+        <div class="mark">
+          <button type="button" class="btn primary mark-btn" data-c="check">Mark read</button>
+          <button type="button" class="btn" id="reset">Reset</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Sources: <code>ai.md</code> · <code>ai/prompts/rag.py</code> · <code>shared/llm/structured.py</code> ·
+        <code>ai/workflows/workspace_assistant.py</code>.
+        Companions: <code>evals.html</code> · <code>model_token.html</code> · <code>search_ranking.html</code>.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const KEY = "dashnote-llm-prompt-v1";
+      const CH = ["fund","prompt","struct","tools","map","integrate","check"];
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+      let state = load();
+      if (!state.read) state.read = {};
+      if (!state.checks) state.checks = {};
+
+      function progress() {
+        const n = CH.filter((c) => state.read[c]).length;
+        const p = Math.round((n / CH.length) * 100);
+        document.getElementById("pct").textContent = p + "%";
+        document.getElementById("fill").style.width = p + "%";
+        document.querySelectorAll("nav a[data-c]").forEach((a) => {
+          a.classList.toggle("visited", !!state.read[a.dataset.c]);
+        });
+      }
+
+      document.querySelectorAll(".mark-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.read[btn.dataset.c] = true;
+          save(state);
+          progress();
+          btn.textContent = "Read ✓";
+        });
+      });
+      CH.forEach((c) => {
+        if (state.read[c]) {
+          document.querySelectorAll('.mark-btn[data-c="' + c + '"]').forEach((b) => {
+            b.textContent = "Read ✓";
+          });
+        }
+      });
+      progress();
+
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!confirm("Reset progress?")) return;
+        state = { read: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false; i.closest("li").classList.remove("checked");
+        });
+        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark read"; });
+        progress();
+      });
+
+      const links = [...document.querySelectorAll("nav a[data-c]")];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+        });
+      }, { rootMargin: "-28% 0px -55% 0px" });
+      CH.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("navToggle");
+      toggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        toggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      });
+      links.forEach((l) => l.addEventListener("click", () => {
+        sidebar.classList.remove("open"); toggle.textContent = "Menu";
+      }));
+
+      document.querySelectorAll("[data-tabs]").forEach((root) => {
+        const btns = root.querySelectorAll(".tab-btn");
+        const panels = root.querySelectorAll(".tab-panel");
+        btns.forEach((btn) => btn.addEventListener("click", () => {
+          btns.forEach((b) => b.classList.toggle("active", b === btn));
+          panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+        }));
+      });
+
+      document.querySelectorAll(".acc-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = btn.closest(".acc-item");
+          const open = item.classList.contains("open");
+          item.parentElement.querySelectorAll(".acc-item").forEach((i) => i.classList.remove("open"));
+          if (!open) item.classList.add("open");
+        });
+      });
+
+      document.querySelectorAll(".quiz").forEach((quiz) => {
+        const fb = quiz.querySelector(".quiz-fb");
+        quiz.querySelectorAll(".quiz-opts button").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const ok = btn.dataset.ok === "true";
+            quiz.querySelectorAll(".quiz-opts button").forEach((b) => {
+              b.disabled = true;
+              if (b.dataset.ok === "true") b.classList.add("correct");
+            });
+            if (!ok) btn.classList.add("wrong");
+            fb.textContent = ok ? "Correct." : "See the highlighted option.";
+          });
+        });
+      });
+
+      function renderPrompt() {
+        const style = document.getElementById("pStyle").value;
+        const q = document.getElementById("pQ").value.trim() || "(empty)";
+        let html = "";
+        if (style === "good") {
+          html =
+            '<span class="role">system</span>\n' +
+            '<span class="ok">Answer ONLY from context. If missing: refuse. Cite chunk UUIDs only.</span>\n\n' +
+            '<span class="role">user</span>\n' +
+            "Context:\n[CHUNK:abc-111] Q3 launch is Sept 15.\n[CHUNK:abc-222] Budget approved.\n\n" +
+            "Question: " + q + "\n\n" +
+            '<span class="ok">→ expect RAGAnswer JSON {answer, cited_chunk_ids}</span>';
+        } else if (style === "vague") {
+          html =
+            '<span class="role">system</span>\n' +
+            '<span class="bad">You are a helpful assistant. Be creative!</span>\n\n' +
+            '<span class="role">user</span>\n' + q + "\n\n" +
+            '<span class="bad">→ likely hallucinates; no grounding; hard to parse</span>';
+        } else {
+          html =
+            '<span class="role">system</span>\n' +
+            '<span class="ok">Workspace assistant. workspace_id=… user_id=… role=member.\n' +
+            "Use search_notes before inventing IDs. Mutate only if asked.</span>\n\n" +
+            '<span class="role">user</span>\n' + q + "\n\n" +
+            '<span class="ok">→ may emit tool_calls → ToolNode → loop</span>';
+        }
+        document.getElementById("pOut").innerHTML = html;
+      }
+      document.getElementById("pStyle").addEventListener("change", renderPrompt);
+      document.getElementById("pQ").addEventListener("input", renderPrompt);
+      renderPrompt();
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) { input.checked = true; li.classList.add("checked"); }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

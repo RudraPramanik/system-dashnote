@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Systems — Sub-agents · Handoff · Harness — Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --nav-w: 270px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.8rem; margin-bottom: 0.1rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 820px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 40rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px;
+      letter-spacing: 0.02em;
+    }
+    .badge.done { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .badge.todo { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--line); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.75rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0 0 1rem; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid #6b9fd4; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .tabs { margin: 0.85rem 0 1.1rem; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.6rem; }
+    .tab-btn {
+      font-family: var(--font-b); font-size: 0.8rem; padding: 0.32rem 0.6rem;
+      border: 1px solid transparent; border-radius: 8px; background: transparent;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.3); font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .demo {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1rem; margin: 0.85rem 0;
+    }
+    .demo label {
+      display: block; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600;
+    }
+    .demo select {
+      width: 100%; font-family: var(--font-m); font-size: 0.85rem;
+      padding: 0.5rem 0.6rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-2); color: var(--ink); margin-bottom: 0.7rem;
+    }
+    .out {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem;
+      color: #c5d0dc; white-space: pre-wrap; line-height: 1.5; max-height: 280px; overflow-y: auto;
+    }
+    .out .ok { color: var(--teal); }
+    .out .bad { color: var(--bad); }
+    .out .role { color: var(--amber); }
+    .out .dim { color: var(--muted); }
+    .quiz {
+      border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+      background: var(--card); margin: 1rem 0;
+    }
+    .quiz h4 { margin: 0 0 0.45rem; font-family: var(--font-d); }
+    .quiz-opts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.55rem 0; }
+    .quiz-opts button {
+      text-align: left; font-family: var(--font-b); font-size: 0.85rem;
+      padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg-2); color: var(--soft); cursor: pointer;
+    }
+    .quiz-opts button:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-dim); }
+    .quiz-opts button.correct { border-color: var(--good); background: rgba(76,175,122,0.15); color: var(--good); font-weight: 600; }
+    .quiz-opts button.wrong { border-color: var(--bad); background: rgba(224,108,108,0.12); color: var(--bad); }
+    .quiz-opts button:disabled { cursor: default; }
+    .quiz-fb { font-size: 0.84rem; color: var(--soft); min-height: 1.2em; margin: 0; }
+    .acc { margin: 0.8rem 0; }
+    .acc-item {
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 0.4rem;
+      background: var(--card); overflow: hidden;
+    }
+    .acc-btn {
+      width: 100%; text-align: left; padding: 0.75rem 0.9rem; border: none;
+      background: transparent; font-family: var(--font-b); font-size: 0.9rem;
+      font-weight: 600; color: var(--ink); cursor: pointer;
+      display: flex; justify-content: space-between; gap: 0.8rem;
+    }
+    .acc-btn .chev { font-family: var(--font-m); color: var(--muted); transition: transform 0.2s; }
+    .acc-item.open .acc-btn .chev { transform: rotate(90deg); color: var(--teal); }
+    .acc-body {
+      display: none; padding: 0 0.9rem 0.85rem; font-size: 0.88rem;
+      color: var(--soft); border-top: 1px solid var(--line);
+    }
+    .acc-item.open .acc-body { display: block; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.85rem 0; }
+    .roadmap > li {
+      position: relative; padding: 0 0 1rem 2.25rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.65rem;
+    }
+    .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .roadmap > li::before {
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.75rem; top: 0;
+      width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
+    }
+    .roadmap h4 { margin: 0 0 0.25rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .level-bar {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.35rem; margin: 0.9rem 0;
+    }
+    .level-bar button {
+      font-family: var(--font-b); font-size: 0.72rem; padding: 0.55rem 0.35rem;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+      color: var(--soft); cursor: pointer; text-align: center;
+    }
+    .level-bar button.active {
+      border-color: rgba(61,186,160,0.45); background: var(--teal-dim); color: var(--teal); font-weight: 600;
+    }
+    .level-bar .lv { display: block; font-family: var(--font-m); font-size: 0.65rem; color: var(--muted); margin-bottom: 0.15rem; }
+    .arch-row {
+      display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 0.35rem;
+      align-items: stretch; margin: 1rem 0; font-size: 0.78rem;
+    }
+    .arch-box {
+      background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+      padding: 0.7rem; text-align: center;
+    }
+    .arch-box.hi { border-color: rgba(61,186,160,0.45); background: var(--teal-dim); }
+    .arch-box .t { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    .arch-box .n { font-family: var(--font-d); font-weight: 600; margin: 0.2rem 0; }
+    .arch-arr { display: flex; align-items: center; color: var(--muted); font-family: var(--font-m); }
+    .traj {
+      display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0;
+      font-family: var(--font-m); font-size: 0.76rem;
+    }
+    .traj .step {
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.65rem;
+      background: var(--bg-2); border-left: 3px solid var(--teal);
+    }
+    .traj .step.hand { border-left-color: var(--amber); }
+    .traj .step.sub { border-left-color: #6b9fd4; }
+    .traj .tag { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3, .level-bar { grid-template-columns: 1fr 1fr; }
+      .arch-row { grid-template-columns: 1fr; }
+      .arch-arr { transform: rotate(90deg); justify-content: center; padding: 0.2rem 0; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">Agent Systems</p>
+      <p class="brand-sub">Dark guide · DashNoteSystem</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Read</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Core</h3>
+          <a href="#overview" data-c="overview"><span class="dot"></span>Single-agent baseline</a>
+          <a href="#sub" data-c="sub"><span class="dot"></span>Sub-agent</a>
+          <a href="#multi" data-c="multi"><span class="dot"></span>Multi-agent</a>
+          <a href="#handoff" data-c="handoff"><span class="dot"></span>Agent handoff</a>
+          <a href="#harness" data-c="harness"><span class="dot"></span>Agent harness</a>
+          <a href="#auton" data-c="auton"><span class="dot"></span>Autonomy levels</a>
+        </div>
+        <div class="nav-g">
+          <h3>This project</h3>
+          <a href="#map" data-c="map"><span class="dot"></span>DashNote status</a>
+          <a href="#integrate" data-c="integrate"><span class="dot"></span>How to implement</a>
+          <a href="#check" data-c="check"><span class="dot"></span>Checklist</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Interactive · dark</p>
+        <h1>Agent systems</h1>
+        <p>
+          Sub-agents, multi-agent topologies, handoffs, harnesses, and autonomy —
+          grounded in DashNote’s Slice 6 LangGraph workspace assistant and what comes next.
+        </p>
+        <div class="chips">
+          <span class="chip t">Sub-agent</span>
+          <span class="chip">Multi-agent</span>
+          <span class="chip">Handoff</span>
+          <span class="chip a">Harness</span>
+          <span class="chip a">Autonomy</span>
+        </div>
+      </header>
+
+      <!-- 00 OVERVIEW -->
+      <section class="ch" id="overview" data-c="overview">
+        <h2>
+          <span class="n">00</span> Single-agent baseline
+          <span class="badge done">DashNote today</span>
+        </h2>
+        <p class="lede">
+          One LLM + tools in a loop is already an agent. Multi-agent patterns are optional
+          complexity — only add them when a single agent’s tool set or context gets too crowded.
+        </p>
+
+        <div class="flow">
+          <span class="fn hi">START</span>
+          <span class="fa">→</span>
+          <span class="fn">agent</span>
+          <span class="fa">→</span>
+          <span class="fn am">tools?</span>
+          <span class="fa">→</span>
+          <span class="fn">agent</span>
+          <span class="fa">→</span>
+          <span class="fn hi">END</span>
+        </div>
+
+<pre><code># ai/workflows/workspace_assistant.py
+START → agent → (tools | end | limit) → tools → agent → …
+
+Tools: search_notes · create_note · update_note · summarize_workspace
+State: messages + workspace_id + user_id + role + steps_taken + thread_id
+HTTP:  POST /ai/agent · POST /ai/agent/stream
+Law:   /ai/chat* stays the fast non-agent RAG path</code></pre>
+
+        <div class="callout">
+          <div class="lb">When to stay single-agent</div>
+          One domain (notes), &lt;10 tools, shared tenant context, one user goal per turn.
+          That is DashNote’s current sweet spot — don’t multi-agent for fashion.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="overview">Mark read</button></div>
+      </section>
+
+      <!-- 01 SUB-AGENT -->
+      <section class="ch" id="sub" data-c="sub">
+        <h2>
+          <span class="n">01</span> Sub-agent
+          <span class="badge todo">not yet</span>
+        </h2>
+        <p class="lede">
+          A <strong>sub-agent</strong> is a nested specialist invoked by a parent agent
+          (often as a tool). Parent keeps orchestration; child owns a narrow skill and returns a result.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Parent</h4>
+            <ul>
+              <li>Owns user conversation</li>
+              <li>Decides when to delegate</li>
+              <li>Merges child output into answer</li>
+              <li>Holds tenant identity</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Sub-agent</h4>
+            <ul>
+              <li>Narrow prompt + tools</li>
+              <li>Fresh or scoped context</li>
+              <li>Own step budget</li>
+              <li>Returns structured summary</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="demo">
+          <label for="subScene">Example delegation</label>
+          <select id="subScene">
+            <option value="research">Research sub-agent (search + summarize)</option>
+            <option value="writer">Writer sub-agent (draft note)</option>
+            <option value="today">DashNote today (no sub-agent)</option>
+          </select>
+          <div class="traj" id="subTraj"></div>
+        </div>
+
+        <div class="tabs" data-tabs="sub">
+          <div class="tab-list">
+            <button type="button" class="tab-btn active" data-tab="why">Why use</button>
+            <button type="button" class="tab-btn" data-tab="vs">vs plain tool</button>
+            <button type="button" class="tab-btn" data-tab="dash">In DashNote</button>
+          </div>
+          <div class="tab-panel active" data-panel="why">
+            <ul>
+              <li>Isolate long research so parent context stays clean</li>
+              <li>Different model / temperature per skill</li>
+              <li>Independent <code>max_iterations</code> for expensive loops</li>
+              <li>Clear ownership: “research agent” vs “mutate agent”</li>
+            </ul>
+          </div>
+          <div class="tab-panel" data-panel="vs">
+            <p>A <strong>tool</strong> is one function call. A <strong>sub-agent</strong> is a mini graph
+            (model ↔ tools) that may take many steps, then returns one payload to the parent.</p>
+          </div>
+          <div class="tab-panel" data-panel="dash">
+            <p>Today <code>search_notes</code> / <code>summarize_workspace</code> are tools calling
+            <code>RagService</code> — not nested agents. First sub-agent candidate:
+            a <em>retrieval specialist</em> that may rewrite queries + multi-hop search, returning
+            a grounded brief to the parent.</p>
+          </div>
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Best reason to introduce a sub-agent in DashNote?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">Replace /ai/chat with nested agents for every question</button>
+            <button type="button" data-ok="true">Isolate multi-step research so the parent stays focused on user intent + mutations</button>
+            <button type="button" data-ok="false">Avoid RBAC by giving the child unrestricted Qdrant access</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="sub">Mark read</button></div>
+      </section>
+
+      <!-- 02 MULTI -->
+      <section class="ch" id="multi" data-c="multi">
+        <h2>
+          <span class="n">02</span> Multi-agent systems
+          <span class="badge todo">not yet</span>
+        </h2>
+        <p class="lede">
+          Several agents with distinct roles coordinate on a task. Patterns differ by
+          who decides the next speaker.
+        </p>
+
+        <div class="grid3">
+          <div class="panel t">
+            <h4>Supervisor</h4>
+            <p>Router picks specialist. Clear control. Good default for products.</p>
+          </div>
+          <div class="panel a">
+            <h4>Swarm / peer</h4>
+            <p>Agents talk or hand off freely. Flexible; harder to bound cost.</p>
+          </div>
+          <div class="panel b">
+            <h4>Pipeline</h4>
+            <p>Fixed stages (research → draft → review). Predictable latency.</p>
+          </div>
+        </div>
+
+        <div class="arch-row" aria-label="Supervisor topology">
+          <div class="arch-box hi">
+            <div class="t">Supervisor</div>
+            <div class="n">Router</div>
+            <div>intent → agent</div>
+          </div>
+          <div class="arch-arr">→</div>
+          <div class="arch-box">
+            <div class="t">Specialist</div>
+            <div class="n">Research</div>
+            <div>search tools</div>
+          </div>
+          <div class="arch-arr">→</div>
+          <div class="arch-box">
+            <div class="t">Specialist</div>
+            <div class="n">Editor</div>
+            <div>create/update</div>
+          </div>
+        </div>
+
+        <table>
+          <thead><tr><th>Pattern</th><th>Pros</th><th>Cons</th><th>DashNote fit</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Supervisor</td>
+              <td>Auditable routing</td>
+              <td>Extra LLM hop</td>
+              <td>Best first multi-agent step</td>
+            </tr>
+            <tr>
+              <td>Pipeline</td>
+              <td>Stable cost</td>
+              <td>Rigid</td>
+              <td>File→tags→index already worker pipeline</td>
+            </tr>
+            <tr>
+              <td>Peer swarm</td>
+              <td>Creative</td>
+              <td>Hard eval / spend</td>
+              <td>Avoid for core notes product</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout warn">
+          <div class="lb">Cost &amp; eval</div>
+          N agents ≈ N× LLM calls. Require trajectory evals per agent and a global step budget
+          before shipping (see <code>evals.html</code>).
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="multi">Mark read</button></div>
+      </section>
+
+      <!-- 03 HANDOFF -->
+      <section class="ch" id="handoff" data-c="handoff">
+        <h2>
+          <span class="n">03</span> Agent handoff
+          <span class="badge todo">not yet</span>
+        </h2>
+        <p class="lede">
+          A <strong>handoff</strong> transfers control (and usually a summarized state) from
+          agent A to agent B. Unlike a sub-agent call, A may not resume — B owns the user turn.
+        </p>
+
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Handoff package</h4>
+            <ul>
+              <li>Goal / remaining work</li>
+              <li>Facts already established</li>
+              <li>Open questions</li>
+              <li>Tenant ids (immutable)</li>
+              <li>Allowed tools for B</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>vs tool return</h4>
+            <ul>
+              <li>Tool return → parent continues</li>
+              <li>Handoff → active agent switches</li>
+              <li>Need clear UI: who is speaking</li>
+              <li>Checkpointer may store <code>active_agent</code></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="demo">
+          <label for="handScene">Handoff story</label>
+          <select id="handScene">
+            <option value="research_edit">Research → Editor</option>
+            <option value="agent_human">Agent → Human (escalation)</option>
+            <option value="none">DashNote today</option>
+          </select>
+          <div class="out" id="handOut"></div>
+        </div>
+
+<pre><code># Conceptual LangGraph state extension
+class AgentState(TypedDict):
+    ...
+    active_agent: str          # "workspace" | "research" | "editor"
+    handoff_notes: str | None  # summary for next agent
+
+# Edge: after research concludes → handoff_to_editor → editor node</code></pre>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="handoff">Mark read</button></div>
+      </section>
+
+      <!-- 04 HARNESS -->
+      <section class="ch" id="harness" data-c="harness">
+        <h2>
+          <span class="n">04</span> Agent harness
+          <span class="badge done">mostly shipped</span>
+        </h2>
+        <p class="lede">
+          The <strong>harness</strong> is everything around the model that makes agents safe and operable:
+          loop, tools, memory, limits, streaming, observability, evals.
+        </p>
+
+        <table>
+          <thead><tr><th>Harness piece</th><th>Purpose</th><th>DashNote</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Graph + ToolNode</td>
+              <td>Model ↔ tools loop</td>
+              <td><span class="badge done">done</span> <code>workspace_assistant.py</code></td>
+            </tr>
+            <tr>
+              <td>Typed state</td>
+              <td>Tenant + steps</td>
+              <td><span class="badge done">done</span> <code>AgentState</code></td>
+            </tr>
+            <tr>
+              <td>Step guard</td>
+              <td>Stop infinite loops</td>
+              <td><span class="badge done">done</span> <code>AGENT_MAX_ITERATIONS=10</code></td>
+            </tr>
+            <tr>
+              <td>Tool timeout</td>
+              <td>Bound hung tools</td>
+              <td><span class="badge done">done</span> <code>AGENT_TOOL_TIMEOUT=30</code></td>
+            </tr>
+            <tr>
+              <td>Checkpointer</td>
+              <td>Resume / thread state</td>
+              <td><span class="badge done">done</span> Postgres <code>AsyncPostgresSaver</code></td>
+            </tr>
+            <tr>
+              <td>Product threads</td>
+              <td>User-visible history</td>
+              <td><span class="badge done">done</span> <code>AIThread</code> + <code>thread_id</code> bridge</td>
+            </tr>
+            <tr>
+              <td>HTTP + SSE</td>
+              <td>Invoke &amp; observe</td>
+              <td><span class="badge done">done</span> <code>/ai/agent*</code></td>
+            </tr>
+            <tr>
+              <td>LLM retry</td>
+              <td>Transient failures</td>
+              <td><span class="badge done">done</span> <code>acompletion_with_retry</code> → 503</td>
+            </tr>
+            <tr>
+              <td>RBAC tools</td>
+              <td>Safe side effects</td>
+              <td><span class="badge done">done</span> services only</td>
+            </tr>
+            <tr>
+              <td>Trajectory evals</td>
+              <td>Quality gate</td>
+              <td><span class="badge todo">todo</span> ship-plan agent goldens</td>
+            </tr>
+            <tr>
+              <td>Human approval node</td>
+              <td>Gate mutations</td>
+              <td><span class="badge partial">partial</span> prompt policy; no interrupt UI yet</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="acc">
+          <div class="acc-item open">
+            <button type="button" class="acc-btn">Harness laws (Slice 6)<span class="chev">›</span></button>
+            <div class="acc-body">
+              Tools → services only · plain <code>workspace_id</code>/<code>user_id</code>/<code>role</code> ·
+              LiteLLM OpenAI tool defs (not <code>bind_tools</code>) · lazy <code>compile()</code> ·
+              checkpointer ≠ SQLAlchemy pool · never replace <code>/ai/chat*</code>.
+            </div>
+          </div>
+          <div class="acc-item">
+            <button type="button" class="acc-btn">Streaming events<span class="chev">›</span></button>
+            <div class="acc-body">
+              SSE: <code>token</code>, <code>tool_start</code>, <code>tool_end</code>, <code>done</code>, <code>[DONE]</code>
+              via <code>graph.astream_events</code> — the harness’s real-time window into the loop.
+            </div>
+          </div>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="harness">Mark read</button></div>
+      </section>
+
+      <!-- 05 AUTONOMY -->
+      <section class="ch" id="auton" data-c="auton">
+        <h2>
+          <span class="n">05</span> Autonomy levels
+          <span class="badge partial">levels 0–2 live</span>
+        </h2>
+        <p class="lede">
+          How much the system may act without a human in the loop.
+          Raise autonomy only with harness + evals + governance.
+        </p>
+
+        <div class="level-bar" id="levelBar">
+          <button type="button" class="active" data-lv="0"><span class="lv">L0</span>Suggest</button>
+          <button type="button" data-lv="1"><span class="lv">L1</span>Assist</button>
+          <button type="button" data-lv="2"><span class="lv">L2</span>Act w/ rules</button>
+          <button type="button" data-lv="3"><span class="lv">L3</span>Act + escalate</button>
+          <button type="button" data-lv="4"><span class="lv">L4</span>Full auto</button>
+        </div>
+        <div class="out" id="levelOut"></div>
+
+        <table>
+          <thead><tr><th>Level</th><th>Meaning</th><th>DashNote analogue</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>L0</td>
+              <td>Answer only; no tools</td>
+              <td><code>/ai/chat*</code> RAG</td>
+            </tr>
+            <tr>
+              <td>L1</td>
+              <td>Tools on explicit ask</td>
+              <td>Agent prompt: create/update only if asked</td>
+            </tr>
+            <tr>
+              <td>L2</td>
+              <td>Bounded auto actions</td>
+              <td>Worker tags/metadata (additive); embed upsert</td>
+            </tr>
+            <tr>
+              <td>L3</td>
+              <td>Propose destructive; human gate</td>
+              <td><code>AutomationDecisionEngine</code> hold path</td>
+            </tr>
+            <tr>
+              <td>L4</td>
+              <td>Unattended high-impact</td>
+              <td>Not desired for core product</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">Product choice</div>
+          Users pick L0 (<code>/ai/chat</code>) vs L1–L2 (<code>/ai/agent</code>).
+          Destructive automation stays fail-safe blocked unless confidence ≥ 0.95 and non-destructive.
+        </div>
+
+        <div class="quiz">
+          <h4>Quick check</h4>
+          <p>Agent creates a note the user never asked for. Which level was violated?</p>
+          <div class="quiz-opts">
+            <button type="button" data-ok="false">L0 — chat should have created it</button>
+            <button type="button" data-ok="true">L1 policy — mutations only on explicit request</button>
+            <button type="button" data-ok="false">L4 — this is intended full autonomy</button>
+          </div>
+          <p class="quiz-fb"></p>
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="auton">Mark read</button></div>
+      </section>
+
+      <!-- 06 MAP -->
+      <section class="ch" id="map" data-c="map">
+        <h2><span class="n">06</span> DashNote status</h2>
+        <p class="lede">What you have vs what multi-agent would add.</p>
+
+        <table>
+          <thead><tr><th>Concept</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Single agent + tools</td>
+              <td><span class="badge done">done</span></td>
+              <td>Workspace assistant Slice 6</td>
+            </tr>
+            <tr>
+              <td>Agent harness</td>
+              <td><span class="badge done">done</span></td>
+              <td>Limits, checkpoint, SSE, RBAC tools, retries</td>
+            </tr>
+            <tr>
+              <td>Fast path coexistence</td>
+              <td><span class="badge done">done</span></td>
+              <td>Chat = L0; agent = L1+</td>
+            </tr>
+            <tr>
+              <td>Worker “pipeline agents”</td>
+              <td><span class="badge partial">partial</span></td>
+              <td>Automation tasks ≠ conversational agents</td>
+            </tr>
+            <tr>
+              <td>Governance gate</td>
+              <td><span class="badge done">done</span></td>
+              <td>Destructive AI actions (7.4)</td>
+            </tr>
+            <tr>
+              <td>Sub-agents</td>
+              <td><span class="badge todo">todo</span></td>
+              <td>e.g. research nested graph</td>
+            </tr>
+            <tr>
+              <td>Multi-agent / handoff</td>
+              <td><span class="badge todo">todo</span></td>
+              <td>Supervisor or research→editor</td>
+            </tr>
+            <tr>
+              <td>HITL interrupt UI</td>
+              <td><span class="badge todo">todo</span></td>
+              <td>Approve before create/update</td>
+            </tr>
+            <tr>
+              <td>Trajectory eval suite</td>
+              <td><span class="badge todo">todo</span></td>
+              <td><code>evals/golden/agent_tools.jsonl</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+<pre><code>Key paths
+  ai_routes/agent.py
+  ai/workflows/workspace_assistant.py · state.py
+  ai/tools/note_tools.py · schemas.py
+  ai/memory/checkpointer.py
+  worker/automation/decision.py   # autonomy for destructive jobs
+  scripts/e2e_agent_test.py</code></pre>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="map">Mark read</button></div>
+      </section>
+
+      <!-- 07 INTEGRATE -->
+      <section class="ch" id="integrate" data-c="integrate">
+        <h2><span class="n">07</span> How to implement next</h2>
+        <p class="lede">Ordered upgrades that respect Slice 6 laws and coexistence with chat.</p>
+
+        <ol class="roadmap">
+          <li>
+            <h4>Harden the current harness first</h4>
+            <p>Ship agent trajectory goldens (≥5). Trace tool_start/end in Langfuse. Keep
+            <code>AGENT_MAX_ITERATIONS</code> / tool timeout tuned from production traces.</p>
+          </li>
+          <li>
+            <h4>Optional HITL for mutations (raise to L3 UX)</h4>
+            <p>LangGraph interrupt before <code>create_note</code> / <code>update_note</code>:
+            stream <code>approval_required</code> → client confirms → resume with checkpointer
+            <code>thread_id</code>.</p>
+          </li>
+          <li>
+            <h4>First sub-agent: research</h4>
+<pre><code># New (append-only)
+ai/workflows/research_agent.py   # small graph: rewrite → search → brief
+ai/tools/delegate_research.py    # StructuredTool → invoke research graph
+
+# Parent registers delegate_research alongside get_note_tools()
+# Child inherits workspace_id/user_id/role from parent state — never from model</code></pre>
+          </li>
+          <li>
+            <h4>Supervisor multi-agent (only if needed)</h4>
+<pre><code># active_agent routing
+classify intent (cheap model) →
+  "ask"     → research sub-agent or search_notes
+  "mutate"  → editor node (create/update tools only)
+  "summary" → summarize path
+
+# Do not delete single-agent graph — feature-flag supervisor</code></pre>
+          </li>
+          <li>
+            <h4>Handoff protocol</h4>
+            <p>Define Pydantic <code>HandoffPacket</code> (goal, facts, open_questions).
+            Store <code>active_agent</code> in state + checkpoint. SSE event
+            <code>agent_handoff</code> for UI labeling.</p>
+          </li>
+          <li>
+            <h4>Validate</h4>
+<pre><code>python scripts/e2e_agent_test.py
+# + trajectory evals: expect_tools, forbid surprise create_note
+# + cost: agent p50/p95 vs chat (see cost_optimization.html)</code></pre>
+          </li>
+        </ol>
+
+        <div class="callout warn">
+          <div class="lb">Don’t</div>
+          Replace <code>/ai/chat*</code> · let specialists call Qdrant/repos directly ·
+          share mutable tenant fields the model can overwrite · ship swarm without step/cost caps ·
+          raise autonomy without governance + evals.
+        </div>
+        <div class="mark"><button type="button" class="btn primary mark-btn" data-c="integrate">Mark read</button></div>
+      </section>
+
+      <!-- 08 CHECK -->
+      <section class="ch" id="check" data-c="check">
+        <h2><span class="n">08</span> Checklist</h2>
+        <ul class="checklist" data-list="c">
+          <li><input type="checkbox" /><span>Single-agent tool loop vs multi-agent tradeoff clear</span></li>
+          <li><input type="checkbox" /><span>Sub-agent = nested specialist; handoff = transfer control</span></li>
+          <li><input type="checkbox" /><span>Harness pieces listed (limits, checkpoint, SSE, RBAC, retries)</span></li>
+          <li><input type="checkbox" /><span>Autonomy L0–L4 mapped to chat / agent / worker / governance</span></li>
+          <li><input type="checkbox" /><span>DashNote: Slice 6 done; sub/multi/handoff not started</span></li>
+          <li><input type="checkbox" /><span>Next: trajectory evals → HITL → research sub-agent → supervisor</span></li>
+          <li><input type="checkbox" /><span>Architecture laws preserved (services, tenant freeze, chat coexistence)</span></li>
+        </ul>
+        <div class="mark">
+          <button type="button" class="btn primary mark-btn" data-c="check">Mark read</button>
+          <button type="button" class="btn" id="reset">Reset</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Sources: <code>ai.md</code> · <code>slice6.md</code> · <code>workspace_assistant.py</code> ·
+        <code>agent.py</code> · <code>qs.md</code> · <code>AutomationDecisionEngine</code>.
+        Companions: <code>evals.html</code> · <code>llm_prompt.html</code> · <code>cost_optimization.html</code> · <code>mcp.html</code>.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const KEY = "dashnote-agent-systems-v1";
+      const CH = ["overview","sub","multi","handoff","harness","auton","map","integrate","check"];
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+      let state = load();
+      if (!state.read) state.read = {};
+      if (!state.checks) state.checks = {};
+
+      function progress() {
+        const n = CH.filter((c) => state.read[c]).length;
+        const p = Math.round((n / CH.length) * 100);
+        document.getElementById("pct").textContent = p + "%";
+        document.getElementById("fill").style.width = p + "%";
+        document.querySelectorAll("nav a[data-c]").forEach((a) => {
+          a.classList.toggle("visited", !!state.read[a.dataset.c]);
+        });
+      }
+
+      document.querySelectorAll(".mark-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.read[btn.dataset.c] = true;
+          save(state);
+          progress();
+          btn.textContent = "Read ✓";
+        });
+      });
+      CH.forEach((c) => {
+        if (state.read[c]) {
+          document.querySelectorAll('.mark-btn[data-c="' + c + '"]').forEach((b) => {
+            b.textContent = "Read ✓";
+          });
+        }
+      });
+      progress();
+
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!confirm("Reset progress?")) return;
+        state = { read: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false; i.closest("li").classList.remove("checked");
+        });
+        document.querySelectorAll(".mark-btn").forEach((b) => { b.textContent = "Mark read"; });
+        progress();
+      });
+
+      const links = [...document.querySelectorAll("nav a[data-c]")];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+        });
+      }, { rootMargin: "-28% 0px -55% 0px" });
+      CH.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("navToggle");
+      toggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        toggle.textContent = sidebar.classList.contains("open") ? "Close" : "Menu";
+      });
+      links.forEach((l) => l.addEventListener("click", () => {
+        sidebar.classList.remove("open"); toggle.textContent = "Menu";
+      }));
+
+      document.querySelectorAll("[data-tabs]").forEach((root) => {
+        const btns = root.querySelectorAll(".tab-btn");
+        const panels = root.querySelectorAll(".tab-panel");
+        btns.forEach((btn) => btn.addEventListener("click", () => {
+          btns.forEach((b) => b.classList.toggle("active", b === btn));
+          panels.forEach((p) => p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+        }));
+      });
+
+      document.querySelectorAll(".acc-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = btn.closest(".acc-item");
+          const open = item.classList.contains("open");
+          item.parentElement.querySelectorAll(".acc-item").forEach((i) => i.classList.remove("open"));
+          if (!open) item.classList.add("open");
+        });
+      });
+
+      document.querySelectorAll(".quiz").forEach((quiz) => {
+        const fb = quiz.querySelector(".quiz-fb");
+        quiz.querySelectorAll(".quiz-opts button").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const ok = btn.dataset.ok === "true";
+            quiz.querySelectorAll(".quiz-opts button").forEach((b) => {
+              b.disabled = true;
+              if (b.dataset.ok === "true") b.classList.add("correct");
+            });
+            if (!ok) btn.classList.add("wrong");
+            fb.textContent = ok ? "Correct." : "See the highlighted option.";
+          });
+        });
+      });
+
+      const SUB = {
+        research: [
+          { cls: "", tag: "parent", text: "User: Compare Q3 plans across notes" },
+          { cls: "sub", tag: "delegate", text: "tool: run_research_agent(goal=…)" },
+          { cls: "sub", tag: "sub-agent", text: "search → search → brief JSON" },
+          { cls: "", tag: "parent", text: "Synthesize brief → final answer" }
+        ],
+        writer: [
+          { cls: "", tag: "parent", text: "User: Save a polished launch note" },
+          { cls: "sub", tag: "delegate", text: "tool: run_writer_agent(outline=…)" },
+          { cls: "sub", tag: "sub-agent", text: "draft → (optional) create_note" },
+          { cls: "", tag: "parent", text: "Confirm note_id to user" }
+        ],
+        today: [
+          { cls: "", tag: "agent", text: "Single workspace assistant" },
+          { cls: "", tag: "tools", text: "search_notes / create / update / summarize" },
+          { cls: "", tag: "note", text: "No nested graph — tools call RagService / NoteService" }
+        ]
+      };
+      function renderSub() {
+        const v = document.getElementById("subScene").value;
+        document.getElementById("subTraj").innerHTML = SUB[v].map((s) =>
+          '<div class="step ' + s.cls + '"><div class="tag">' + s.tag + '</div>' + s.text + '</div>'
+        ).join("");
+      }
+      document.getElementById("subScene").addEventListener("change", renderSub);
+      renderSub();
+
+      const HAND = {
+        research_edit:
+          '<span class="role">research agent</span> finishes brief\n' +
+          '<span class="ok">handoff → editor</span>\n' +
+          'packet: { goal: "create Launch note", facts: [...], open: [] }\n' +
+          '<span class="role">editor</span> calls create_note · research does not resume\n' +
+          '<span class="dim">SSE: agent_handoff { from, to }</span>',
+        agent_human:
+          '<span class="role">agent</span> wants delete / merge\n' +
+          '<span class="ok">handoff → human</span> (approval_required)\n' +
+          'checkpoint paused · UI confirm · resume\n' +
+          '<span class="dim">Maps to autonomy L3 + governance patterns</span>',
+        none:
+          '<span class="role">DashNote today</span>\n' +
+          'One active agent for the whole turn.\n' +
+          'Tools return to the same agent (no handoff).\n' +
+          '<span class="dim">Escalation = user message / 503 — not agent_handoff event</span>'
+      };
+      function renderHand() {
+        document.getElementById("handOut").innerHTML = HAND[document.getElementById("handScene").value];
+      }
+      document.getElementById("handScene").addEventListener("change", renderHand);
+      renderHand();
+
+      const LEVELS = {
+        "0":
+          '<span class="role">L0 — Suggest / answer only</span>\n' +
+          'No tools. Grounded RAG.\n' +
+          '<span class="ok">DashNote: POST /ai/chat*</span>\n' +
+          '<span class="dim">Cheapest, safest default for Q&A</span>',
+        "1":
+          '<span class="role">L1 — Assist on request</span>\n' +
+          'Tools allowed when user explicitly asks.\n' +
+          '<span class="ok">DashNote agent prompt rules 3–4 (create/update only if asked)</span>',
+        "2":
+          '<span class="role">L2 — Act within rules</span>\n' +
+          'Auto additive work: tags, file metadata, embeds.\n' +
+          '<span class="ok">Worker automation (non-destructive)</span>\n' +
+          'Agent may search without asking every time.',
+        "3":
+          '<span class="role">L3 — Act + escalate</span>\n' +
+          'Propose risky actions; human or governance gate.\n' +
+          '<span class="ok">AutomationDecisionEngine hold path</span>\n' +
+          '<span class="dim">HITL interrupt for note mutations = next UX</span>',
+        "4":
+          '<span class="role">L4 — Full autonomy</span>\n' +
+          'Unattended high-impact changes.\n' +
+          '<span class="bad">Not a DashNote product goal</span>\n' +
+          'Keep fail-safe blocks; never skip RBAC.'
+      };
+      function showLevel(lv) {
+        document.querySelectorAll("#levelBar button").forEach((b) => {
+          b.classList.toggle("active", b.dataset.lv === lv);
+        });
+        document.getElementById("levelOut").innerHTML = LEVELS[lv];
+      }
+      document.querySelectorAll("#levelBar button").forEach((b) => {
+        b.addEventListener("click", () => showLevel(b.dataset.lv));
+      });
+      showLevel("0");
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) { input.checked = true; li.classList.add("checked"); }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

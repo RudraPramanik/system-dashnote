@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Async Work &amp; Messaging — Full Guidebook · DashNote</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --blue: #6b9fd4; --blue-dim: rgba(107,159,212,0.14);
+      --nav-w: 280px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.78rem; margin-bottom: 0.08rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 880px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 44rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    .chip.b { border-color: rgba(107,159,212,0.4); color: var(--blue); background: var(--blue-dim); }
+    section.ch { margin-bottom: 2.5rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px; letter-spacing: 0.02em;
+    }
+    .badge.done { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0 0 0.85rem; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .dn {
+      border-left: 3px solid var(--blue); background: var(--blue-dim);
+      padding: 0.65rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.75rem 0;
+      font-size: 0.86rem; color: var(--soft);
+    }
+    .dn .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--blue); margin-bottom: 0.2rem;
+    }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid var(--blue); }
+    .panel h4 { margin-top: 0; }
+    .panel p:last-child, .panel ul:last-child { margin-bottom: 0; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .status {
+      font-family: var(--font-m); font-size: 0.68rem; font-weight: 500;
+      padding: 0.12rem 0.4rem; border-radius: 4px; white-space: nowrap;
+    }
+    .status.covered { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .status.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .status.gap { background: rgba(224,108,108,0.12); color: var(--bad); border: 1px solid rgba(224,108,108,0.35); }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .code-toggle {
+      margin: 0.85rem 0 1.1rem; border: 1px solid var(--line);
+      border-radius: 12px; overflow: hidden; background: var(--card);
+    }
+    .code-toggle .toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 0.5rem; flex-wrap: wrap; padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.02);
+    }
+    .code-toggle .label {
+      font-size: 0.72rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.04em; font-weight: 600;
+    }
+    .lang-switch { display: inline-flex; gap: 0.25rem; }
+    .lang-btn {
+      font-family: var(--font-b); font-size: 0.78rem; font-weight: 600;
+      padding: 0.28rem 0.65rem; border-radius: 7px; border: 1px solid transparent;
+      background: transparent; color: var(--muted); cursor: pointer;
+    }
+    .lang-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.35);
+    }
+    .code-pane { display: none; }
+    .code-pane.active { display: block; }
+    .code-pane pre { border: none; border-radius: 0; margin: 0; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .toc-mini {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 0.85rem 1rem; margin: 0.85rem 0; font-size: 0.84rem; color: var(--soft);
+    }
+    .toc-mini ol { margin: 0.4rem 0 0; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">Async &amp; Messaging</p>
+      <p class="brand-sub">Full guidebook · Must #6</p>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Progress</span><span id="pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Foundations</h3>
+          <a href="#overview"><span class="dot"></span>Overview</a>
+          <a href="#when"><span class="dot"></span>When to go async</a>
+          <a href="#queues-pubsub"><span class="dot"></span>Queues vs pub/sub</a>
+          <a href="#delivery"><span class="dot"></span>Delivery guarantees</a>
+        </div>
+        <div class="nav-g">
+          <h3>Operations</h3>
+          <a href="#workers"><span class="dot"></span>Workers</a>
+          <a href="#retries"><span class="dot"></span>Retries &amp; backoff</a>
+          <a href="#dlq"><span class="dot"></span>DLQ &amp; poison</a>
+          <a href="#idempotency"><span class="dot"></span>Idempotent handlers</a>
+          <a href="#patterns"><span class="dot"></span>Common patterns</a>
+        </div>
+        <div class="nav-g">
+          <h3>Design</h3>
+          <a href="#outbox"><span class="dot"></span>Outbox &amp; ordering</a>
+          <a href="#visibility"><span class="dot"></span>Job visibility</a>
+          <a href="#brokers"><span class="dot"></span>Broker choices</a>
+        </div>
+        <div class="nav-g">
+          <h3>This repo</h3>
+          <a href="#status"><span class="dot"></span>Covered vs should</a>
+          <a href="#examples"><span class="dot"></span>Code (FastAPI / Nest)</a>
+          <a href="#checklist"><span class="dot"></span>Checklist</a>
+        </div>
+        <div class="nav-g">
+          <h3>Related</h3>
+          <a href="auth.html"><span class="dot"></span>← Auth</a>
+          <a href="roadmap.html"><span class="dot"></span>Roadmap</a>
+        </div>
+      </nav>
+      <div class="mark" style="margin-top:1rem">
+        <button class="btn" type="button" id="resetBtn">Reset progress</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Full guidebook · Roadmap Must #6 · Backend</p>
+        <h1>Async work &amp; messaging</h1>
+        <p>
+          Queues, workers, and delivery semantics — when to leave the HTTP request,
+          how retries and poison messages work, and the practical truth about
+          “exactly-once.”
+        </p>
+        <div class="chips">
+          <span class="chip t">Full curriculum</span>
+          <span class="chip a">ARQ · Redis</span>
+          <span class="chip b">FastAPI · NestJS</span>
+        </div>
+      </header>
+
+      <!-- ========== OVERVIEW ========== -->
+      <section class="ch" id="overview">
+        <h2><span class="n">00</span> Overview</h2>
+        <p class="lede">
+          Sync HTTP is great until work is slow, flaky, or multi-step. Async systems
+          move that work to workers behind a durable queue — trading immediacy for
+          reliability and scale.
+        </p>
+        <div class="toc-mini">
+          <strong style="color:var(--ink)">What this book covers</strong>
+          <ol>
+            <li>When background jobs beat long HTTP</li>
+            <li>Queues vs pub/sub</li>
+            <li>At-least-once vs exactly-once (practical truth)</li>
+            <li>Workers, retries/backoff, DLQ, poison messages</li>
+            <li>Idempotency, outbox, job visibility</li>
+          </ol>
+        </div>
+        <div class="flow">
+          <span class="fn">API</span><span class="fa">→</span>
+          <span class="fn hi">Enqueue</span><span class="fa">→</span>
+          <span class="fn am">Redis / broker</span><span class="fa">→</span>
+          <span class="fn hi">Worker</span><span class="fa">→</span>
+          <span class="fn">Side effects</span>
+        </div>
+        <div class="dn">
+          <div class="lb">DashNote shape</div>
+          FastAPI enqueues ARQ jobs on Redis (<code>arq_pool</code>). Worker process runs
+          embed / file parse / tags / metadata. “Event bus” = typed events → task name map,
+          not Redis pub/sub. Chat/agent stay on the request (SSE).
+        </div>
+      </section>
+
+      <!-- ========== WHEN ========== -->
+      <section class="ch" id="when">
+        <h2><span class="n">01</span> When background jobs beat long HTTP</h2>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Go async when</h4>
+            <ul>
+              <li>Work often exceeds ~1–2s (or has heavy tail)</li>
+              <li>Calls flaky externals (LLM, OCR, email)</li>
+              <li>You need retries without holding the client</li>
+              <li>Fan-out: one upload → extract + embed + tag</li>
+              <li>Client doesn’t need the result to finish the UX</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Stay sync when</h4>
+            <ul>
+              <li>User must see the result to continue</li>
+              <li>Work is cheap and reliable (&lt; hundreds of ms)</li>
+              <li>Failure must fail the HTTP transaction visibly</li>
+              <li>Streaming the result is the product (SSE chat)</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout">
+          <div class="lb">Guideline</div>
+          Return the <em>domain resource</em> immediately (note created, file uploaded).
+          Run indexing/enrichment in the background. Tell the client how to know when it’s ready
+          (poll field, 202+job, webhook, or “search catches up”).
+        </div>
+        <div class="dn">
+          <div class="lb">DashNote · Covered</div>
+          Note create returns <code>NoteRead</code> then enqueues embed (+ tags via event).
+          File upload returns file then <code>FileUploadedEvent</code> → parse → fan-out.
+          Enqueue failures are logged — HTTP still succeeds (search may lag).
+          Agent/RAG remain request-scoped (correct for interactive latency).
+        </div>
+      </section>
+
+      <!-- ========== QUEUES VS PUBSUB ========== -->
+      <section class="ch" id="queues-pubsub">
+        <h2><span class="n">02</span> Queues vs pub/sub</h2>
+        <table>
+          <thead>
+            <tr><th></th><th>Work queue</th><th>Pub/Sub</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Intent</strong></td>
+              <td>Do this job (competing consumers)</td>
+              <td>Announce this happened (fan-out)</td>
+            </tr>
+            <tr>
+              <td><strong>Consumers</strong></td>
+              <td>One worker processes each message</td>
+              <td>All subscribers get a copy (or none if offline)</td>
+            </tr>
+            <tr>
+              <td><strong>Persistence</strong></td>
+              <td>Usually durable until ack</td>
+              <td>Classic pub/sub is fire-and-forget</td>
+            </tr>
+            <tr>
+              <td><strong>Examples</strong></td>
+              <td>ARQ, Celery, SQS, Rabbit work queues, BullMQ</td>
+              <td>Redis Pub/Sub, SNS, Kafka fan-out topics*</td>
+            </tr>
+            <tr>
+              <td><strong>Use for</strong></td>
+              <td>Embed, email, OCR, billing settle</td>
+              <td>Live UI updates, cache bust signals, many independent reactors</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          *Kafka / streams blur the line: durable log + consumer groups ≈ queue semantics per group,
+          pub/sub across groups. Start with “queue for work, stream/bus for events.”
+        </p>
+        <div class="dn">
+          <div class="lb">DashNote · Covered (queues)</div>
+          ARQ Redis list / <code>BLPOP</code> work queue. Domain “events” are enqueued as jobs via
+          <code>emit_event</code> — not Redis Pub/Sub. Fan-out = worker enqueues more jobs.
+        </div>
+      </section>
+
+      <!-- ========== DELIVERY ========== -->
+      <section class="ch" id="delivery">
+        <h2><span class="n">03</span> Delivery guarantees — practical truth</h2>
+        <table>
+          <thead>
+            <tr><th>Guarantee</th><th>Meaning</th><th>Reality</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>At-most-once</strong></td>
+              <td>May lose messages; never duplicates</td>
+              <td>Rarely OK for money/email; OK for metrics</td>
+            </tr>
+            <tr>
+              <td><strong>At-least-once</strong></td>
+              <td>May duplicate; won’t silently lose if durable</td>
+              <td><strong>Default for serious systems</strong></td>
+            </tr>
+            <tr>
+              <td><strong>Exactly-once</strong></td>
+              <td>Process once end-to-end</td>
+              <td>Marketing term — usually “effectively once” via idempotency + txn</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <div class="lb">Practical truth</div>
+          Brokers give at-least-once. You get <em>exactly-once effects</em> by making handlers
+          idempotent (upserts, unique constraints, dedupe keys) — not by believing a checkbox.
+        </div>
+        <div class="dn">
+          <div class="lb">DashNote · Partial</div>
+          At-least-once via ARQ retries. Soft idempotency: deterministic chunk IDs + Qdrant upsert.
+          No job-id dedupe on enqueue → double-click / double-emit can queue duplicates.
+        </div>
+      </section>
+
+      <!-- ========== WORKERS ========== -->
+      <section class="ch" id="workers">
+        <h2><span class="n">04</span> Workers</h2>
+        <ul>
+          <li>Separate process(es) that pull jobs and run handlers</li>
+          <li>Scale horizontally: more workers → higher throughput (watch DB/API quotas)</li>
+          <li>Concurrency: <code>max_jobs</code> / worker pool size — don’t exceed downstream limits</li>
+          <li>Timeouts: kill runaway jobs; don’t leave zombies holding locks</li>
+          <li>Isolate heavy CPU (parse) from I/O-bound (LLM) pools when needed</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Covered</div>
+          <code>python -m arq src.worker.main.WorkerSettings</code> in Compose.
+          <code>WORKER_MAX_JOBS</code> (default 5), <code>job_timeout=300</code>, <code>keep_result=3600</code>.
+          Tasks: embed note, file uploaded pipeline, tags, metadata, chunk indexing.
+        </div>
+      </section>
+
+      <!-- ========== RETRIES ========== -->
+      <section class="ch" id="retries">
+        <h2><span class="n">05</span> Retries &amp; backoff</h2>
+        <ul>
+          <li><strong>Retry</strong> transient failures (429, 503, timeouts, network blips)</li>
+          <li><strong>Don’t retry</strong> permanent 400s / validation / “not found” after confirm</li>
+          <li><strong>Exponential backoff + jitter</strong> — avoid synchronized stampedes</li>
+          <li>Cap <code>max_tries</code>; then DLQ or mark failed</li>
+          <li>Distinguish task-level retry (ARQ) vs library retry (Tenacity around LLM)</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Partial</div>
+          LLM/embed paths use Tenacity exponential backoff.
+          Workers re-raise retryable errors; fatal → log + return.
+          No explicit ARQ <code>max_tries</code> override / DLQ yet.
+        </div>
+      </section>
+
+      <!-- ========== DLQ ========== -->
+      <section class="ch" id="dlq">
+        <h2><span class="n">06</span> Dead-letter queues &amp; poison messages</h2>
+        <p class="lede">
+          A <strong>poison message</strong> always fails (bad payload, bug, missing dependency).
+          Without a DLQ it blocks the queue or retries forever.
+        </p>
+        <ol>
+          <li>After N failures → move to dead-letter queue / table</li>
+          <li>Alert on DLQ depth</li>
+          <li>Inspect, fix code or data, replay or discard</li>
+          <li>Never infinite-retry poison without a circuit</li>
+        </ol>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Backoff</h4>
+            <p>Space retries so the system can recover (deps, rate limits).</p>
+          </div>
+          <div class="panel a">
+            <h4>DLQ</h4>
+            <p>Park poison so healthy jobs keep flowing; humans/tools replay later.</p>
+          </div>
+        </div>
+        <div class="dn">
+          <div class="lb">DashNote · Gap</div>
+          No dead-letter queue or poison parking. Failed fatals are logged.
+          <strong>Should be:</strong> max tries → DLQ list/table + alert + replay tool.
+        </div>
+      </section>
+
+      <!-- ========== IDEMPOTENCY ========== -->
+      <section class="ch" id="idempotency">
+        <h2><span class="n">07</span> Idempotent handlers</h2>
+        <p class="lede">Assume every job may run twice. Design effects that converge.</p>
+        <ul>
+          <li>Upsert by natural key (chunk id, email send id)</li>
+          <li>Unique constraints + catch conflict</li>
+          <li>Store <code>processed_job_id</code> / event id before side effects (or in same txn as outbox)</li>
+          <li>Avoid “increment counter” without idempotency keys</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Partial</div>
+          Qdrant upsert with stable <code>uuid5(note_id:index)</code> chunk ids — re-run safe for embeds.
+          Note create still fires two jobs (embed + tags) by design — both should stay idempotent.
+        </div>
+      </section>
+
+      <!-- ========== PATTERNS ========== -->
+      <section class="ch" id="patterns">
+        <h2><span class="n">08</span> Common patterns</h2>
+        <div class="grid3">
+          <div class="panel t">
+            <h4>Fire-and-forget</h4>
+            <p>Enqueue after commit; return 200. Client doesn’t wait. DashNote default.</p>
+          </div>
+          <div class="panel a">
+            <h4>202 + job status</h4>
+            <p>Return job id; client polls <code>/jobs/{id}</code> until terminal.</p>
+          </div>
+          <div class="panel b">
+            <h4>Saga / choreography</h4>
+            <p>Event → workers → more events. Need compensations for failures.</p>
+          </div>
+        </div>
+        <ul>
+          <li><strong>Fan-out</strong> — one event triggers many jobs (file → index + metadata)</li>
+          <li><strong>Delayed / scheduled</strong> — run_at, cron workers</li>
+          <li><strong>Priority queues</strong> — interactive vs batch</li>
+        </ul>
+      </section>
+
+      <!-- ========== OUTBOX ========== -->
+      <section class="ch" id="outbox">
+        <h2><span class="n">09</span> Outbox &amp; ordering</h2>
+        <p>
+          Dual-write problem: commit DB then enqueue — process can crash between them
+          (lost event) or enqueue then fail DB (orphan job). <strong>Transactional outbox</strong>:
+          write row + outbox in one DB txn; relay publishes to the broker.
+        </p>
+        <ul>
+          <li>Ordering: single queue ≠ global order; use partition keys when order matters</li>
+          <li>Prefer causal order per aggregate (note_id) over total order</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Gap (outbox)</div>
+          Commit then best-effort enqueue (never blocks HTTP). Rare lost jobs if Redis blips after commit.
+          Acceptable early; outbox is the production hardening step.
+        </div>
+      </section>
+
+      <!-- ========== VISIBILITY ========== -->
+      <section class="ch" id="visibility">
+        <h2><span class="n">10</span> Job visibility for clients</h2>
+        <ul>
+          <li>Poll resource fields (<code>indexed_at</code>, <code>tags</code> populated)</li>
+          <li>Job API: queued → running → succeeded/failed</li>
+          <li>Push: websocket / SSE progress / webhook</li>
+        </ul>
+        <div class="dn">
+          <div class="lb">DashNote · Gap</div>
+          No 202 / job-id API. ARQ <code>keep_result</code> unused by clients.
+          UX relies on eventual search/tags. <strong>Should be:</strong> indexing status on note/file or jobs endpoint.
+        </div>
+      </section>
+
+      <!-- ========== BROKERS ========== -->
+      <section class="ch" id="brokers">
+        <h2><span class="n">11</span> Broker choices (intuition)</h2>
+        <table>
+          <thead>
+            <tr><th>Tool</th><th>Sweet spot</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Redis + ARQ / Bull / RQ</td><td>App jobs, simple ops, shared Redis</td></tr>
+            <tr><td>SQS / Cloud Tasks</td><td>Managed, scale, less ops</td></tr>
+            <tr><td>RabbitMQ</td><td>Routing, protocols, classic queues</td></tr>
+            <tr><td>Kafka / Redpanda</td><td>High-throughput event log, replay</td></tr>
+            <tr><td>Celery</td><td>Python ecosystem, many patterns</td></tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <div class="lb">Redis dual-use</div>
+          Cache + broker on one Redis is fine small-scale. Prod often splits cache (low latency)
+          from queue Redis (blocking pops) — DashNote docs mention this split.
+        </div>
+      </section>
+
+      <!-- ========== STATUS ========== -->
+      <section class="ch" id="status">
+        <h2><span class="n">12</span> DashNote scorecard <span class="badge partial">THIS REPO</span></h2>
+        <table>
+          <thead>
+            <tr><th>Topic</th><th>Status</th><th>In repo</th><th>Should be</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Background vs long HTTP</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Embed/parse/tags off-request; chat sync/SSE</td>
+              <td>Surface indexing readiness to clients</td>
+            </tr>
+            <tr>
+              <td>Work queues (ARQ)</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Worker service + enqueue from API/events</td>
+              <td>Queue depth metrics / scale playbook</td>
+            </tr>
+            <tr>
+              <td>Pub/Sub bus</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Events = enqueue map only</td>
+              <td>Add only if live fan-out needed</td>
+            </tr>
+            <tr>
+              <td>At-least-once</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>ARQ + retries + upserts</td>
+              <td>Dedupe keys on enqueue</td>
+            </tr>
+            <tr>
+              <td>Exactly-once effects</td>
+              <td><span class="status partial">Partial</span></td>
+              <td>Idempotent Qdrant upserts</td>
+              <td>Broader idempotency keys / processed table</td>
+            </tr>
+            <tr>
+              <td>Workers</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Compose worker, timeouts, max_jobs</td>
+              <td>Wire unused events (update/delete stubs)</td>
+            </tr>
+            <tr>
+              <td>Backoff</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Tenacity on LLM/embed</td>
+              <td>Explicit ARQ max_tries</td>
+            </tr>
+            <tr>
+              <td>DLQ / poison</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Log fatals only</td>
+              <td>DLQ + alert + replay</td>
+            </tr>
+            <tr>
+              <td>Outbox</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Best-effort after commit</td>
+              <td>Transactional outbox when loss hurts</td>
+            </tr>
+            <tr>
+              <td>Job status API</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Fire-and-forget 200</td>
+              <td>202 or resource status fields</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <div class="lb">Priority upgrades</div>
+          1) DLQ + max tries · 2) Indexing/job visibility · 3) Emit missing update/delete events ·
+          4) Enqueue dedupe · 5) Outbox when reliability bar rises.
+        </div>
+      </section>
+
+      <!-- ========== EXAMPLES ========== -->
+      <section class="ch" id="examples">
+        <h2><span class="n">13</span> Code examples <span class="badge done">TOGGLE</span></h2>
+
+        <h3>1. Fire-and-forget after commit</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Don’t block HTTP</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI + ARQ — DashNote notes pattern
+@router.post("/", response_model=NoteRead)
+async def create_note(data: NoteCreate, request: Request, ctx = Depends(...), db = Depends(...)):
+    note = await repo.create(...)
+    await db.commit()
+
+    try:
+        await request.app.state.arq_pool.enqueue_job(
+            "embed_note_task",
+            request_dict=IndexingRequest(...).model_dump(),
+        )
+    except Exception:
+        logger.warning("Failed to enqueue embedding", extra={"note_id": note.id})
+        # still return success — indexing is best-effort
+
+    return note</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS + BullMQ
+@Post()
+async create(@Body() dto: CreateNoteDto, @Req() req) {
+  const note = await this.notes.create(dto);
+  await this.embedQueue.add(
+    'embed_note',
+    { noteId: note.id, workspaceId: req.user.workspaceId },
+    { attempts: 5, backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: true },
+  ).catch((e) => this.logger.warn('enqueue failed', e));
+  return note; // 201 — client not waiting for embed
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>2. Event → task map (lightweight bus)</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Domain event dispatch</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># shared/events/bus.py style — never raise into HTTP
+_TASK_MAP = {
+    "file.uploaded": "handle_file_uploaded",
+    "note.created": "handle_note_created",
+}
+
+async def emit_event(event, arq_pool) -> bool:
+    if arq_pool is None:
+        logger.warning("no arq_pool — event dropped")
+        return False
+    task = _TASK_MAP.get(event.event_type.value)
+    if not task:
+        return False
+    try:
+        await arq_pool.enqueue_job(task, event_data=event.model_dump(mode="json"))
+        return True
+    except Exception:
+        logger.exception("emit_event failed")
+        return False</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS — EventEmitter → queue (or @OnEvent handlers that enqueue)
+async emit(event: DomainEvent) {
+  const task = TASK_MAP[event.type];
+  if (!task) return false;
+  try {
+    await this.queue.add(task, event.payload, {
+      jobId: `${event.type}:${event.id}`, // dedupe
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 2000 },
+    });
+    return true;
+  } catch (e) {
+    this.logger.error('emit failed', e);
+    return false;
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>3. Idempotent worker + retry classification</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Safe under at-least-once</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># ARQ task — upsert is safe to retry
+async def embed_note_task(ctx, request_dict: dict):
+    req = IndexingRequest.model_validate(request_dict)
+    try:
+        chunks = chunk_note(req)  # stable uuid5 ids
+        await qdrant.upsert(chunks)  # idempotent
+    except TransientLLMError:
+        raise  # ARQ retries
+    except PermanentError as e:
+        logger.error("fatal embed", extra={"error": str(e)})
+        return {"ok": False}  # stop retrying</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// BullMQ processor
+@Processor('embed')
+export class EmbedProcessor {
+  @Process('embed_note')
+  async handle(job: Job) {
+    try {
+      const chunks = chunkNote(job.data); // stable ids
+      await this.qdrant.upsert(chunks);
+    } catch (e) {
+      if (isTransient(e)) throw e; // retry
+      this.logger.error('fatal', e);
+      // don't throw → job completes failed without infinite retry
+      // or: move to DLQ queue explicitly
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>4. 202 + status (should-be)</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">When the client must track work</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code>@router.post("/notes/{id}/reindex", status_code=202)
+async def reindex(id: int, request: Request):
+    job = await request.app.state.arq_pool.enqueue_job("embed_note_task", ...)
+    return {"job_id": job.job_id, "status": "queued"}
+
+@router.get("/jobs/{job_id}")
+async def job_status(job_id: str):
+    # read ARQ result / your jobs table
+    ...</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>@Post('notes/:id/reindex')
+@HttpCode(202)
+async reindex(@Param('id') id: string) {
+  const job = await this.embedQueue.add('embed_note', { noteId: id });
+  return { job_id: job.id, status: 'queued' };
+}
+
+@Get('jobs/:id')
+status(@Param('id') id: string) {
+  return this.embedQueue.getJob(id).then(formatJob);
+}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== CHECKLIST ========== -->
+      <section class="ch" id="checklist">
+        <h2><span class="n">14</span> Mastery checklist</h2>
+
+        <h3>Foundations</h3>
+        <ul class="checklist" data-list="f">
+          <li><input type="checkbox" /> Decide sync vs async for a feature with clear criteria</li>
+          <li><input type="checkbox" /> Contrast queues vs pub/sub with examples</li>
+          <li><input type="checkbox" /> Explain at-least-once and how to get exactly-once effects</li>
+        </ul>
+
+        <h3>Operations</h3>
+        <ul class="checklist" data-list="o">
+          <li><input type="checkbox" /> Design a worker with timeout, concurrency, retries</li>
+          <li><input type="checkbox" /> Specify backoff + jitter + max tries</li>
+          <li><input type="checkbox" /> Define DLQ / poison handling and replay</li>
+          <li><input type="checkbox" /> Make a handler idempotent under duplicate delivery</li>
+        </ul>
+
+        <h3>DashNote gaps</h3>
+        <ul class="checklist" data-list="d">
+          <li><input type="checkbox" /> No DLQ</li>
+          <li><input type="checkbox" /> No job status / 202 API</li>
+          <li><input type="checkbox" /> No transactional outbox</li>
+          <li><input type="checkbox" /> Some events defined but not emitted from routers</li>
+        </ul>
+
+        <div class="mark">
+          <button class="btn primary" type="button" id="markSection">Mark section visited</button>
+          <button class="btn" type="button" id="resetBtn2">Reset all</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Async Work &amp; Messaging · Full guidebook · Must #6 ·
+        <code>dashnote-async-msg-v1</code>
+        · Prev: <a href="auth.html" style="color:var(--teal)">Auth</a>
+        · <a href="roadmap.html" style="color:var(--teal)">Roadmap</a>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const KEY = "dashnote-async-msg-v1";
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); }
+        catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+
+      let state = load();
+      if (!state.visited) state.visited = {};
+      if (!state.checks) state.checks = {};
+      if (!state.lang) state.lang = "py";
+
+      const fill = document.getElementById("fill");
+      const pct = document.getElementById("pct");
+      const links = [...document.querySelectorAll("nav a[href^='#']")];
+      const sections = [...document.querySelectorAll("section.ch")];
+
+      function updateProgress() {
+        const checks = [...document.querySelectorAll(".checklist input")];
+        const done = checks.filter((c) => c.checked).length;
+        const p = Math.round((done / (checks.length || 1)) * 100);
+        fill.style.width = p + "%";
+        pct.textContent = p + "%";
+      }
+
+      function applyVisited() {
+        links.forEach((a) => {
+          const id = a.getAttribute("href").slice(1);
+          a.classList.toggle("visited", !!state.visited[id]);
+        });
+      }
+
+      function applyLang(lang) {
+        state.lang = lang;
+        save(state);
+        document.querySelectorAll("[data-toggle]").forEach((box) => {
+          box.querySelectorAll(".lang-btn").forEach((b) => {
+            b.classList.toggle("active", b.dataset.lang === lang);
+          });
+          box.querySelectorAll(".code-pane").forEach((p) => {
+            p.classList.toggle("active", p.dataset.pane === lang);
+          });
+        });
+      }
+
+      function resetAll() {
+        state = { visited: {}, checks: {}, lang: "py" };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false;
+          i.closest("li").classList.remove("checked");
+        });
+        applyVisited();
+        applyLang("py");
+        updateProgress();
+      }
+
+      document.getElementById("resetBtn").addEventListener("click", resetAll);
+      document.getElementById("resetBtn2").addEventListener("click", resetAll);
+      document.getElementById("navToggle").addEventListener("click", () => {
+        document.getElementById("sidebar").classList.toggle("open");
+      });
+
+      document.querySelectorAll("[data-toggle]").forEach((box) => {
+        box.querySelectorAll(".lang-btn").forEach((btn) => {
+          btn.addEventListener("click", () => applyLang(btn.dataset.lang));
+        });
+      });
+
+      const obs = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => {
+            if (!e.isIntersecting) return;
+            const id = e.target.id;
+            links.forEach((l) =>
+              l.classList.toggle("active", l.getAttribute("href") === "#" + id)
+            );
+            if (!state.visited[id]) {
+              state.visited[id] = true;
+              save(state);
+              applyVisited();
+            }
+          });
+        },
+        { rootMargin: "-40% 0px -50% 0px", threshold: 0 }
+      );
+      sections.forEach((s) => obs.observe(s));
+
+      document.getElementById("markSection").addEventListener("click", () => {
+        const active = document.querySelector("nav a.active");
+        if (!active) return;
+        state.visited[active.getAttribute("href").slice(1)] = true;
+        save(state);
+        applyVisited();
+      });
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) {
+            input.checked = true;
+            li.classList.add("checked");
+          }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+            updateProgress();
+          });
+        });
+      });
+
+      applyVisited();
+      applyLang(state.lang === "ts" ? "ts" : "py");
+      updateProgress();
+    })();
+  </script>
+</body>
+</html>

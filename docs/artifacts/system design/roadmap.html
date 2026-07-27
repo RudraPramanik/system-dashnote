@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>System Design Roadmap — Backend · Architect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --blue: #6b9fd4; --blue-dim: rgba(107,159,212,0.14);
+      --nav-w: 280px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.8rem; margin-bottom: 0.1rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 880px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 42rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    .chip.b { border-color: rgba(107,159,212,0.4); color: var(--blue); background: var(--blue-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px; letter-spacing: 0.02em;
+    }
+    .badge.must { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.should { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .badge.later { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(107,159,212,0.35); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid var(--blue); }
+    .panel h4 { margin-top: 0; }
+    .panel p:last-child, .panel ul:last-child { margin-bottom: 0; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .topic {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.9rem 1rem; margin: 0.65rem 0;
+    }
+    .topic-hd {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 0.75rem; margin-bottom: 0.4rem; flex-wrap: wrap;
+    }
+    .topic-hd h4 { margin: 0; font-size: 0.95rem; }
+    .topic-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .tag {
+      font-family: var(--font-m); font-size: 0.62rem; padding: 0.12rem 0.4rem;
+      border-radius: 4px; border: 1px solid var(--line); color: var(--muted);
+    }
+    .tag.be { color: var(--amber); border-color: rgba(232,163,92,0.35); background: var(--amber-dim); }
+    .tag.arch { color: var(--blue); border-color: rgba(107,159,212,0.35); background: var(--blue-dim); }
+    .topic ul { margin: 0.4rem 0 0; }
+    .roadmap { counter-reset: s; list-style: none; padding: 0; margin: 0.85rem 0; }
+    .roadmap > li {
+      position: relative; padding: 0 0 1rem 2.25rem;
+      border-left: 2px solid rgba(61,186,160,0.25); margin-left: 0.65rem;
+    }
+    .roadmap > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .roadmap > li::before {
+      counter-increment: s; content: counter(s);
+      position: absolute; left: -0.75rem; top: 0;
+      width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      background: var(--teal); color: #0e1218; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-m);
+    }
+    .roadmap h4 { margin: 0 0 0.25rem; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .stat-row {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; margin: 1rem 0;
+    }
+    .stat {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 0.85rem; text-align: center;
+    }
+    .stat .num {
+      font-family: var(--font-d); font-size: 1.6rem; font-weight: 600; line-height: 1;
+      margin-bottom: 0.25rem;
+    }
+    .stat .lbl { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat.must .num { color: var(--good); }
+    .stat.should .num { color: var(--amber); }
+    .stat.later .num { color: var(--blue); }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3, .stat-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">System Design</p>
+      <p class="brand-sub">Backend · Architect roadmap</p>
+      <div class="progress-wrap">
+        <div class="progress-label">
+          <span>Progress</span>
+          <span id="pct">0%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Overview</h3>
+          <a href="#how"><span class="dot"></span>How to use</a>
+          <a href="#scope"><span class="dot"></span>Scope</a>
+          <a href="#order"><span class="dot"></span>Suggested order</a>
+        </div>
+        <div class="nav-g">
+          <h3>Priority tiers</h3>
+          <a href="#must"><span class="dot"></span>Must learn</a>
+          <a href="#should"><span class="dot"></span>Should learn</a>
+          <a href="#later"><span class="dot"></span>Can learn later</a>
+        </div>
+        <div class="nav-g">
+          <h3>Maps</h3>
+          <a href="#matrix"><span class="dot"></span>Topic matrix</a>
+          <a href="#drills"><span class="dot"></span>Design drills</a>
+          <a href="#checklist"><span class="dot"></span>Ship checklist</a>
+        </div>
+      </nav>
+      <div class="mark" style="margin-top:1rem">
+        <button class="btn" type="button" id="resetBtn">Reset progress</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Roadmap · Backend &amp; system architect</p>
+        <h1>Backend engineering + system design</h1>
+        <p>
+          Prioritized topics for designing and shipping production backends — APIs, data, scale,
+          reliability, and architecture tradeoffs. AI / LLM product topics live separately in
+          <code>docs/artifacts/ai engineering/</code>.
+        </p>
+        <div class="chips">
+          <span class="chip t">Must learn</span>
+          <span class="chip a">Should learn</span>
+          <span class="chip b">Can learn later</span>
+          <span class="chip">Backend · Distributed systems</span>
+        </div>
+        <div class="stat-row">
+          <div class="stat must"><div class="num">16</div><div class="lbl">Must topics</div></div>
+          <div class="stat should"><div class="num">13</div><div class="lbl">Should topics</div></div>
+          <div class="stat later"><div class="num">10</div><div class="lbl">Later topics</div></div>
+        </div>
+      </header>
+
+      <section class="ch" id="how">
+        <h2><span class="n">00</span> How to use this roadmap</h2>
+        <p class="lede">
+          Curriculum index for backend + system design. Finish Must, then pull Should topics that
+          match your current product or interview goals. Park Later until the problem appears.
+        </p>
+        <div class="grid3">
+          <div class="panel t">
+            <h4>Must learn</h4>
+            <p>Non-negotiable for shipping backends and defending designs in reviews or interviews.</p>
+          </div>
+          <div class="panel a">
+            <h4>Should learn</h4>
+            <p>What separates solid mid-level from senior — multi-service reality and harder failure modes.</p>
+          </div>
+          <div class="panel b">
+            <h4>Can learn later</h4>
+            <p>Staff / platform / rare-scale depth. Learn when you need it — don’t block on these first.</p>
+          </div>
+        </div>
+        <div class="callout">
+          <div class="lb">Rule of thumb</div>
+          Finish <strong>Must</strong> end-to-end → pick 4–6 <strong>Should</strong> tied to your stack → park <strong>Later</strong>.
+        </div>
+      </section>
+
+      <section class="ch" id="scope">
+        <h2><span class="n">01</span> Scope of this roadmap</h2>
+        <p class="lede">Classic backend &amp; distributed systems only — not LLM/RAG/agents.</p>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>In scope here</h4>
+            <ul>
+              <li>APIs, data stores, caches, queues</li>
+              <li>Scale, consistency, failure modes</li>
+              <li>Auth, tenancy, testing, secrets / env, SLOs</li>
+              <li>Cost awareness, service boundaries &amp; drills</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Covered elsewhere</h4>
+            <ul>
+              <li>Prompts, tools, MCP, agents</li>
+              <li>RAG, embeddings, evals, memory</li>
+              <li>LLM cost, streaming UX, AI security</li>
+            </ul>
+            <p style="margin:0.5rem 0 0;font-size:0.82rem;color:var(--muted)">
+              → <code>docs/artifacts/ai engineering/</code>
+            </p>
+          </div>
+        </div>
+        <div class="flow">
+          <span class="fn hi">Client</span><span class="fa">→</span>
+          <span class="fn">LB / Gateway</span><span class="fa">→</span>
+          <span class="fn am">API / services</span><span class="fa">→</span>
+          <span class="fn">DB · Cache · Queue · Search</span>
+        </div>
+      </section>
+
+      <section class="ch" id="order">
+        <h2><span class="n">02</span> Suggested learning order</h2>
+        <p class="lede">Build layers bottom-up so design drills have foundations under them.</p>
+        <ol class="roadmap">
+          <li>
+            <h4>Foundations</h4>
+            <p>HTTP · API design · SQL + indexes · auth · caching · config / secrets / env</p>
+          </li>
+          <li>
+            <h4>Async &amp; reliability</h4>
+            <p>Queues · timeouts/retries · circuit breakers · idempotency · testing basics</p>
+          </li>
+          <li>
+            <h4>Scale patterns</h4>
+            <p>Load balancing · replicas · sharding intuition · CAP · rate limits</p>
+          </li>
+          <li>
+            <h4>Design drills</h4>
+            <p>URL shortener · feed · chat · rate limiter · file store — argue tradeoffs out loud</p>
+          </li>
+          <li>
+            <h4>Senior hardening</h4>
+            <p>Events · sagas/outbox · multi-tenant · SLOs · security · cost · safe migrations</p>
+          </li>
+          <li>
+            <h4>Electives</h4>
+            <p>K8s deep · multi-region · stream processing · consensus internals</p>
+          </li>
+        </ol>
+      </section>
+
+      <!-- ========== MUST ========== -->
+      <section class="ch" id="must">
+        <h2>
+          <span class="n">03</span> Must learn
+          <span class="badge must">MUST</span>
+        </h2>
+        <p class="lede">
+          Core curriculum. If you only finish one tier, finish this — enough to design and operate
+          a solid multi-service backend.
+        </p>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>1. Networking &amp; HTTP</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>TCP vs UDP, DNS, TLS, HTTP/1.1 vs HTTP/2, status codes, headers</li>
+            <li>Keep-alive, timeouts, connection pools — how they show up as latency</li>
+            <li>What a reverse proxy / load balancer actually does</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>2. API design</h4>
+            <div class="topic-tags"><span class="tag be">backend</span><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>REST resources, versioning, pagination, filtering, error shapes</li>
+            <li>Idempotency keys, safe vs unsafe methods, webhook delivery</li>
+            <li>When to use sync RPC vs async job + status endpoint</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>3. Data modeling &amp; SQL</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Normalization vs denormalization tradeoffs</li>
+            <li>Indexes (B-tree, covering), query plans, N+1</li>
+            <li>Transactions, isolation levels, ACID — when you need them</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>4. Caching</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Cache-aside, write-through, TTL, stampede, thundering herd</li>
+            <li>Redis patterns: sessions, rate limits, locks (and their dangers)</li>
+            <li>CDN edge cache vs app cache vs DB buffer pool</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>5. AuthN &amp; AuthZ</h4>
+            <div class="topic-tags"><span class="tag be">backend</span><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Sessions vs JWT; OAuth2 / OIDC at a practical level</li>
+            <li>RBAC / scopes; service-to-service auth (API keys, mTLS concepts)</li>
+            <li>Tenant isolation as a first-class design constraint</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>6. Async work &amp; messaging basics</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Queues vs pub/sub; at-least-once vs exactly-once (practical truth)</li>
+            <li>Workers, dead-letter queues, backoff, poison messages</li>
+            <li>When background jobs beat long HTTP requests</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>7. Scalability foundations</h4>
+            <div class="topic-tags"><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Vertical vs horizontal scale; stateless services</li>
+            <li>Load balancing, read replicas, sharding intuition</li>
+            <li>CAP / PACELC in plain language — pick consistency where it matters</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>8. Reliability patterns</h4>
+            <div class="topic-tags"><span class="tag be">backend</span><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Timeouts, retries with jitter, circuit breakers, bulkheads</li>
+            <li>Graceful degradation, health checks, readiness vs liveness</li>
+            <li>Idempotent handlers — the #1 distributed-systems habit</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>9. Observability</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Structured logs · metrics (RED/USE) · distributed traces</li>
+            <li>SLIs / SLOs / error budgets — design from user experience</li>
+            <li>Dashboards and alerts that page on symptoms, not every spike</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>10. Storage choices</h4>
+            <div class="topic-tags"><span class="tag be">backend</span><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>When SQL vs document vs key-value vs wide-column</li>
+            <li>Object/blob storage for files; signed URLs</li>
+            <li>Hot vs cold data; backup / restore as a design requirement</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>11. Concurrency &amp; locking</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Race conditions, optimistic vs pessimistic locking</li>
+            <li>Unique constraints as correctness tools</li>
+            <li>Distributed locks — when to avoid them</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>12. Database scaling basics</h4>
+            <div class="topic-tags"><span class="tag be">backend</span><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Connection pooling, read replicas, lag</li>
+            <li>Partitioning / sharding keys and hotspots</li>
+            <li>Migrations without downtime (expand → dual-write → contract)</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>13. Load balancing &amp; edge</h4>
+            <div class="topic-tags"><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>L4 vs L7; round-robin, least-conn, consistent hashing</li>
+            <li>Sticky sessions (and why to avoid them)</li>
+            <li>CDN for static assets; TLS termination</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>14. Testing &amp; quality</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Unit vs integration vs contract vs E2E — what each catches</li>
+            <li>Test doubles for DB / queue / HTTP; migration and idempotency tests</li>
+            <li>Load / soak smoke tests; what you’d assert before shipping a risky change</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>15. Config, secrets &amp; environments</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>12-factor config: env vars, secrets vs config, never commit credentials</li>
+            <li>Secret stores / rotation; least privilege for service credentials</li>
+            <li>dev / staging / prod parity; feature flags vs env toggles</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>16. Classic design drills</h4>
+            <div class="topic-tags"><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>URL shortener, news feed, chat, rate limiter, file upload / drive</li>
+            <li>Practice: requirements → capacity → API → data → bottlenecks → failure</li>
+            <li>Always state assumptions and what you’d measure in production</li>
+          </ul>
+        </div>
+
+        <div class="callout warn">
+          <div class="lb">Interview + job bar</div>
+          Clearing <strong>Must</strong> means you can design a multi-service backend, pick storage/cache/queue
+          tradeoffs, and explain what fails first under load.
+        </div>
+      </section>
+
+      <!-- ========== SHOULD ========== -->
+      <section class="ch" id="should">
+        <h2>
+          <span class="n">04</span> Should learn
+          <span class="badge should">SHOULD</span>
+        </h2>
+        <p class="lede">
+          Senior depth. Prioritize by what your product already needs — don’t boil the ocean.
+        </p>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>1. Consistency, sagas &amp; outbox</h4>
+            <div class="topic-tags"><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Distributed transactions reality; saga choreography vs orchestration</li>
+            <li>Transactional outbox / inbox for reliable events</li>
+            <li>Read-your-writes and eventual consistency UX</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>2. Event-driven architecture</h4>
+            <div class="topic-tags"><span class="tag be">backend</span><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Domain events, event schemas, versioning</li>
+            <li>CQRS when write/read models diverge for real reasons</li>
+            <li>Fan-out for notifications, indexing, analytics</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>3. Service boundaries</h4>
+            <div class="topic-tags"><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Modular monolith vs microservices — cost of the network</li>
+            <li>API gateway / BFF; sync vs async coupling</li>
+            <li>Data ownership: who owns the source of truth</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>4. Rate limiting &amp; backpressure</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Token bucket / sliding window; per-user / per-tenant / per-IP</li>
+            <li>Protecting shared dependencies and noisy neighbors</li>
+            <li>Queue depth as a backpressure signal</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>5. Search systems</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Inverted index basics; Elasticsearch / OpenSearch intuition</li>
+            <li>Indexing pipeline, freshness vs query latency</li>
+            <li>Relevance tuning at a systems level (not ML research)</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>6. Multi-tenancy patterns</h4>
+            <div class="topic-tags"><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Shared DB + tenant_id vs schema-per-tenant vs silo</li>
+            <li>Row-level security; cross-tenant leak prevention</li>
+            <li>Noisy neighbor: CPU, queue, and connection budgets</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>7. Security hardening</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Secrets management, least privilege, dependency risk</li>
+            <li>Threat modeling (STRIDE-lite) for APIs and data flows</li>
+            <li>Injection, SSRF, broken access control — OWASP top risks</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>8. Delivery &amp; change safety</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>CI/CD, feature flags, canary / blue-green</li>
+            <li>Backward-compatible migrations; expand-contract</li>
+            <li>Rollback plans as part of the design</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>9. Capacity planning</h4>
+            <div class="topic-tags"><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Back-of-envelope: QPS, storage, bandwidth, connections</li>
+            <li>Headroom, peak vs average, growth assumptions</li>
+            <li>Tie estimates to SLOs and the first bottleneck you’d hit</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>10. Cost &amp; efficiency</h4>
+            <div class="topic-tags"><span class="tag be">backend</span><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Cost drivers: compute, storage, egress, managed services, idle capacity</li>
+            <li>Design tradeoffs that move the bill (cache, batch, compression, region)</li>
+            <li>Unit economics: cost per request / tenant; budgets and alerts</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>11. Messaging deeper</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>Ordering, partitions, consumer groups</li>
+            <li>Replay, compaction, retention policies</li>
+            <li>When not to use a message bus</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>12. Realtime &amp; collaboration</h4>
+            <div class="topic-tags"><span class="tag be">backend</span></div>
+          </div>
+          <ul>
+            <li>WebSockets vs SSE vs long polling — pick for the product</li>
+            <li>Presence, fan-out, connection management at scale</li>
+            <li>Conflict awareness (OT/CRDT — concepts, not mastery)</li>
+          </ul>
+        </div>
+
+        <div class="topic">
+          <div class="topic-hd">
+            <h4>13. Caching &amp; CDN at the edge</h4>
+            <div class="topic-tags"><span class="tag arch">architect</span></div>
+          </div>
+          <ul>
+            <li>Cache keys, Vary, purge / soft-purge</li>
+            <li>Origin shield, stale-while-revalidate</li>
+            <li>Geo latency and regional POPs</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ========== LATER ========== -->
+      <section class="ch" id="later">
+        <h2>
+          <span class="n">05</span> Can learn later
+          <span class="badge later">LATER</span>
+        </h2>
+        <p class="lede">
+          High leverage when you hit the problem; low leverage if you study them all first.
+        </p>
+
+        <div class="grid2">
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>1. Kubernetes &amp; service mesh</h4>
+              <div class="topic-tags"><span class="tag be">backend</span></div>
+            </div>
+            <ul>
+              <li>Scheduling, HPA, network policies, Istio/Linkerd concepts</li>
+              <li>Learn when you own the platform, not on day one of system design</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>2. Consensus &amp; distributed DBs</h4>
+              <div class="topic-tags"><span class="tag arch">architect</span></div>
+            </div>
+            <ul>
+              <li>Raft/Paxos intuition; etcd / ZooKeeper roles</li>
+              <li>Externally consistent stores (Spanner-style) — rare but interview-famous</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>3. Multi-region &amp; geo</h4>
+              <div class="topic-tags"><span class="tag arch">architect</span></div>
+            </div>
+            <ul>
+              <li>Active-active, conflict resolution, latency domains</li>
+              <li>Data residency and failover runbooks</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>4. Stream processing</h4>
+              <div class="topic-tags"><span class="tag be">backend</span></div>
+            </div>
+            <ul>
+              <li>Kafka deep: partitions, consumer groups, exactly-once claims</li>
+              <li>Flink / Spark streaming for heavy pipelines</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>5. Data platforms</h4>
+              <div class="topic-tags"><span class="tag be">backend</span></div>
+            </div>
+            <ul>
+              <li>Warehouses, lakehouse, CDC, batch vs streaming ETL</li>
+              <li>Useful for analytics / reporting orgs — not every API team</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>6. Advanced API styles</h4>
+              <div class="topic-tags"><span class="tag be">backend</span></div>
+            </div>
+            <ul>
+              <li>gRPC streaming, GraphQL federation, AsyncAPI</li>
+              <li>Adopt when the org already standardized on them</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>7. Database internals</h4>
+              <div class="topic-tags"><span class="tag arch">architect</span></div>
+            </div>
+            <ul>
+              <li>WAL, MVCC, vacuum, buffer management</li>
+              <li>Useful for deep performance debugging</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>8. Chaos &amp; resilience engineering</h4>
+              <div class="topic-tags"><span class="tag arch">architect</span></div>
+            </div>
+            <ul>
+              <li>Failure injection, game days, blast-radius control</li>
+              <li>Formal methods — niche staff / platform territory</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>9. Performance engineering</h4>
+              <div class="topic-tags"><span class="tag be">backend</span></div>
+            </div>
+            <ul>
+              <li>Profiling, flame graphs, GC / allocator effects</li>
+              <li>Tail latency (p99) hunting at scale</li>
+            </ul>
+          </div>
+          <div class="topic">
+            <div class="topic-hd">
+              <h4>10. Networking deep</h4>
+              <div class="topic-tags"><span class="tag arch">architect</span></div>
+            </div>
+            <ul>
+              <li>Anycast, BGP basics, DDoS mitigation layers</li>
+              <li>Service discovery, DNS at scale</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== MATRIX ========== -->
+      <section class="ch" id="matrix">
+        <h2><span class="n">06</span> Topic matrix</h2>
+        <p class="lede">Quick scan: priority × domain.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Domain</th>
+              <th>Must</th>
+              <th>Should</th>
+              <th>Later</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>APIs &amp; services</strong></td>
+              <td>HTTP, REST, auth, reliability</td>
+              <td>Boundaries, BFF, rate limits</td>
+              <td>gRPC / GraphQL federation</td>
+            </tr>
+            <tr>
+              <td><strong>Data</strong></td>
+              <td>SQL, indexes, cache, storage pick, DB scale</td>
+              <td>Outbox, search, multi-tenant data</td>
+              <td>Internals, lakehouse, CDC</td>
+            </tr>
+            <tr>
+              <td><strong>Distributed</strong></td>
+              <td>Queues, LB, CAP, concurrency</td>
+              <td>Events, sagas, messaging deep, realtime</td>
+              <td>Consensus, multi-region, Kafka deep</td>
+            </tr>
+            <tr>
+              <td><strong>Ops</strong></td>
+              <td>Logs / metrics / traces, SLOs, testing, secrets / env</td>
+              <td>CI/CD, canary, capacity, cost</td>
+              <td>K8s / mesh, chaos, perf eng</td>
+            </tr>
+            <tr>
+              <td><strong>Security</strong></td>
+              <td>AuthZ, tenant isolation, secret hygiene</td>
+              <td>Threat model, secrets rotation, OWASP</td>
+              <td>Geo / residency process depth</td>
+            </tr>
+            <tr>
+              <td><strong>Edge</strong></td>
+              <td>LB, TLS termination</td>
+              <td>CDN cache / purge</td>
+              <td>Anycast, DDoS layers</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ========== DRILLS ========== -->
+      <section class="ch" id="drills">
+        <h2><span class="n">07</span> Design drills to practice</h2>
+        <p class="lede">
+          Use the same template every time: requirements → constraints → API → data → scale → failure.
+        </p>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Core set (do all)</h4>
+            <ul>
+              <li>URL shortener</li>
+              <li>Rate limiter</li>
+              <li>News feed / timeline</li>
+              <li>Chat / messaging</li>
+              <li>File upload / Drive-like store</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Stretch set</h4>
+            <ul>
+              <li>Notification system</li>
+              <li>Ticket booking / inventory</li>
+              <li>Search autocomplete</li>
+              <li>Video streaming CDN</li>
+              <li>Distributed job scheduler</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout">
+          <div class="lb">Practice habit</div>
+          For each drill, write down: QPS estimate, storage for 5 years, single points of failure,
+          and the first metric you’d alert on.
+        </div>
+      </section>
+
+      <!-- ========== CHECKLIST ========== -->
+      <section class="ch" id="checklist">
+        <h2><span class="n">08</span> Progress checklist</h2>
+        <p class="lede">Check when you can teach the topic and draw a design without notes.</p>
+
+        <h3>Must</h3>
+        <ul class="checklist" data-list="must">
+          <li><input type="checkbox" /> Networking &amp; HTTP</li>
+          <li><input type="checkbox" /> API design (REST, idempotency, errors)</li>
+          <li><input type="checkbox" /> SQL · indexes · transactions</li>
+          <li><input type="checkbox" /> Caching patterns</li>
+          <li><input type="checkbox" /> AuthN / AuthZ · tenant isolation</li>
+          <li><input type="checkbox" /> Queues &amp; workers</li>
+          <li><input type="checkbox" /> Scalability foundations (LB, replicas, CAP)</li>
+          <li><input type="checkbox" /> Reliability (timeouts, retries, breakers)</li>
+          <li><input type="checkbox" /> Observability + SLOs</li>
+          <li><input type="checkbox" /> Storage selection</li>
+          <li><input type="checkbox" /> Concurrency &amp; locking</li>
+          <li><input type="checkbox" /> Database scaling basics</li>
+          <li><input type="checkbox" /> Load balancing &amp; edge</li>
+          <li><input type="checkbox" /> Testing &amp; quality (unit → load smoke)</li>
+          <li><input type="checkbox" /> Config · secrets · environments</li>
+          <li><input type="checkbox" /> Classic design drills (5+ systems)</li>
+        </ul>
+
+        <h3>Should</h3>
+        <ul class="checklist" data-list="should">
+          <li><input type="checkbox" /> Sagas · outbox · consistency UX</li>
+          <li><input type="checkbox" /> Event-driven architecture</li>
+          <li><input type="checkbox" /> Service boundaries (mono vs micro)</li>
+          <li><input type="checkbox" /> Rate limiting &amp; backpressure</li>
+          <li><input type="checkbox" /> Search systems</li>
+          <li><input type="checkbox" /> Multi-tenancy patterns</li>
+          <li><input type="checkbox" /> Security threat modeling</li>
+          <li><input type="checkbox" /> CI/CD · flags · safe migrations</li>
+          <li><input type="checkbox" /> Capacity planning</li>
+          <li><input type="checkbox" /> Cost &amp; efficiency</li>
+          <li><input type="checkbox" /> Messaging deeper</li>
+          <li><input type="checkbox" /> Realtime / collaboration</li>
+          <li><input type="checkbox" /> CDN &amp; edge caching</li>
+        </ul>
+
+        <h3>Later</h3>
+        <ul class="checklist" data-list="later">
+          <li><input type="checkbox" /> Kubernetes / mesh depth</li>
+          <li><input type="checkbox" /> Consensus &amp; distributed DB internals</li>
+          <li><input type="checkbox" /> Multi-region / geo</li>
+          <li><input type="checkbox" /> Stream processing (Kafka deep)</li>
+          <li><input type="checkbox" /> Data platforms / lakehouse</li>
+          <li><input type="checkbox" /> Advanced API styles</li>
+          <li><input type="checkbox" /> Database internals</li>
+          <li><input type="checkbox" /> Chaos engineering</li>
+          <li><input type="checkbox" /> Performance engineering</li>
+          <li><input type="checkbox" /> Networking deep</li>
+        </ul>
+
+        <div class="mark">
+          <button class="btn primary" type="button" id="markSection">Mark section visited</button>
+          <button class="btn" type="button" id="resetBtn2">Reset all</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        System Design Roadmap · Backend + Architect · localStorage
+        <code>dashnote-sysdesign-roadmap-v3</code>
+        · AI topics → <code>docs/artifacts/ai engineering/</code>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const KEY = "dashnote-sysdesign-roadmap-v3";
+
+      function load() {
+        try {
+          return JSON.parse(localStorage.getItem(KEY) || "{}");
+        } catch {
+          return {};
+        }
+      }
+      function save(s) {
+        localStorage.setItem(KEY, JSON.stringify(s));
+      }
+
+      let state = load();
+      if (!state.visited) state.visited = {};
+      if (!state.checks) state.checks = {};
+
+      const fill = document.getElementById("fill");
+      const pct = document.getElementById("pct");
+      const links = [...document.querySelectorAll("nav a")];
+      const sections = [...document.querySelectorAll("section.ch")];
+
+      function updateProgress() {
+        const checks = [...document.querySelectorAll(".checklist input")];
+        const done = checks.filter((c) => c.checked).length;
+        const total = checks.length || 1;
+        const p = Math.round((done / total) * 100);
+        fill.style.width = p + "%";
+        pct.textContent = p + "%";
+      }
+
+      function applyVisited() {
+        links.forEach((a) => {
+          const id = a.getAttribute("href").slice(1);
+          a.classList.toggle("visited", !!state.visited[id]);
+        });
+      }
+
+      function resetAll() {
+        state = { visited: {}, checks: {} };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false;
+          i.closest("li").classList.remove("checked");
+        });
+        applyVisited();
+        updateProgress();
+      }
+
+      document.getElementById("resetBtn").addEventListener("click", resetAll);
+      document.getElementById("resetBtn2").addEventListener("click", resetAll);
+
+      document.getElementById("navToggle").addEventListener("click", () => {
+        document.getElementById("sidebar").classList.toggle("open");
+      });
+
+      const obs = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => {
+            if (!e.isIntersecting) return;
+            const id = e.target.id;
+            links.forEach((l) =>
+              l.classList.toggle("active", l.getAttribute("href") === "#" + id)
+            );
+            if (!state.visited[id]) {
+              state.visited[id] = true;
+              save(state);
+              applyVisited();
+            }
+          });
+        },
+        { rootMargin: "-40% 0px -50% 0px", threshold: 0 }
+      );
+      sections.forEach((s) => obs.observe(s));
+
+      document.getElementById("markSection").addEventListener("click", () => {
+        const active = document.querySelector("nav a.active");
+        if (!active) return;
+        const id = active.getAttribute("href").slice(1);
+        state.visited[id] = true;
+        save(state);
+        applyVisited();
+      });
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) {
+            input.checked = true;
+            li.classList.add("checked");
+          }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+            updateProgress();
+          });
+        });
+      });
+
+      applyVisited();
+      updateProgress();
+    })();
+  </script>
+</body>
+</html>

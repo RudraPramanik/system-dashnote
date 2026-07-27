@@ -1,5 +1,7 @@
 ## DashNoteSystem backend (system workflow & routing)
 
+**Frontend / Next.js integration:** see [frontendguide.md](./frontendguide.md).
+
 ### Overview
 
 Multi-tenant **Notes backend**: **FastAPI + async SQLAlchemy**. JWT auth builds workspace-aware **`RequestContext`**:
@@ -23,7 +25,7 @@ Registers routers and global dependencies:
 | `notes/router.py` | `/notes` | Enqueues embed jobs + emits `NoteCreatedEvent` when `ai_enabled` |
 | `workspaces/router.py` | `/workspaces` | |
 | `membership/router.py` | `/workspaces/members` | |
-| `ai_gateway/search.py` | `/ai` | `GET /ai/test-search` |
+| `ai_search/router.py` | `/ai` | `POST /ai/test-search` |
 | `ai_routes/chat.py` | `/ai` | `POST /ai/chat`, `POST /ai/chat/stream` |
 | `ai_routes/threads.py` | `/ai` | Thread list, messages, delete |
 | `ai_routes/agent.py` | `/ai` | `POST /ai/agent`, `POST /ai/agent/stream` |

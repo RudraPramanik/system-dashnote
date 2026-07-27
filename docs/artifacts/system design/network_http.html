@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Networking &amp; HTTP — Guidebook · DashNote</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e1218; --bg-2: #141a22; --ink: #e8ecef; --soft: #b8c0cc;
+      --muted: #7a8698; --card: #161c26; --line: rgba(232,236,239,0.1);
+      --teal: #3dbaa0; --teal-dim: rgba(61,186,160,0.14);
+      --amber: #e8a35c; --amber-dim: rgba(232,163,92,0.12);
+      --good: #4caf7a; --bad: #e06c6c; --blue: #6b9fd4; --blue-dim: rgba(107,159,212,0.14);
+      --nav-w: 280px;
+      --font-d: "Fraunces", Georgia, serif;
+      --font-b: "DM Sans", system-ui, sans-serif;
+      --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
+    body {
+      margin: 0; font-family: var(--font-b); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 8% -5%, rgba(61,186,160,0.1), transparent 55%),
+        radial-gradient(700px 400px at 95% 0%, rgba(232,163,92,0.07), transparent 50%),
+        linear-gradient(180deg, #0c1016, var(--bg) 50%, #0a0e14);
+      min-height: 100vh; line-height: 1.55;
+    }
+    .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 1.2rem 0.9rem 2rem; border-right: 1px solid var(--line);
+      background: rgba(14,18,24,0.95);
+    }
+    .brand { font-family: var(--font-d); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.2rem; }
+    .brand-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 1.1rem; }
+    .progress-wrap {
+      background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.65rem; margin-bottom: 1.1rem;
+    }
+    .progress-label {
+      display: flex; justify-content: space-between; font-size: 0.68rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .progress-bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 99px; transition: width 0.3s; }
+    .nav-g { margin-bottom: 0.85rem; }
+    .nav-g h3 {
+      font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin: 0 0 0.3rem 0.35rem; font-weight: 600;
+    }
+    nav a {
+      display: block; padding: 0.36rem 0.5rem; border-radius: 8px;
+      color: var(--soft); text-decoration: none; font-size: 0.8rem; margin-bottom: 0.1rem;
+    }
+    nav a:hover, nav a.active { background: var(--teal-dim); color: var(--teal); }
+    nav a .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good); margin-right: 0.3rem; opacity: 0; vertical-align: middle;
+    }
+    nav a.visited .dot { opacity: 1; }
+    .mobile-toggle {
+      display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 40;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 8px; padding: 0.45rem 0.7rem; font-family: var(--font-b); cursor: pointer;
+    }
+    .main { padding: 2rem 2.2rem 3.5rem; max-width: 860px; }
+    .hero { margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+    .eyebrow {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--teal); font-weight: 600; margin: 0 0 0.6rem;
+    }
+    .hero h1 {
+      font-family: var(--font-d); font-size: clamp(1.65rem, 3.5vw, 2.25rem);
+      font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.7rem;
+    }
+    .hero p { color: var(--soft); margin: 0; max-width: 42rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
+    .chip {
+      font-size: 0.7rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--line); color: var(--soft);
+    }
+    .chip.t { border-color: rgba(61,186,160,0.4); color: var(--teal); background: var(--teal-dim); }
+    .chip.a { border-color: rgba(232,163,92,0.4); color: var(--amber); background: var(--amber-dim); }
+    .chip.b { border-color: rgba(107,159,212,0.4); color: var(--blue); background: var(--blue-dim); }
+    section.ch { margin-bottom: 2.4rem; scroll-margin-top: 1.2rem; }
+    section.ch h2 {
+      font-family: var(--font-d); font-size: 1.35rem; font-weight: 600;
+      margin: 0 0 0.4rem; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+    }
+    section.ch h2 .n { font-family: var(--font-m); font-size: 0.8rem; color: var(--teal); }
+    .badge {
+      font-family: var(--font-m); font-size: 0.62rem; font-weight: 500;
+      padding: 0.15rem 0.4rem; border-radius: 4px; letter-spacing: 0.02em;
+    }
+    .badge.done { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .badge.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .badge.todo { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid var(--line); }
+    .lede { color: var(--soft); margin: 0 0 1rem; }
+    h3 { font-size: 0.98rem; font-weight: 600; margin: 1.35rem 0 0.45rem; }
+    h4 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; }
+    p { margin: 0 0 0.75rem; color: var(--soft); }
+    ul, ol { margin: 0 0 0.85rem; padding-left: 1.2rem; color: var(--soft); }
+    li { margin-bottom: 0.28rem; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--font-m); font-size: 0.82em;
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.35em;
+      border-radius: 4px; color: #c5e8df;
+    }
+    pre {
+      font-family: var(--font-m); font-size: 0.74rem; background: #080b10;
+      color: #d4dce6; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; border: 1px solid var(--line); margin: 0; line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .callout {
+      border-left: 3px solid var(--teal); background: var(--teal-dim);
+      padding: 0.7rem 0.85rem; border-radius: 0 8px 8px 0; margin: 0.85rem 0;
+      font-size: 0.9rem; color: var(--soft);
+    }
+    .callout.warn { border-color: var(--amber); background: var(--amber-dim); }
+    .callout .lb {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600; color: var(--teal); margin-bottom: 0.2rem;
+    }
+    .callout.warn .lb { color: var(--amber); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin: 0.85rem 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin: 0.85rem 0; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 0.85rem 0.95rem;
+    }
+    .panel.t { border-top: 3px solid var(--teal); }
+    .panel.a { border-top: 3px solid var(--amber); }
+    .panel.b { border-top: 3px solid var(--blue); }
+    .panel h4 { margin-top: 0; }
+    .panel p:last-child, .panel ul:last-child { margin-bottom: 0; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+      margin: 0.65rem 0 1rem; background: var(--card);
+      border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line);
+      color: var(--soft); vertical-align: top;
+    }
+    th {
+      background: rgba(255,255,255,0.03); font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .status {
+      font-family: var(--font-m); font-size: 0.68rem; font-weight: 500;
+      padding: 0.12rem 0.4rem; border-radius: 4px; white-space: nowrap;
+    }
+    .status.covered { background: rgba(76,175,122,0.15); color: var(--good); border: 1px solid rgba(76,175,122,0.35); }
+    .status.partial { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(232,163,92,0.35); }
+    .status.gap { background: rgba(224,108,108,0.12); color: var(--bad); border: 1px solid rgba(224,108,108,0.35); }
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+      margin: 0.85rem 0; font-size: 0.76rem;
+    }
+    .fn {
+      background: var(--card); border: 1px solid var(--line);
+      padding: 0.35rem 0.55rem; border-radius: 7px; color: var(--soft);
+    }
+    .fn.hi { background: var(--teal-dim); border-color: rgba(61,186,160,0.4); color: var(--teal); }
+    .fn.am { background: var(--amber-dim); border-color: rgba(232,163,92,0.4); color: var(--amber); }
+    .fa { color: var(--muted); font-family: var(--font-m); }
+    .code-toggle {
+      margin: 0.85rem 0 1.1rem; border: 1px solid var(--line);
+      border-radius: 12px; overflow: hidden; background: var(--card);
+    }
+    .code-toggle .toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 0.5rem; flex-wrap: wrap; padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.02);
+    }
+    .code-toggle .label {
+      font-size: 0.72rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.04em; font-weight: 600;
+    }
+    .lang-switch { display: inline-flex; gap: 0.25rem; }
+    .lang-btn {
+      font-family: var(--font-b); font-size: 0.78rem; font-weight: 600;
+      padding: 0.28rem 0.65rem; border-radius: 7px; border: 1px solid transparent;
+      background: transparent; color: var(--muted); cursor: pointer;
+    }
+    .lang-btn.active {
+      color: var(--teal); background: var(--teal-dim);
+      border-color: rgba(61,186,160,0.35);
+    }
+    .code-pane { display: none; padding: 0; }
+    .code-pane.active { display: block; }
+    .code-pane pre { border: none; border-radius: 0; margin: 0; }
+    .checklist { list-style: none; padding: 0; margin: 0.65rem 0; }
+    .checklist li {
+      display: flex; gap: 0.5rem; align-items: flex-start;
+      padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); margin-bottom: 0.28rem; cursor: pointer;
+      color: var(--soft); font-size: 0.86rem;
+    }
+    .checklist li.checked { background: rgba(76,175,122,0.1); border-color: rgba(76,175,122,0.3); }
+    .checklist input { margin-top: 0.15rem; accent-color: var(--teal); }
+    .btn {
+      font-family: var(--font-b); font-size: 0.82rem; font-weight: 600;
+      padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); cursor: pointer;
+    }
+    .btn.primary { background: var(--teal); color: #0e1218; border-color: var(--teal); }
+    .mark { margin-top: 1.15rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .foot {
+      margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid var(--line);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .path {
+      font-family: var(--font-m); font-size: 0.72rem; color: var(--muted);
+      margin: 0.2rem 0 0.55rem;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; width: min(290px, 88vw); z-index: 30;
+        transform: translateX(-105%); transition: transform 0.25s;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-toggle { display: block; }
+      .main { padding: 3.8rem 1.1rem 3rem; }
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-toggle" id="navToggle" type="button">Menu</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="brand">Networking &amp; HTTP</p>
+      <p class="brand-sub">Must #1 · DashNote guidebook</p>
+      <div class="progress-wrap">
+        <div class="progress-label">
+          <span>Progress</span>
+          <span id="pct">0%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+      </div>
+      <nav>
+        <div class="nav-g">
+          <h3>Guide</h3>
+          <a href="#overview"><span class="dot"></span>Overview</a>
+          <a href="#foundations"><span class="dot"></span>TCP · DNS · TLS</a>
+          <a href="#http"><span class="dot"></span>HTTP versions &amp; codes</a>
+          <a href="#latency"><span class="dot"></span>Keep-alive · pools</a>
+          <a href="#proxy"><span class="dot"></span>Proxy &amp; LB</a>
+        </div>
+        <div class="nav-g">
+          <h3>This repo</h3>
+          <a href="#status"><span class="dot"></span>Covered vs should</a>
+          <a href="#examples"><span class="dot"></span>Code (FastAPI / Nest)</a>
+          <a href="#checklist"><span class="dot"></span>Checklist</a>
+        </div>
+        <div class="nav-g">
+          <h3>Related</h3>
+          <a href="roadmap.html"><span class="dot"></span>← Roadmap</a>
+        </div>
+      </nav>
+      <div class="mark" style="margin-top:1rem">
+        <button class="btn" type="button" id="resetBtn">Reset progress</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <p class="eyebrow">Roadmap Must #1 · Backend guidebook</p>
+        <h1>Networking &amp; HTTP</h1>
+        <p>
+          How a request reaches DashNote’s FastAPI app — sockets, DNS, TLS, HTTP semantics,
+          connection reuse, and what Nginx actually does in front of Uvicorn.
+        </p>
+        <div class="chips">
+          <span class="chip t">Must learn</span>
+          <span class="chip a">DashNote-mapped</span>
+          <span class="chip b">FastAPI · NestJS</span>
+        </div>
+      </header>
+
+      <!-- ========== OVERVIEW ========== -->
+      <section class="ch" id="overview">
+        <h2><span class="n">00</span> Overview</h2>
+        <p class="lede">
+          Every API call is: resolve a name → open a TCP connection → (often) TLS handshake →
+          speak HTTP → reuse or close the connection. Latency lives in each hop — not just “slow code.”
+        </p>
+        <div class="flow">
+          <span class="fn">Client</span><span class="fa">→</span>
+          <span class="fn">DNS</span><span class="fa">→</span>
+          <span class="fn am">TLS / edge</span><span class="fa">→</span>
+          <span class="fn hi">Nginx</span><span class="fa">→</span>
+          <span class="fn hi">Uvicorn :8000</span><span class="fa">→</span>
+          <span class="fn">FastAPI</span>
+        </div>
+        <p class="path">DashNote today: Client → Nginx :80 → api:8000 (Docker DNS). TLS at edge is planned, not shipped.</p>
+        <div class="grid3">
+          <div class="panel t">
+            <h4>Transport</h4>
+            <p>TCP reliability vs UDP speed. Connection setup cost dominates short APIs.</p>
+          </div>
+          <div class="panel a">
+            <h4>Application</h4>
+            <p>HTTP methods, status codes, headers — the contract clients and proxies understand.</p>
+          </div>
+          <div class="panel b">
+            <h4>Edge</h4>
+            <p>Reverse proxy terminates clients, forwards to apps, adds rate limits and headers.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== FOUNDATIONS ========== -->
+      <section class="ch" id="foundations">
+        <h2><span class="n">01</span> TCP · UDP · DNS · TLS</h2>
+        <p class="lede">Pick the right transport, resolve names, then encrypt — before HTTP even starts.</p>
+
+        <h3>TCP vs UDP</h3>
+        <table>
+          <thead>
+            <tr><th></th><th>TCP</th><th>UDP</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Guarantee</strong></td>
+              <td>Ordered, reliable streams</td>
+              <td>Datagrams; no delivery guarantee</td>
+            </tr>
+            <tr>
+              <td><strong>Cost</strong></td>
+              <td>Handshake + state; higher latency to first byte</td>
+              <td>Near-zero setup; good for realtime / DNS</td>
+            </tr>
+            <tr>
+              <td><strong>Use</strong></td>
+              <td>HTTP, databases, most APIs</td>
+              <td>DNS queries, QUIC/HTTP/3 under the hood, games, VoIP</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          <div class="lb">DashNote</div>
+          All API traffic is TCP. Postgres (<code>asyncpg</code>), Redis, Qdrant, and S3 clients also ride TCP.
+          You almost never choose UDP in this stack — but you <em>do</em> pay TCP handshake cost on cold connections.
+        </div>
+
+        <h3>DNS</h3>
+        <ul>
+          <li>Client asks: “what IP is <code>api.example.com</code>?” — cached at OS / recursive resolvers.</li>
+          <li>In Docker Compose, service names (<code>api</code>, <code>db</code>, <code>redis</code>, <code>qdrant</code>) resolve via embedded DNS.</li>
+          <li>Slow or flapping DNS shows up as intermittent connect timeouts — not as FastAPI errors.</li>
+        </ul>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Covered</h4>
+            <p>Compose DNS between Nginx → <code>api:8000</code> and app → <code>db</code> / <code>redis</code> / <code>qdrant</code>.</p>
+          </div>
+          <div class="panel a">
+            <h4>Should be</h4>
+            <p>Prod public DNS (Cloudflare A/AAAA → VPS), health-aware targets, short TTLs only when you need fast failover.</p>
+          </div>
+        </div>
+
+        <h3>TLS</h3>
+        <ul>
+          <li>Encrypts TCP; handshake adds 1–2 RTTs unless session resumed / TLS 1.3 0-RTT.</li>
+          <li>Usually terminates at the edge (Caddy / Cloudflare / LB), not inside each Uvicorn worker.</li>
+          <li>App must trust <code>X-Forwarded-Proto</code> from a known proxy — never from the open internet alone.</li>
+        </ul>
+        <div class="grid2">
+          <div class="panel a">
+            <h4>Partial</h4>
+            <p><code>ProxyHeadersMiddleware</code> in <code>src/main.py</code>; HTTPS URLs in prod env examples; MinIO/R2 SSL flags.</p>
+          </div>
+          <div class="panel a">
+            <h4>Should be</h4>
+            <p>Listen <code>:443</code> with Caddy/Certbot or Cloudflare Full Strict; tighten <code>trusted_hosts</code>; no plain HTTP to the world.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== HTTP ========== -->
+      <section class="ch" id="http">
+        <h2><span class="n">02</span> HTTP/1.1 · HTTP/2 · status · headers</h2>
+        <p class="lede">HTTP is the shared language between browsers, Nginx, and your handlers.</p>
+
+        <h3>HTTP/1.1 vs HTTP/2</h3>
+        <table>
+          <thead>
+            <tr><th>Topic</th><th>HTTP/1.1</th><th>HTTP/2</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Multiplexing</strong></td>
+              <td>One request at a time per connection (pipelining rare)</td>
+              <td>Many streams on one TLS connection</td>
+            </tr>
+            <tr>
+              <td><strong>Headers</strong></td>
+              <td>Plain text, often repeated</td>
+              <td>HPACK compression</td>
+            </tr>
+            <tr>
+              <td><strong>Where it matters</strong></td>
+              <td>Browser ↔ edge; simple proxies</td>
+              <td>Many parallel API calls; gRPC often on h2</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <div class="lb">DashNote today</div>
+          Nginx forces <code>proxy_http_version 1.1</code> to Uvicorn. That is correct for most WSGI/ASGI upstreams.
+          HTTP/2 belongs at the <strong>client ↔ edge</strong> hop once TLS is live — not required on api:8000 first.
+        </div>
+
+        <h3>Status codes (practical map)</h3>
+        <table>
+          <thead>
+            <tr><th>Code</th><th>Meaning</th><th>DashNote use</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>200</code> / <code>201</code></td><td>OK / created</td><td>Normal reads &amp; creates</td></tr>
+            <tr><td><code>204</code></td><td>No body</td><td>Deletes / logout</td></tr>
+            <tr><td><code>400</code></td><td>Bad input</td><td>Invalid AI / agent payloads</td></tr>
+            <tr><td><code>401</code> / <code>403</code></td><td>AuthN / AuthZ</td><td>JWT + permissions</td></tr>
+            <tr><td><code>404</code></td><td>Missing resource</td><td>Notes, files, threads</td></tr>
+            <tr><td><code>422</code></td><td>Validation</td><td>FastAPI / Pydantic default</td></tr>
+            <tr><td><code>429</code></td><td>Rate limited</td><td>Nginx + Redis; <code>Retry-After</code></td></tr>
+            <tr><td><code>500</code></td><td>Unhandled</td><td>Global handler in <code>main.py</code></td></tr>
+            <tr><td><code>502</code> / <code>503</code></td><td>Upstream / unavailable</td><td>Embedding fail / AI off / health deps</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Headers that matter in production</h3>
+        <ul>
+          <li><code>Authorization</code> — Bearer JWT (DashNote auth deps)</li>
+          <li><code>Host</code>, <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code>, <code>X-Real-IP</code> — set by Nginx</li>
+          <li><code>X-Request-ID</code> — Nginx sets it; app should bind it into logs (gap today)</li>
+          <li>SSE: <code>Content-Type: text/event-stream</code>, <code>Cache-Control: no-cache</code>, <code>X-Accel-Buffering: no</code></li>
+          <li><code>Retry-After</code> on 429 — tells clients when to retry</li>
+        </ul>
+      </section>
+
+      <!-- ========== LATENCY ========== -->
+      <section class="ch" id="latency">
+        <h2><span class="n">03</span> Keep-alive · timeouts · pools → latency</h2>
+        <p class="lede">
+          p99 is often connection setup and wait-in-queue — not CPU. Reuse connections; bound waits.
+        </p>
+
+        <div class="grid3">
+          <div class="panel t">
+            <h4>Keep-alive</h4>
+            <p>Reuse TCP (and TLS) so the next request skips handshake. Nginx upstream: <code>keepalive 32</code>.</p>
+          </div>
+          <div class="panel a">
+            <h4>Timeouts</h4>
+            <p>Every hop needs a deadline: client, proxy, app outbound (LLM, Qdrant), DB.</p>
+          </div>
+          <div class="panel b">
+            <h4>Pools</h4>
+            <p>Cap concurrent sockets to DB / Redis / HTTP. Exhausted pool = latency cliff.</p>
+          </div>
+        </div>
+
+        <h3>How it shows up as latency</h3>
+        <table>
+          <thead>
+            <tr><th>Symptom</th><th>Likely cause</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>First request slow, next fast</td>
+              <td>Cold TCP/TLS; no keep-alive reuse</td>
+            </tr>
+            <tr>
+              <td>Spiky p99 under load</td>
+              <td>Pool wait (DB/HTTP) or thread/worker saturation</td>
+            </tr>
+            <tr>
+              <td>Hangs then sudden errors</td>
+              <td>Missing timeout — waits until OS/proxy kills the socket</td>
+            </tr>
+            <tr>
+              <td>SSE stalls behind Nginx</td>
+              <td>Proxy buffering; DashNote sets <code>X-Accel-Buffering: no</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="lb">DashNote map</div>
+          <ul style="margin:0.35rem 0 0;padding-left:1.1rem">
+            <li><strong>Covered:</strong> Nginx upstream keepalive; SQLAlchemy <code>pool_pre_ping</code>; Redis singleton; Qdrant/LLM timeouts; SSE keep-alive headers</li>
+            <li><strong>Should be:</strong> Explicit DB <code>pool_size</code> / overflow; Nginx <code>proxy_read_timeout</code> for long SSE; shared httpx client with limits for egress; request deadlines end-to-end</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ========== PROXY ========== -->
+      <section class="ch" id="proxy">
+        <h2><span class="n">04</span> Reverse proxy &amp; load balancer</h2>
+        <p class="lede">Clients should not talk to app processes directly in production.</p>
+
+        <h3>What a reverse proxy actually does</h3>
+        <ul>
+          <li>Accepts client connections (often TLS)</li>
+          <li>Forwards to one or more upstreams (Uvicorn workers / pods)</li>
+          <li>Adds/rewrites headers, rate limits, compression, static files</li>
+          <li>Hides internal ports; can buffer or stream responses</li>
+        </ul>
+
+        <h3>Load balancer vs reverse proxy</h3>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Reverse proxy</h4>
+            <p>L7 “front door” for one service: path routing, headers, auth edge, caching.</p>
+          </div>
+          <div class="panel a">
+            <h4>Load balancer</h4>
+            <p>Spreads traffic across many identical backends (round-robin, least-conn, consistent hash).</p>
+          </div>
+        </div>
+        <p>Nginx often does both: proxy + (when you add more <code>server</code> lines) load balance.</p>
+
+        <h3>DashNote Nginx (real config)</h3>
+        <p class="path">nginx/default.conf</p>
+<pre><code>upstream api_upstream {
+    server api:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    location / {
+        limit_req zone=api_per_ip burst=20 nodelay;
+        proxy_pass http://api_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Request-ID $request_id;
+    }
+}</code></pre>
+        <div class="grid2">
+          <div class="panel t">
+            <h4>Covered</h4>
+            <ul>
+              <li>Single upstream + keepalive pool</li>
+              <li>Per-IP rate limit at edge</li>
+              <li>Forwarded IP / proto / request-id</li>
+              <li>Prod compose: only Nginx publishes :80</li>
+            </ul>
+          </div>
+          <div class="panel a">
+            <h4>Should be</h4>
+            <ul>
+              <li>TLS :443 (Caddy / Cloudflare)</li>
+              <li>Multiple upstreams when you scale API replicas</li>
+              <li>SSE-aware timeouts / buffering directives</li>
+              <li>Health-checked upstream removal</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== STATUS ========== -->
+      <section class="ch" id="status">
+        <h2><span class="n">05</span> Covered vs should-be <span class="badge partial">DASHNOTE</span></h2>
+        <p class="lede">Mapped to this repo — not a generic checklist.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Topic</th>
+              <th>Status</th>
+              <th>In repo</th>
+              <th>Should be (production system)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>TCP API path</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Uvicorn HTTP; Postgres/Redis/Qdrant over TCP</td>
+              <td>Same — keep documenting failure modes</td>
+            </tr>
+            <tr>
+              <td>DNS (internal)</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Compose service names</td>
+              <td>Public DNS + failover story</td>
+            </tr>
+            <tr>
+              <td>TLS termination</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Docs / env examples only; :80 only</td>
+              <td>Cloudflare Full Strict or Caddy ACME on :443</td>
+            </tr>
+            <tr>
+              <td>HTTP/1.1 upstream</td>
+              <td><span class="status covered">Covered</span></td>
+              <td><code>proxy_http_version 1.1</code> + keepalive</td>
+              <td>Optional HTTP/2 at edge after TLS</td>
+            </tr>
+            <tr>
+              <td>Status codes</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>HTTPException map; health 503; 429; global 500</td>
+              <td>Consistent problem+json; wire Sentry on 500</td>
+            </tr>
+            <tr>
+              <td>Proxy headers</td>
+              <td><span class="status covered">Covered</span></td>
+              <td>Nginx + <code>ProxyHeadersMiddleware</code></td>
+              <td>Restrict <code>trusted_hosts</code> in prod</td>
+            </tr>
+            <tr>
+              <td>Request ID</td>
+              <td><span class="status partial">Partial</span></td>
+              <td>Nginx sets <code>X-Request-ID</code>; logging supports field</td>
+              <td>Middleware: read → context → logs → echo response</td>
+            </tr>
+            <tr>
+              <td>Keep-alive (edge→app)</td>
+              <td><span class="status covered">Covered</span></td>
+              <td><code>keepalive 32</code>; empty <code>Connection</code></td>
+              <td>Tune pool vs replica count</td>
+            </tr>
+            <tr>
+              <td>Timeouts</td>
+              <td><span class="status partial">Partial</span></td>
+              <td>Qdrant / LLM / tool timeouts; smoke httpx 60s</td>
+              <td>Nginx proxy timeouts; shared egress client policy</td>
+            </tr>
+            <tr>
+              <td>Connection pools</td>
+              <td><span class="status partial">Partial</span></td>
+              <td>SQLAlchemy engine + Redis; Nginx upstream</td>
+              <td>Explicit pool sizes; httpx limits; monitor wait time</td>
+            </tr>
+            <tr>
+              <td>Reverse proxy</td>
+              <td><span class="status covered">Covered</span></td>
+              <td><code>nginx/default.conf</code> + compose</td>
+              <td>TLS + multi-upstream LB + health checks</td>
+            </tr>
+            <tr>
+              <td>Load balancing</td>
+              <td><span class="status gap">Gap</span></td>
+              <td>Single <code>api:8000</code> server</td>
+              <td>N replicas + upstream list or cloud LB</td>
+            </tr>
+            <tr>
+              <td>SSE through proxy</td>
+              <td><span class="status covered">Covered</span></td>
+              <td><code>X-Accel-Buffering: no</code> on chat/agent</td>
+              <td>Also set Nginx timeout/buffering for long streams</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <div class="lb">Priority gaps for DashNote</div>
+          1) TLS at edge · 2) Request-ID middleware · 3) Explicit timeouts/pools for long SSE + egress · 4) Multi-upstream when you scale API.
+        </div>
+      </section>
+
+      <!-- ========== EXAMPLES ========== -->
+      <section class="ch" id="examples">
+        <h2><span class="n">06</span> Code examples <span class="badge done">TOGGLE</span></h2>
+        <p class="lede">
+          DashNote ships FastAPI. NestJS examples are the TypeScript parallel — same ideas, different framework.
+          Use the toggle on each block.
+        </p>
+
+        <h3>1. Meaningful status codes + headers</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Status &amp; Retry-After</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI — mirrors DashNote rate-limit / health style
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import JSONResponse
+
+app = FastAPI()
+
+@app.get("/notes/{note_id}")
+async def get_note(note_id: str):
+    note = await repo.get(note_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return note
+
+@app.get("/health")
+async def health(response: Response):
+    ok = await db.ping() and await redis.ping()
+    if not ok:
+        response.status_code = 503
+        return {"status": "degraded"}
+    return {"status": "ok"}
+
+@app.middleware("http")
+async def rate_limit_headers(request, call_next):
+    # When limited, return 429 + Retry-After (see core/security/rate_limit.py)
+    if await is_limited(request.client.host):
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too Many Requests"},
+            headers={"Retry-After": "1"},
+        )
+    return await call_next(request)</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS — same semantics
+import {
+  Controller, Get, Param, Res, HttpStatus,
+  NotFoundException, Injectable, NestMiddleware,
+} from '@nestjs/common';
+import { Response, Request, NextFunction } from 'express';
+
+@Controller('notes')
+export class NotesController {
+  @Get(':id')
+  async get(@Param('id') id: string) {
+    const note = await this.repo.find(id);
+    if (!note) throw new NotFoundException('Note not found');
+    return note;
+  }
+}
+
+@Controller('health')
+export class HealthController {
+  @Get()
+  async check(@Res({ passthrough: true }) res: Response) {
+    const ok = await this.db.ping() && await this.redis.ping();
+    if (!ok) {
+      res.status(HttpStatus.SERVICE_UNAVAILABLE);
+      return { status: 'degraded' };
+    }
+    return { status: 'ok' };
+  }
+}
+
+@Injectable()
+export class RateLimitMiddleware implements NestMiddleware {
+  async use(req: Request, res: Response, next: NextFunction) {
+    if (await isLimited(req.ip)) {
+      res.setHeader('Retry-After', '1');
+      return res.status(429).json({ detail: 'Too Many Requests' });
+    }
+    next();
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>2. Outbound HTTP client — timeouts + connection pool</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Shared client (reuse TCP)</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI / httpx — one client for the process (should-be for DashNote egress)
+import httpx
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=3.0, read=30.0, write=10.0, pool=5.0),
+        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        http2=False,  # match upstream; enable when edge/deps speak h2
+    )
+    yield
+    await app.state.http.aclose()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/proxy-qdrant-health")
+async def qdrant_health():
+    r = await app.state.http.get("http://qdrant:6333/readyz")
+    r.raise_for_status()
+    return {"ok": True}</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS — undici/fetch with Agent pool (Node 18+)
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Agent, fetch } from 'undici';
+
+@Injectable()
+export class HttpEgressService implements OnModuleDestroy {
+  private agent = new Agent({
+    connections: 20,          // keep-alive pool per origin
+    connect: { timeout: 3000 },
+    bodyTimeout: 30_000,
+    headersTimeout: 10_000,
+  });
+
+  get(url: string) {
+    return fetch(url, { dispatcher: this.agent });
+  }
+
+  async onModuleDestroy() {
+    await this.agent.close();
+  }
+}
+
+// Controller
+@Get('proxy-qdrant-health')
+async qdrantHealth() {
+  const r = await this.http.get('http://qdrant:6333/readyz');
+  if (!r.ok) throw new ServiceUnavailableException();
+  return { ok: true };
+}</code></pre>
+          </div>
+        </div>
+
+        <h3>3. Trust proxy headers + bind request ID</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Proxy headers · request ID</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI — DashNote has ProxyHeadersMiddleware; add request-id binding
+from contextvars import ContextVar
+from uuid import uuid4
+from fastapi import FastAPI, Request
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
+app = FastAPI()
+
+# Prod: set trusted_hosts to your Nginx / Caddy host — not "*"
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["nginx", "localhost"])
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    rid = request.headers.get("x-request-id") or str(uuid4())
+    token = request_id_ctx.set(rid)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        request_id_ctx.reset(token)</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS — behind Nginx / reverse proxy
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { randomUUID } from 'crypto';
+import { Request, Response, NextFunction } from 'express';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  // Trust X-Forwarded-* from local proxy only
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const rid = (req.headers['x-request-id'] as string) || randomUUID();
+    (req as any).requestId = rid;
+    res.setHeader('X-Request-ID', rid);
+    next();
+  });
+
+  await app.listen(8000);
+}
+bootstrap();</code></pre>
+          </div>
+        </div>
+
+        <h3>4. SSE headers that survive a reverse proxy</h3>
+        <div class="code-toggle" data-toggle>
+          <div class="toolbar">
+            <span class="label">Streaming through Nginx</span>
+            <div class="lang-switch">
+              <button type="button" class="lang-btn active" data-lang="py">FastAPI</button>
+              <button type="button" class="lang-btn" data-lang="ts">NestJS</button>
+            </div>
+          </div>
+          <div class="code-pane active" data-pane="py">
+<pre><code># FastAPI — matches src/ai_routes/chat.py pattern
+from fastapi.responses import StreamingResponse
+
+async def event_gen():
+    yield "data: {\"token\": \"hi\"}\n\n"
+
+return StreamingResponse(
+    event_gen(),
+    media_type="text/event-stream",
+    headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # critical behind Nginx
+    },
+)</code></pre>
+          </div>
+          <div class="code-pane" data-pane="ts">
+<pre><code>// NestJS — SSE through reverse proxy
+import { Controller, Get, Res } from '@nestjs/common';
+import { Response } from 'express';
+
+@Controller('ai')
+export class ChatController {
+  @Get('stream')
+  stream(@Res() res: Response) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    res.write('data: {"token":"hi"}\\n\\n');
+    // ... write more events, then res.end()
+  }
+}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== CHECKLIST ========== -->
+      <section class="ch" id="checklist">
+        <h2><span class="n">07</span> Learning checklist</h2>
+        <p class="lede">Check when you can explain it and point to the DashNote file (or the gap).</p>
+        <ul class="checklist" data-list="learn">
+          <li><input type="checkbox" /> TCP vs UDP — when each fits; cost of handshakes</li>
+          <li><input type="checkbox" /> DNS — Compose names vs public DNS failure modes</li>
+          <li><input type="checkbox" /> TLS — where it terminates; Forwarded-Proto trust</li>
+          <li><input type="checkbox" /> HTTP/1.1 vs HTTP/2 — multiplexing &amp; where DashNote sits</li>
+          <li><input type="checkbox" /> Status codes used in this API (401–503 map)</li>
+          <li><input type="checkbox" /> Headers: auth, forwarded, request-id, SSE, Retry-After</li>
+          <li><input type="checkbox" /> Keep-alive / timeouts / pools → p99 latency story</li>
+          <li><input type="checkbox" /> Reverse proxy vs LB — walk nginx/default.conf</li>
+          <li><input type="checkbox" /> Name DashNote gaps: TLS, request-id middleware, multi-upstream</li>
+        </ul>
+        <div class="mark">
+          <button class="btn primary" type="button" id="markSection">Mark section visited</button>
+          <button class="btn" type="button" id="resetBtn2">Reset all</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Networking &amp; HTTP · Must #1 ·
+        <code>dashnote-network-http-v1</code>
+        · Next: API design ·
+        <a href="roadmap.html" style="color:var(--teal)">roadmap.html</a>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const KEY = "dashnote-network-http-v1";
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || "{}"); }
+        catch { return {}; }
+      }
+      function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+
+      let state = load();
+      if (!state.visited) state.visited = {};
+      if (!state.checks) state.checks = {};
+      if (!state.lang) state.lang = "py";
+
+      const fill = document.getElementById("fill");
+      const pct = document.getElementById("pct");
+      const links = [...document.querySelectorAll("nav a[href^='#']")];
+      const sections = [...document.querySelectorAll("section.ch")];
+
+      function updateProgress() {
+        const checks = [...document.querySelectorAll(".checklist input")];
+        const done = checks.filter((c) => c.checked).length;
+        const total = checks.length || 1;
+        const p = Math.round((done / total) * 100);
+        fill.style.width = p + "%";
+        pct.textContent = p + "%";
+      }
+
+      function applyVisited() {
+        links.forEach((a) => {
+          const id = a.getAttribute("href").slice(1);
+          a.classList.toggle("visited", !!state.visited[id]);
+        });
+      }
+
+      function applyLang(lang) {
+        state.lang = lang;
+        save(state);
+        document.querySelectorAll("[data-toggle]").forEach((box) => {
+          box.querySelectorAll(".lang-btn").forEach((b) => {
+            b.classList.toggle("active", b.dataset.lang === lang);
+          });
+          box.querySelectorAll(".code-pane").forEach((p) => {
+            p.classList.toggle("active", p.dataset.pane === lang);
+          });
+        });
+      }
+
+      function resetAll() {
+        state = { visited: {}, checks: {}, lang: "py" };
+        save(state);
+        document.querySelectorAll(".checklist input").forEach((i) => {
+          i.checked = false;
+          i.closest("li").classList.remove("checked");
+        });
+        applyVisited();
+        applyLang("py");
+        updateProgress();
+      }
+
+      document.getElementById("resetBtn").addEventListener("click", resetAll);
+      document.getElementById("resetBtn2").addEventListener("click", resetAll);
+      document.getElementById("navToggle").addEventListener("click", () => {
+        document.getElementById("sidebar").classList.toggle("open");
+      });
+
+      document.querySelectorAll("[data-toggle]").forEach((box) => {
+        box.querySelectorAll(".lang-btn").forEach((btn) => {
+          btn.addEventListener("click", () => applyLang(btn.dataset.lang));
+        });
+      });
+
+      const obs = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => {
+            if (!e.isIntersecting) return;
+            const id = e.target.id;
+            links.forEach((l) =>
+              l.classList.toggle("active", l.getAttribute("href") === "#" + id)
+            );
+            if (!state.visited[id]) {
+              state.visited[id] = true;
+              save(state);
+              applyVisited();
+            }
+          });
+        },
+        { rootMargin: "-40% 0px -50% 0px", threshold: 0 }
+      );
+      sections.forEach((s) => obs.observe(s));
+
+      document.getElementById("markSection").addEventListener("click", () => {
+        const active = document.querySelector("nav a.active");
+        if (!active) return;
+        const id = active.getAttribute("href").slice(1);
+        state.visited[id] = true;
+        save(state);
+        applyVisited();
+      });
+
+      document.querySelectorAll(".checklist").forEach((list) => {
+        const id = list.dataset.list;
+        list.querySelectorAll("li").forEach((li, idx) => {
+          const input = li.querySelector("input");
+          const k = id + ":" + idx;
+          if (state.checks[k]) {
+            input.checked = true;
+            li.classList.add("checked");
+          }
+          li.addEventListener("click", (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            li.classList.toggle("checked", input.checked);
+            state.checks[k] = input.checked;
+            save(state);
+            updateProgress();
+          });
+        });
+      });
+
+      applyVisited();
+      applyLang(state.lang === "ts" ? "ts" : "py");
+      updateProgress();
+    })();
+  </script>
+</body>
+</html>

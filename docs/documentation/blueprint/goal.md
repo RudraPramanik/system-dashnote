@@ -66,6 +66,8 @@ python scripts/e2e_agent_test.py --base-url https://api.<domain>
 
 ### B — Frontend (live product)
 
+Build against the API using **[frontendguide.md](../frontendguide.md)** (auth, domain routes, SSE citations, CORS, B1–B7).
+
 | # | Task | Status | Output |
 |---|------|--------|--------|
 | B1 | Auth: register, login, Bearer on API calls | ⬜ | No CORS errors vs prod API |

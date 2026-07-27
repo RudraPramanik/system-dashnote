@@ -1,0 +1,95 @@
+schema: spec-driven
+
+# Injected into every OpenSpec artifact prompt. Keep accurate; update when stack/laws change.
+context: |
+  # DashNoteSystem
+
+  Multi-tenant notes backend (API + ARQ worker). No frontend in this repo.
+
+  ## Tech stack
+  - Language: Python 3 (package root `src/`, `pytest.ini` sets `pythonpath = src`)
+  - API: FastAPI + async SQLAlchemy + Pydantic v2 / pydantic-settings
+  - DB: PostgreSQL (asyncpg); migrations via Alembic (`alembic/`)
+  - Cache / queues: Redis; background jobs via ARQ (`src/worker/`)
+  - Vectors: Qdrant (`notes_chunks`, `files_chunks`, embedding dim 3072)
+  - LLM: LiteLLM (embeddings + chat); LangGraph agent; Langfuse via `observability.tracing` only
+  - Storage: `get_storage()` — backends `local` | `minio` | `r2` (bytes in object store; metadata in Postgres `files`)
+  - Edge: Nginx rate limit + reverse proxy; Prometheus `/metrics`, Grafana in Compose
+  - Local: `docker compose up -d --build` → health at `http://127.0.0.1/health`
+
+  ## Product domains (src modules)
+  - `auth` — register/login/JWT (`sub`, `wid`, `role`, `jti`, `typ`); Redis refresh + access blacklist when Redis on
+  - `workspaces`, `membership` — tenants and roles (`owner` | `admin` | `member`)
+  - `notebooks`, `notes`, `pages`, `files` — core content + attachments
+  - `ai`, `ai_gateway`, `ai_routes`, `ai_memory`, `ai_search` — embeddings, RAG chat, threads, LangGraph agent
+  - `core` — DB session, security/RequestContext, Redis, storage, rate limit
+  - `shared` — events bus, parsers, LLM helpers
+  - `worker` — ingestion + automation tasks
+  - `observability` — JSON logs, tracing, metrics
+
+  ## HTTP surface (prefixes)
+  - `/health`, `/metrics`
+  - `/auth` — register, login, refresh, logout
+  - `/workspaces`, `/workspaces/members`
+  - `/notebooks`, `/notes`, `/files`
+  - `/ai` — `GET /ai/test-search`; `POST /ai/chat`, `/ai/chat/stream`; threads; `POST /ai/agent`, `/ai/agent/stream`
+  - Fast RAG (`/ai/chat*`) and agent (`/ai/agent*`) MUST coexist — never replace one with the other
+
+  ## Tenancy & request context
+  - JWT → `RequestContext(user_id, workspace_id, role)` via `get_current_context`
+  - All tenant data filtered by `workspace_id` (repos + `tenant_filter` / `WorkspaceTenantMixin`)
+  - Notes RBAC: owner/admin CRUD any; member CRUD own, view public + own private
+  - Files RBAC: owner/admin all; member non-private + own (`created_by`)
+  - Qdrant: every search MUST filter `workspace_id` from context/indexing request only
+
+  ## Architecture laws (non-negotiable)
+  - Imports: `from config import settings` / `get_settings` — NEVER `from src.config`
+  - `src/ai/*`: only `config`, `ai.*`, `shared.*`, stdlib, third-party
+  - `src/worker/*`: only `config`, `ai.*`, `shared.*` — no raw Qdrant client in tasks
+  - Qdrant search: `WorkspaceVectorSearch` (`ai/retrieval/wrapper.py`) only — not in routers
+  - Qdrant writes: `NoteVectorIndexer` / `FileVectorIndexer` (+ workspace index wrappers) on worker path only
+  - RBAC vector filter: `build_rbac_filter()` mirrors `notes/permissions.py`
+  - Events: extend payloads in `shared/events/definitions.py` only; emit via `emit_event()` (never raises)
+  - Storage downloads: `get_storage().download(storage_key)` — never invent paths
+  - Workers: `AsyncSessionLocal` directly — never `get_session()` (FastAPI dependency)
+  - Migrations: every new/changed column needs Alembic
+  - Infra settings: append-only to `settings`, `.env`, `docker-compose.yml`, `requirements*.txt`
+  - LLM tracing: `observability.tracing` only — no Langfuse SDK inside `src/ai/*`
+  - Soft deps: Qdrant bootstrap failure must not block API/worker startup; Redis+Postgres hard for `/health`
+
+  ## Canonical docs (read before proposing)
+  - `docs/documentation/system.md` — routing, lifecycle, modules
+  - `docs/documentation/ai.md` — AI laws, settings, slices
+  - `docs/documentation/auth.md` — JWT and injection
+  - `docs/documentation/rules.md` — import/worker/storage/governance laws
+  - `docs/documentation/observe.md` / `docs/observability.md` — observability
+  - Blueprint slices under `docs/documentation/blueprint/`
+
+  ## Testing
+  - `python -m pytest <path> -q`; asyncio auto; conftest may stub `magic` on Windows
+  - Prefer module tests under `tests/` mirroring `src/`
+
+  ## Extending
+  - New domain: `src/<name>/` with `models.py`, `schemas.py`, `repository.py`, `router.py` (+ permissions helper)
+  - Spec domains under `openspec/specs/` should mirror product areas (auth, notes, files, ai, worker, etc.) as changes land — do not bulk-backfill unused areas
+
+rules:
+  proposal:
+    - Anchor Why/What in existing docs under docs/documentation/ when relevant
+    - Call out tenancy/RBAC and soft-vs-hard dependency impact explicitly
+    - List non-goals (especially: do not collapse /ai/chat and /ai/agent; do not bypass vector wrappers)
+    - Prefer smallest change that ships; avoid boiling-ocean refactors
+  specs:
+    - Use Requirement + Scenario (GIVEN/WHEN/THEN); behavior-first, not file laundry lists
+    - Spec only the slice this change touches; reference existing modules by path when clarifying behavior
+    - Preserve workspace_id isolation and role semantics in every security-related requirement
+  design:
+    - Prefer extending existing pipelines (EmbeddingPipeline, emit_event, get_storage, shared/llm) over new parallel paths
+    - State which process owns work: API router vs ARQ worker vs LangGraph tool node
+    - Note Alembic / settings / compose touchpoints when schema or infra changes
+    - Call out Qdrant collection (`notes_chunks` vs `files_chunks`) when vectors are involved
+  tasks:
+    - Order: contracts/models → migrations → services → routers/worker → tests
+    - Separate API-path tasks from worker-path tasks
+    - Include pytest targets under tests/ for behavior that can regress tenancy, auth, or AI contracts
+    - Keep tasks small enough to verify independently

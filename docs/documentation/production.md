@@ -3,6 +3,8 @@
 
 
 > **AI:** Read this before any platform/deploy work. Detailed prompts live in `docs/documentation/blueprint/slice-platform.md`. Architecture laws in `docs/documentation/deploy-low.md`. App behavior in `system.md` + `ai.md`.
+>
+> **Ship order (Slice 8X):** After **7P.0–7P.3**, follow [`blueprint/slice8_X.md`](blueprint/slice8_X.md). Detail: [`slice8_ci.md`](blueprint/slice8_ci.md) → [`slice8_eval.md`](blueprint/slice8_eval.md) → [`slice8_hitl.md`](blueprint/slice8_hitl.md), then **7P.4–7P.6 + 7P.8**. Do not treat unfinished 7P.4–7P.6 as a blocker for CI/evals/HITL.
 
 
 
@@ -56,7 +58,9 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 
 
-**Gate:** Resume feature slices (8+) only after **7P.8** passes on Oracle VPS.
+**Gate:** Resume feature slices (**8** GraphRAG, **9** multi-agent, new domains) only after **7P.8** passes on Oracle VPS.
+
+**Exception (Slice 8X):** **7P.7 CI**, eval harness, and HITL on existing `/ai/agent*` may run **before** 7P.8 — see [`blueprint/slice8_X.md`](blueprint/slice8_X.md).
 
 
 

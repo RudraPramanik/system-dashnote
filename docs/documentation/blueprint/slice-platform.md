@@ -29,6 +29,8 @@ Phase C — CI/CD (run when repo + secrets are ready)
 
 **Resume feature slices (8–11) only after 7P.8 gate passes on a real VPS.**
 
+**Slice 8X exception:** For the AI-engineer ship path (CI → evals → HITL → then finish 7P.4–7P.6/7P.8), see [`slice8_X.md`](slice8_X.md). Detail prompts: [`slice8_ci.md`](slice8_ci.md), [`slice8_eval.md`](slice8_eval.md), [`slice8_hitl.md`](slice8_hitl.md). 7P.7, evals, and HITL on existing `/ai/agent*` may precede 7P.8; GraphRAG / multi-agent remain blocked.
+
 ---
 
 ## Readiness gate (run before Sub-step 7P.1)

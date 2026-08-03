@@ -169,7 +169,22 @@ FREELANCE (one of)
 
 ---
 
-## Recommended order (when time is short)
+## Recommended order
+
+### Preferred for AI-engineer track — Slice 8X
+
+Follow [`slice8_X.md`](slice8_X.md) (index). Detail prompts: [`slice8_ci.md`](slice8_ci.md) → [`slice8_eval.md`](slice8_eval.md) → [`slice8_hitl.md`](slice8_hitl.md), then finish 7P.4–7P.8 → frontend:
+
+1. **A5 / 8X.1** — thin CI ([`slice8_ci.md`](slice8_ci.md))
+2. **C1–C4 / 8X.2** — evals ([`slice8_eval.md`](slice8_eval.md))
+3. **8X.3** — HITL API ([`slice8_hitl.md`](slice8_hitl.md))
+4. **A1–A4, A6–A7 / 8X.4** — finish platform + live smoke
+5. **B1–B7 / 8X.5** — frontend (+ HITL UX after 8X.3)
+6. **D1–D6** — portfolio packaging
+
+### Alternate (when time is short — fastest live URL)
+
+Use only if you need a public URL this week above AI-harness depth; then return to 8X.2–8X.3.
 
 1. **A4 + A7** — prod API + smoke (blocks everything)
 2. **B1–B3 + B7** — minimum UI to demo RAG
@@ -253,6 +268,8 @@ Attach **Phase 2 upgrade quote** on every Lite delivery.
 | Doc | Use |
 |-----|-----|
 | [`ship-plan.md`](../../ship-plan.md) | 14-day / 45-day day-by-day tasks |
+| [`slice8_X.md`](slice8_X.md) | **Preferred ship path index:** CI → evals → HITL → finish prod → FE |
+| [`slice8_ci.md`](slice8_ci.md) / [`slice8_eval.md`](slice8_eval.md) / [`slice8_hitl.md`](slice8_hitl.md) | Detail substep prompts (option B) |
 | [`production.md`](../production.md) | 7P step status tracker |
 | [`total.md`](total.md) | Full slice architecture (0–11) |
 | [`ai.md`](../ai.md) | AI module laws |
@@ -264,5 +281,6 @@ Attach **Phase 2 upgrade quote** on every Lite delivery.
 
 | Date | Change |
 |------|--------|
+| 2026-08-03 | Added preferred **Slice 8X** order; kept alternate “fastest live URL” short-order |
 | 2026-06-30 | Initial extended roadmap (7R, 7A, 6+, …) |
 | 2026-06-30 | **Rewritten** — job-search baseline gate; deferred post-hire slices |

@@ -1,8 +1,4 @@
-## Purpose
-
-Slice 8X path TOC role for `slice8_X.md`: index linking to CI/eval/HITL detail blueprints while preserving global laws and the chosen deploy-first pre-7P.8 exception (thin CI allowed; evals/HITL deferred until after 7P.8).
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: slice8_X.md is the TOC for detail blueprints
 `docs/documentation/blueprint/slice8_X.md` MUST remain the entry index for the Slice 8X ship path and MUST direct implementers to `slice8_ci.md` for 8X.1, `slice8_eval.md` for 8X.2, and `slice8_hitl.md` for 8X.3. It MUST NOT be the only place that holds full multi-substep Composer task bodies for those three phases once the detail files are authored. The TOC MUST present the **chosen** locked order as CI → finish prod (8X.4) → frontend (8X.5) → evals (8X.2) → HITL (8X.3), while still linking the same detail files.

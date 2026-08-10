@@ -1,17 +1,4 @@
-## Purpose
-
-Slice 8X path planning blueprint (`slice8_X.md`): chosen deploy-first ship path (CI → finish-prod → frontend → evals → HITL), with alternate AI-depth-first order, laws, gates, and narrowed pre-7P.8 exception (thin CI only before 7P.8 on the chosen path).
-
-## Requirements
-
-### Requirement: Slice 8X blueprint document exists
-The repository MUST include `docs/documentation/blueprint/slice8_X.md` as the executable planning blueprint for the Slice 8X ship path (chosen deploy-first sequence). The document MUST be usable as a Cursor Composer guideline (architecture law block + per-substage objective prompts), not merely a high-level essay.
-
-#### Scenario: Operator opens the blueprint
-- **GIVEN** this change is complete
-- **WHEN** an operator opens `docs/documentation/blueprint/slice8_X.md`
-- **THEN** the file is non-empty
-- **AND** it identifies itself as Slice 8X (distinct from GraphRAG Slice 8 and multi-agent Slice 9)
+## MODIFIED Requirements
 
 ### Requirement: Blueprint defines ordered phases and substages
 The Slice 8X blueprint MUST define an ordered path with at least these phases in the **chosen (deploy-first)** sequence: thin CI (7P.7 / 8X.1), finish remaining platform substages (7P.4–7P.6 and 7P.8 / 8X.4), a frontend pointer to the B-gate / frontend guide (8X.5), evaluation harness (8X.2), and HITL API-first on the existing agent surface (8X.3). Later substages MUST NOT be presented as prerequisites of earlier ones within the chosen sequence. The blueprint MAY document the alternate AI-depth-first order (CI → evals → HITL → finish prod → frontend) but MUST label it as alternate, not chosen.
@@ -29,15 +16,6 @@ The Slice 8X blueprint MUST define an ordered path with at least these phases in
 - **WHEN** an implementer looks for the old CI → evals → HITL → prod spine
 - **THEN** that order is present and explicitly marked alternate / AI-depth-first
 - **AND** it is not presented as the active operator default
-
-### Requirement: Blueprint includes architecture laws and Composer prompts
-The blueprint MUST include a paste-first architecture law block for 8X sessions and, for each build substage, a concrete objective-style prompt (goal, constraints/laws, validation gate). Prompts MUST forbid breaking local `docker compose` and MUST preserve chat≠agent coexistence (`/ai/chat*` and `/ai/agent*` both remain).
-
-#### Scenario: Composer session can start from the law block
-- **GIVEN** an implementer begins a substage
-- **WHEN** they paste the 8X architecture law and the substage objective prompt
-- **THEN** the prompt states not to break the local full-stack compose path
-- **AND** states not to replace chat routes with agent routes
 
 ### Requirement: Blueprint states fallback boundaries and gate exception
 The blueprint MUST document (1) what is explicitly out of scope for the 8X baseline, and (2) the intentional exception relative to “no feature work before 7P.8”: under the **chosen deploy-first** path, thin CI (7P.7 / 8X.1) is allowed before 7P.8; eval harness and HITL on `/ai/agent*` are sequenced **after** 7P.8 smoke (then frontend, then evals, then HITL) unless the operator explicitly switches to the alternate AI-depth-first path. GraphRAG, multi-agent-as-default, and new product domains remain blocked until the production gate passes. The blueprint MUST NOT authorize claiming a live production deployment before 7P.8 smoke succeeds.
@@ -57,20 +35,6 @@ The blueprint MUST document (1) what is explicitly out of scope for the 8X basel
 - **THEN** success is defined with API/SSE (and script or curl) verification
 - **AND** a polished frontend approval console is not required to pass that substage gate
 
-### Requirement: Blueprint specifies minimum eval and HITL expectations
-The blueprint MUST require the eval phase to cover retrieval relevance, tenant isolation, and at least five agent trajectory cases (including forbid surprise note creation). The HITL phase MUST describe interrupt-before-mutation and resume-by-thread semantics for create/update tool paths, with workspace/user/role continuing to come from trusted request/graph state (not model-invented tenant fields).
-
-#### Scenario: Eval minimum themes listed
-- **GIVEN** the eval substage in the blueprint
-- **WHEN** an implementer plans the golden corpus
-- **THEN** retrieval, tenant isolation, and ≥5 agent trajectory cases are listed as required themes
-
-#### Scenario: HITL mutation gate described
-- **GIVEN** the HITL substage in the blueprint
-- **WHEN** an implementer designs interrupt points
-- **THEN** create_note and update_note (or equivalent mutation tools) require approval before side effects
-- **AND** resume is keyed by checkpoint/thread identity already used by the agent
-
 ### Requirement: Related docs cross-link Slice 8X
 Canonical planning docs MUST point operators to `slice8_X.md` so the path is discoverable: at minimum `docs/documentation/blueprint/total.md`, `docs/documentation/blueprint/goal.md`, `docs/documentation/production.md`, and `docs/documentation/blueprint/slice-platform.md` MUST include a short pointer or gate-exception note referencing Slice 8X. Those pointers MUST describe the **chosen** sequence as CI → finish remaining 7P / 7P.8 → frontend → evals → HITL (deploy-first), and MUST NOT state that evals/HITL are required before 7P.8 on the default path.
 
@@ -79,6 +43,8 @@ Canonical planning docs MUST point operators to `slice8_X.md` so the path is dis
 - **WHEN** they look for work order after 7P.0–7P.3
 - **THEN** they are directed to Slice 8X for the deploy-first sequence
 - **AND** the pointer does not instruct them to complete evals and HITL before finishing 7P.8 as the default
+
+## ADDED Requirements
 
 ### Requirement: Blueprint readiness verdict starts at thin CI then platform finish
 After 7P.0–7P.3 are complete, the Slice 8X blueprint readiness / verdict section MUST instruct the operator to start at thin CI inventory (`slice8_ci.md` §8X.1.0) and MUST state that the next major phase after CI on the chosen path is finishing platform substages (7P.4–7P.6, 7P.8), not the eval harness.

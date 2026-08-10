@@ -4,7 +4,7 @@
 
 > **AI:** Read this before any platform/deploy work. Detailed prompts live in `docs/documentation/blueprint/slice-platform.md`. Architecture laws in `docs/documentation/deploy-low.md`. App behavior in `system.md` + `ai.md`.
 >
-> **Ship order (Slice 8X):** After **7P.0–7P.3**, follow [`blueprint/slice8_X.md`](blueprint/slice8_X.md). Detail: [`slice8_ci.md`](blueprint/slice8_ci.md) → [`slice8_eval.md`](blueprint/slice8_eval.md) → [`slice8_hitl.md`](blueprint/slice8_hitl.md), then **7P.4–7P.6 + 7P.8**. Do not treat unfinished 7P.4–7P.6 as a blocker for CI/evals/HITL.
+> **Ship order (Slice 8X, deploy-first):** After **7P.0–7P.3**, follow [`blueprint/slice8_X.md`](blueprint/slice8_X.md). Chosen: [`slice8_ci.md`](blueprint/slice8_ci.md) (7P.7) → **7P.4–7P.6 + 7P.8** → frontend → [`slice8_eval.md`](blueprint/slice8_eval.md) → [`slice8_hitl.md`](blueprint/slice8_hitl.md). Do not start evals/HITL before 7P.8 on the chosen path.
 
 
 
@@ -46,13 +46,13 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 | 7P.3 | Soft dependency boot | ✅ done | Qdrant try/except in `main.py`, `worker/main.py` |
 
-| 7P.4 | Storage contract | ⬜ | R2 docs; dev stays `local` + volume |
+| 7P.4 | Storage contract | ✅ done | `docs/deployment/storage.md`; R2 in `.env.production.example`; dev stays `local` + volume |
 
 | 7P.5 | Deploy scripts + runbook | ⬜ | `scripts/deploy/*`, `docs/deployment/runbook.md` |
 
 | 7P.6 | Health + smoke | ⬜ | `scripts/smoke_prod.py`, `GET /health/ai` (Qdrant probe — not in deploy gate) |
 
-| 7P.7 | CI (PR) | ⬜ | `.github/workflows/ci.yml` |
+| 7P.7 | CI (PR) | ✅ done | `.github/workflows/ci.yml` |
 
 | 7P.8 | CD + VPS gate | ⬜ | `.github/workflows/deploy.yml`, real deploy |
 
@@ -60,7 +60,7 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 **Gate:** Resume feature slices (**8** GraphRAG, **9** multi-agent, new domains) only after **7P.8** passes on Oracle VPS.
 
-**Exception (Slice 8X):** **7P.7 CI**, eval harness, and HITL on existing `/ai/agent*` may run **before** 7P.8 — see [`blueprint/slice8_X.md`](blueprint/slice8_X.md).
+**Exception (Slice 8X, chosen / deploy-first):** **7P.7 CI** may run **before** 7P.8; eval harness and HITL are deferred until **after** 7P.8 — see [`blueprint/slice8_X.md`](blueprint/slice8_X.md). (Alternate AI-depth-first path may still run evals/HITL before 7P.8.)
 
 
 

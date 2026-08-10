@@ -1,0 +1,120 @@
+# CD (Slice 7P.8) — build/push GHCR image, SSH deploy to VPS, hard health + smoke gate.
+# Triggers: workflow_dispatch or push tags v* only. Never auto-deploy on branch push/merge.
+# Required secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY, SMOKE_BASE_URL
+# Optional secrets: SMOKE_EMAIL, SMOKE_PASSWORD, GHCR_TOKEN (VPS docker login if package private)
+# Optional vars: VPS_APP_DIR (default /opt/dashnote)
+
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to push and deploy (default: dispatch-<run_id>)"
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: meta
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.image_tag }}"
+            if [ -z "${TAG}" ]; then
+              TAG="dispatch-${{ github.run_id }}"
+            fi
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          # GHCR requires lowercase owner/repo
+          NAME="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="${REGISTRY}/${NAME}:${TAG}"
+          {
+            echo "tag=${TAG}"
+            echo "image=${IMAGE}"
+            echo "name=${NAME}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Resolved IMAGE=${IMAGE}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.image }}
+
+      - name: Deploy over SSH (migrate → up → health-check)
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          APP_DIR: ${{ vars.VPS_APP_DIR || '/opt/dashnote' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: IMAGE,GHCR_TOKEN,GHCR_USER,APP_DIR
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${APP_DIR}"
+            if [ -n "${GHCR_TOKEN:-}" ]; then
+              echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+            fi
+            export IMAGE
+            docker pull "${IMAGE}"
+            chmod +x scripts/deploy/*.sh
+            ./scripts/deploy/migrate.sh
+            ./scripts/deploy/up.sh
+            ./scripts/deploy/health-check.sh
+
+      - name: Set up Python (smoke)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install smoke dependency
+        run: |
+          python -m pip install --upgrade pip
+          pip install "httpx>=0.27"
+
+      - name: Production smoke hard gate
+        env:
+          SMOKE_BASE_URL: ${{ secrets.SMOKE_BASE_URL }}
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SMOKE_BASE_URL:-}" ]; then
+            echo "ERROR: SMOKE_BASE_URL secret is required for the CD hard gate" >&2
+            exit 1
+          fi
+          python scripts/smoke_prod.py --base-url "${SMOKE_BASE_URL}"

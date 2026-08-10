@@ -1,8 +1,8 @@
 # VPS deploy runbook
 
-> Platform step **7P.5**. Compose file: `docker-compose.prod.yml` only.  
+> Platform steps **7P.5** (scripts) + **7P.8** (CD gate). Compose file: `docker-compose.prod.yml` only.  
 > Storage contract: [`storage.md`](storage.md). Never commit a filled `.env`.  
-> Do **not** claim production-live until **7P.8** smoke passes.
+> Do **not** claim production-live until the **production gate checklist** below passes (hard health + smoke).
 
 ## 1. Prerequisites checklist
 
@@ -122,6 +122,69 @@ Do **not** commit real credentials. Soft AI / Qdrant is **not** part of the depl
 
 Broader local E2E (optional): `python scripts/e2e_docker_smoke.py`.
 
+## 8. CD workflow (7P.8)
+
+Automated deploy lives at [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml).
+
+### Triggers (explicit only)
+
+| Event | Deploys? |
+|-------|----------|
+| `workflow_dispatch` (Actions UI / API) | Yes |
+| Push tag matching `v*` (e.g. `v0.1.0`) | Yes |
+| Push / merge to `main`, `production`, or any branch | **No** |
+
+### GitHub Secrets / vars
+
+Configure under the repo **Settings → Secrets and variables → Actions**. Never put these in git.
+
+| Name | Required | Purpose |
+|------|----------|---------|
+| `VPS_HOST` | Yes | VPS hostname or IP for SSH |
+| `VPS_USER` | Yes | SSH user |
+| `VPS_SSH_KEY` | Yes | Private key (PEM) for that user |
+| `SMOKE_BASE_URL` | Yes | Public (or reachable) API edge for post-deploy smoke, e.g. `https://api.example.com` or `http://<vps-ip>` |
+| `SMOKE_EMAIL` | No | Stable smoke login (otherwise ephemeral register) |
+| `SMOKE_PASSWORD` | No | Password for `SMOKE_EMAIL` |
+| `GHCR_TOKEN` | No | PAT / token with `read:packages` so the VPS can `docker login ghcr.io` when the image is private |
+| `VPS_APP_DIR` (Actions **variable**) | No | Absolute path to the repo on the VPS (default `/opt/dashnote`) |
+
+GHCR **push** from Actions uses `GITHUB_TOKEN` with `packages: write` (no extra secret required for push).
+
+### GHCR pull on the VPS
+
+CD sets `IMAGE=ghcr.io/<owner>/<repo>:<tag>` (lowercase) and runs `docker pull` before migrate/up.
+
+1. First-time: clone or sync repo files to `VPS_APP_DIR` (compose, nginx, scripts, `.env`).
+2. If the GHCR package is **private**, either:
+   - set `GHCR_TOKEN` so the workflow logs the VPS into `ghcr.io`, or
+   - once on the VPS: `echo "$TOKEN" | docker login ghcr.io -u USER --password-stdin`
+3. Prefer keeping the package private and using a read token over embedding credentials in `.env`.
+
+Manual equivalent:
+
+```bash
+export IMAGE=ghcr.io/<owner>/<repo>:v0.1.0
+docker pull "$IMAGE"
+./scripts/deploy/migrate.sh
+./scripts/deploy/up.sh
+./scripts/deploy/health-check.sh
+SMOKE_BASE_URL=https://api.example.com python scripts/smoke_prod.py
+```
+
+### Production gate checklist
+
+Complete **all** before claiming production-live or starting post-7P.8 feature work:
+
+- [ ] `./scripts/deploy/health-check.sh` (or `curl` to the public `/health`) → success
+- [ ] `SMOKE_BASE_URL=... python scripts/smoke_prod.py` → exit 0
+- [ ] `docker compose -f docker-compose.prod.yml ps` — api/worker/nginx healthy / up
+- [ ] Worker logs: no crash loop (`docker compose -f docker-compose.prod.yml logs worker --tail 100`)
+- [ ] Qdrant Cloud shows collections (soft — informational)
+- [ ] After a test upload, R2 (or configured object store) has objects (soft — informational)
+
+CD fails the GitHub Actions job if SSH health-check or runner smoke exits non-zero. A green workflow is necessary but operators should still tick the checklist on a real VPS once.
+
 ## Windows / PowerShell notes (local operators)
 
 Deploy **scripts are bash for the Linux VPS**. On Windows:
@@ -140,4 +203,5 @@ Ensure shell scripts keep **LF** line endings (see `.gitattributes` for `scripts
 
 - [`storage.md`](storage.md) — R2 / object storage contract (7P.4)
 - [`../documentation/production.md`](../documentation/production.md) — platform tracker
-- `docker-compose.prod.yml` — api, worker, migrate, nginx, optional prometheus
+- [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) — CD (7P.8)
+- `docker-compose.prod.yml` — api, worker, migrate, nginx, optional prometheus (`IMAGE=` for registry pulls)

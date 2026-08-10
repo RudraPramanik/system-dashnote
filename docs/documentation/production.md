@@ -54,7 +54,7 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 | 7P.7 | CI (PR) | ✅ done | `.github/workflows/ci.yml` |
 
-| 7P.8 | CD + VPS gate | ⬜ | `.github/workflows/deploy.yml`, real deploy |
+| 7P.8 | CD + VPS gate | ✅ done | `.github/workflows/deploy.yml` (tag `v*` / `workflow_dispatch`); runbook CD + gate checklist; live VPS proof still required to claim production-live |
 
 
 
@@ -219,7 +219,8 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 | `scripts/deploy/*` | 7P.5 — migrate, up, health-check |
 | `scripts/smoke_prod.py` | 7P.6 — lean hard-gate smoke |
 
-| `.github/workflows/*` | 7P.7 / 7P.8 |
+| `.github/workflows/ci.yml` | 7P.7 — PR pytest + docker build |
+| `.github/workflows/deploy.yml` | 7P.8 — GHCR push + SSH deploy + smoke |
 
 
 
@@ -288,6 +289,16 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 - `GET /health/ai` — soft Qdrant probe; never part of hard `/health` or default smoke exit.
 
 - Runbook “Post-deploy smoke” section documents local and production base URLs.
+
+
+
+### 7P.8 ✅
+
+- `.github/workflows/deploy.yml` — `workflow_dispatch` + `v*` tags only; GHCR build/push; SSH migrate → up → health-check; runner `smoke_prod.py` hard gate.
+
+- `docker-compose.prod.yml` — `IMAGE=` registry override documented (unchanged env name).
+
+- Runbook §8 — GitHub Secrets, GHCR pull notes, production gate checklist.
 
 
 

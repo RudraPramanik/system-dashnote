@@ -32,34 +32,82 @@ When `STORAGE_BACKEND` is `r2` (or other S3-compatible remote), the worker MUST 
 - **THEN** `docs/documentation/production.md` shows 7P.4 as complete
 
 ### Requirement: Deploy scripts and runbook exist
-The repository MUST provide deploy helper scripts under `scripts/deploy/` and a runbook at `docs/deployment/runbook.md` covering migrate, start/update services, health verification, and rollback at a high level. Scripts MUST target the production compose profile (hosted data plane; thin VPS compute).
+The repository MUST provide deploy helper scripts at `scripts/deploy/migrate.sh`, `scripts/deploy/up.sh`, and `scripts/deploy/health-check.sh`, plus an operator runbook at `docs/deployment/runbook.md`. Scripts MUST invoke `docker compose -f docker-compose.prod.yml` (hosted data plane; thin VPS compute), MUST use `set -euo pipefail` (or equivalent fail-fast), and MUST NOT embed secrets (credentials come from the VPS `.env` / compose `env_file`). The runbook MUST cover: prerequisites checklist, first-time VPS setup, every-release deploy sequence (migrate → up → health-check), rollback, TLS options as a decision (Cloudflare / Caddy / Certbot — documentation only), and optional observability profile usage. `health-check.sh` MUST verify hard health at the published edge (`http://127.0.0.1/health`) and exit non-zero on failure. When this deliverable is complete, `docs/documentation/production.md` MUST mark step 7P.5 as done.
 
 #### Scenario: Operator follows runbook after code update
-- **GIVEN** a VPS with production compose and a filled `.env` for hosted services
+- **GIVEN** a VPS with production compose files and a filled `.env` for hosted services
 - **WHEN** an operator follows `docs/deployment/runbook.md` and runs the deploy helpers
-- **THEN** migrations can be applied and api/worker can be brought up or updated
-- **AND** the runbook documents how to verify health and how to roll back a bad deploy
+- **THEN** migrations can be applied via `migrate.sh`
+- **AND** api/worker/nginx can be brought up or updated via `up.sh`
+- **AND** `health-check.sh` verifies hard health at the edge URL
+- **AND** the runbook documents how to roll back a bad deploy
+
+#### Scenario: Scripts never embed secrets
+- **GIVEN** the contents of `scripts/deploy/*.sh`
+- **WHEN** an operator reviews them before running on a VPS
+- **THEN** no production passwords, API keys, or connection strings are hard-coded
+- **AND** compose is invoked with `-f docker-compose.prod.yml` so local full-stack compose is not used by accident
+
+#### Scenario: Runbook documents TLS options without implementing them
+- **GIVEN** Slice 7P.5 is complete
+- **WHEN** an operator opens the TLS section of `docs/deployment/runbook.md`
+- **THEN** at least Cloudflare SSL, Caddy, and Certbot+nginx are listed as options
+- **AND** the section does not require a specific TLS implementation to be shipped in this change
+
+#### Scenario: Tracker updated when deploy runbook closes
+- **GIVEN** runbook and deploy scripts are in place
+- **WHEN** the implementer closes Slice 7P.5
+- **THEN** `docs/documentation/production.md` shows 7P.5 as complete
 
 ### Requirement: Production smoke script gates readiness
-The system MUST provide `scripts/smoke_prod.py` (or equivalent) that, against a configurable base URL, verifies at least: health endpoint success, auth register/login, and note creation. Semantic search MAY be optional when AI/Qdrant are unavailable. A successful smoke run MUST exit 0; failure MUST exit non-zero.
+The system MUST provide `scripts/smoke_prod.py` that, against a configurable base URL (`SMOKE_BASE_URL` or `--base-url`, default `http://127.0.0.1`), verifies at least: hard health success (`GET /health` with database reachable), auth register or login (`SMOKE_EMAIL` / `SMOKE_PASSWORD` when set; otherwise ephemeral register), and note creation (creating a notebook first when required by the API). Semantic search, file upload, worker automation polling, and `GET /health/ai` MAY run as soft/optional checks and MUST NOT cause a hard failure unless explicitly documented as required. A successful hard-gate run MUST exit 0; any hard-gate failure MUST exit non-zero. `docs/deployment/runbook.md` MUST document the post-deploy smoke command and env vars. When this deliverable is complete, `docs/documentation/production.md` MUST mark step 7P.6 as done. The broader `scripts/e2e_docker_smoke.py` MAY remain as a local E2E and MUST NOT be required as the CD hard gate.
 
 #### Scenario: Smoke passes on healthy API
 - **GIVEN** a reachable API with Postgres and Redis healthy
-- **WHEN** an operator runs the smoke script with `SMOKE_BASE_URL` set to that API
-- **THEN** the script exits 0 after health, auth, and note-create checks succeed
+- **WHEN** an operator runs `scripts/smoke_prod.py` with `SMOKE_BASE_URL` set to that API
+- **THEN** the script exits 0 after health, auth, and note-create hard checks succeed
 
 #### Scenario: Smoke fails when health is down
 - **GIVEN** an API that returns non-success for the hard health check
 - **WHEN** the smoke script runs against that base URL
 - **THEN** the script exits non-zero
 
+#### Scenario: Soft AI checks do not fail the hard gate by default
+- **GIVEN** a healthy API where Qdrant or LLM is unavailable
+- **WHEN** the operator runs the default hard-gate smoke (soft AI not required)
+- **THEN** the script still exits 0 if health, auth, and note create succeed
+- **AND** any soft AI/file steps are reported as skip/warn rather than hard fail
+
+#### Scenario: Runbook documents post-deploy smoke
+- **GIVEN** Slice 7P.6 is complete
+- **WHEN** an operator opens `docs/deployment/runbook.md`
+- **THEN** a post-deploy smoke section documents how to run `scripts/smoke_prod.py` against local and production base URLs
+- **AND** documents optional credential env vars without embedding secrets
+
+#### Scenario: Tracker updated when smoke closes
+- **GIVEN** `scripts/smoke_prod.py`, soft AI health behavior, and runbook smoke docs are in place
+- **WHEN** the implementer closes Slice 7P.6
+- **THEN** `docs/documentation/production.md` shows 7P.6 as complete
+
 ### Requirement: Soft AI health does not block hard health
-`GET /health` MUST continue to treat Postgres and Redis as hard dependencies and MUST NOT fail solely because Qdrant or LLM providers are unavailable. If `GET /health/ai` is provided, it MUST report AI/Qdrant readiness as soft status and MUST NOT be required for the deploy smoke hard gate unless explicitly documented otherwise.
+`GET /health` MUST continue to treat Postgres and Redis as hard dependencies and MUST NOT fail solely because Qdrant or LLM providers are unavailable. The system MUST provide `GET /health/ai` that reports AI/Qdrant readiness as soft status (reachable, degraded, or not configured). `GET /health/ai` MUST NOT be required for the deploy smoke hard gate unless an operator explicitly opts into soft checks. Soft Qdrant probe failures MUST NOT crash the API process.
 
 #### Scenario: API up while Qdrant is down
 - **GIVEN** Postgres and Redis are reachable and Qdrant is unreachable
 - **WHEN** a client calls `GET /health`
 - **THEN** the response reflects hard-dependency health without requiring Qdrant success
+
+#### Scenario: Soft AI health endpoint reports Qdrant separately
+- **GIVEN** the API is running with `QDRANT_URL` configured
+- **WHEN** a client calls `GET /health/ai`
+- **THEN** the response reports Qdrant readiness as soft status
+- **AND** a Qdrant outage does not change the hard success criteria of `GET /health`
+
+#### Scenario: Soft AI health when Qdrant is not configured
+- **GIVEN** the API is running without `QDRANT_URL`
+- **WHEN** a client calls `GET /health/ai`
+- **THEN** the response indicates AI/Qdrant is not configured (soft)
+- **AND** `GET /health` remains independent of that result
 
 ### Requirement: CI runs on pull requests without production secrets
 The repository MUST include a CI workflow that runs on pull requests (and pushes to the default branch as appropriate) executing pytest and a Docker image build. CI MUST NOT require production host credentials or live LLM/Qdrant secrets to pass.

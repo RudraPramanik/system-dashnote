@@ -48,9 +48,9 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 | 7P.4 | Storage contract | ✅ done | `docs/deployment/storage.md`; R2 in `.env.production.example`; dev stays `local` + volume |
 
-| 7P.5 | Deploy scripts + runbook | ⬜ | `scripts/deploy/*`, `docs/deployment/runbook.md` |
+| 7P.5 | Deploy scripts + runbook | ✅ done | `scripts/deploy/*`, `docs/deployment/runbook.md` |
 
-| 7P.6 | Health + smoke | ⬜ | `scripts/smoke_prod.py`, `GET /health/ai` (Qdrant probe — not in deploy gate) |
+| 7P.6 | Health + smoke | ✅ done | `scripts/smoke_prod.py` hard gate; `GET /health/ai` soft Qdrant probe |
 
 | 7P.7 | CI (PR) | ✅ done | `.github/workflows/ci.yml` |
 
@@ -217,6 +217,7 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 | `monitoring/prometheus.yml` | Scrape + Grafana Cloud remote_write |
 
 | `scripts/deploy/*` | 7P.5 — migrate, up, health-check |
+| `scripts/smoke_prod.py` | 7P.6 — lean hard-gate smoke |
 
 | `.github/workflows/*` | 7P.7 / 7P.8 |
 
@@ -262,7 +263,31 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 - Qdrant collection bootstrap non-fatal at API and worker startup (try/except mirrors checkpointer pattern).
 
-- `GET /health` unchanged — db + redis only; `/health/ai` deferred to 7P.6.
+- `GET /health` unchanged — db + redis only; `/health/ai` added in 7P.6 (soft).
+
+
+
+### 7P.4 ✅
+
+- `docs/deployment/storage.md` + R2 contract in `.env.production.example`; api/worker use `get_storage()`.
+
+
+
+### 7P.5 ✅
+
+- `docs/deployment/runbook.md` — prerequisites, first-time setup, release sequence, rollback, TLS options (decision only), observability profile.
+
+- `scripts/deploy/{migrate,up,health-check}.sh` — always `-f docker-compose.prod.yml`; no secrets in scripts; LF via `.gitattributes`.
+
+
+
+### 7P.6 ✅
+
+- `scripts/smoke_prod.py` — hard gate: `/health` + auth + notebook/note create; soft AI via `--with-ai` / `SMOKE_SOFT_AI=1`.
+
+- `GET /health/ai` — soft Qdrant probe; never part of hard `/health` or default smoke exit.
+
+- Runbook “Post-deploy smoke” section documents local and production base URLs.
 
 
 
@@ -284,17 +309,24 @@ curl.exe -sS http://127.0.0.1/health
 
 
 
-# Prod (VPS — copy .env.production.example → .env first)
+# Prod (VPS — copy .env.production.example → .env first; bash scripts)
 
-docker compose -f docker-compose.prod.yml run --rm migrate
+# chmod +x scripts/deploy/*.sh
 
-docker compose -f docker-compose.prod.yml up -d
+# ./scripts/deploy/migrate.sh
 
-docker compose -f docker-compose.prod.yml --profile observability up -d   # optional metrics
+# ./scripts/deploy/up.sh
+
+# ./scripts/deploy/health-check.sh
+
+# python scripts/smoke_prod.py
+# SMOKE_BASE_URL=https://api.example.com python scripts/smoke_prod.py
+
+docker compose -f docker-compose.prod.yml --profile observability up -d prometheus   # optional metrics
 
 
 
-# Validate prod compose parses locally (no hosted .env required for config)
+# Validate prod compose parses locally
 
 docker compose -f docker-compose.prod.yml config
 

@@ -1,6 +1,10 @@
 # Production compose — requires .env with hosted service URLs
 # Usage: docker compose -f docker-compose.prod.yml up -d
 # Local dev: docker compose up -d  (default docker-compose.yml)
+#
+# IMAGE (CD / registry): set IMAGE=ghcr.io/<owner>/<repo>:<tag> so migrate/api/worker
+# pull a pre-built image (no on-VPS rebuild). When IMAGE is unset, compose builds from
+# the local Dockerfile via the build: blocks below. Do not rename to DASHNOTE_IMAGE.
 
 services:
   migrate:

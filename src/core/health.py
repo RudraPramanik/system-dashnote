@@ -1,10 +1,12 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, Response, status
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -13,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from core.database.session import get_db
 from core.redis.deps import get_redis
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
 
@@ -29,12 +33,40 @@ def _redis_expected() -> bool:
     return bool(settings.REDIS_ENABLED and settings.REDIS_URL)
 
 
+async def _probe_qdrant() -> dict[str, Any]:
+    """Soft Qdrant probe via REST (no ai.retrieval client — keeps hard /health isolated)."""
+    url = (settings.QDRANT_URL or "").rstrip("/")
+    if not url:
+        return {"reachable": False, "configured": False, "detail": "QDRANT_URL not set"}
+
+    headers: dict[str, str] = {}
+    api_key = (settings.QDRANT_API_KEY or "").strip()
+    if api_key and api_key != "...":
+        headers["api-key"] = api_key
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{url}/collections", headers=headers)
+        if resp.status_code < 400:
+            return {"reachable": True, "configured": True, "http_status": resp.status_code}
+        return {
+            "reachable": False,
+            "configured": True,
+            "http_status": resp.status_code,
+            "detail": resp.text[:200],
+        }
+    except Exception as exc:
+        logger.warning("Qdrant soft health probe failed: %s", exc)
+        return {"reachable": False, "configured": True, "detail": str(exc)[:200]}
+
+
 @router.get("/health")
 async def deep_health(
     response: Response,
     db: AsyncSession = Depends(get_db),
     redis: Redis | None = Depends(get_redis),
 ) -> dict[str, Any]:
+    """Hard readiness: Postgres + Redis only. Qdrant/LLM never affect this gate."""
     t0 = time.perf_counter()
     dependencies: dict[str, dict[str, Any]] = {"database": {"reachable": False}}
 
@@ -68,4 +100,30 @@ async def deep_health(
         "timestamp": ts,
         "latency_ms": latency_ms,
         "dependencies": dependencies,
+    }
+
+
+@router.get("/health/ai")
+async def ai_health() -> dict[str, Any]:
+    """Soft AI/Qdrant readiness. Never required by hard deploy smoke or GET /health."""
+    t0 = time.perf_counter()
+    ts = datetime.now(timezone.utc).isoformat()
+
+    if not settings.qdrant_enabled:
+        return {
+            "status": "not_configured",
+            "timestamp": ts,
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 3),
+            "dependencies": {
+                "qdrant": {"reachable": False, "configured": False},
+            },
+        }
+
+    qdrant = await _probe_qdrant()
+    status_label = "ok" if qdrant.get("reachable") else "degraded"
+    return {
+        "status": status_label,
+        "timestamp": ts,
+        "latency_ms": round((time.perf_counter() - t0) * 1000, 3),
+        "dependencies": {"qdrant": qdrant},
     }

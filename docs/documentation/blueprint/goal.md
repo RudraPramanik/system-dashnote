@@ -169,14 +169,29 @@ FREELANCE (one of)
 
 ---
 
-## Recommended order (when time is short)
+## Recommended order
 
-1. **A4 + A7** — prod API + smoke (blocks everything)
-2. **B1–B3 + B7** — minimum UI to demo RAG
-3. **D1 + D3** — README + video (apply while finishing C)
-4. **C1–C4** — evals (strongest interview ammo)
-5. **A5–A6** — CI/CD (signals maturity)
-6. **B4–B6, D2, D4–D6** — polish before heavy interviewing
+### Preferred — Slice 8X deploy-first (chosen)
+
+Follow [`slice8_X.md`](slice8_X.md) (index). Live URL first; evals after VPS (still required for C-gate):
+
+1. **A5 / 8X.1** — thin CI ([`slice8_ci.md`](slice8_ci.md))
+2. **A1–A4, A6–A7 / 8X.4** — finish platform + live smoke (7P.4–7P.6, 7P.8)
+3. **B1–B7 / 8X.5** — frontend ([`frontendguide.md`](../frontendguide.md))
+4. **C1–C4 / 8X.2** — evals ([`slice8_eval.md`](slice8_eval.md); prefer `--base-url` against prod)
+5. **8X.3** — HITL API ([`slice8_hitl.md`](slice8_hitl.md); HITL UX after API exists)
+6. **D1–D6** — portfolio packaging
+
+### Alternate — AI-depth-first (harness before URL)
+
+Use only when interview harness depth matters more than a public URL this week:
+
+1. **A5 / 8X.1** — thin CI
+2. **C1–C4 / 8X.2** — evals
+3. **8X.3** — HITL API
+4. **A1–A4, A6–A7 / 8X.4** — finish platform + live smoke
+5. **B1–B7 / 8X.5** — frontend (+ HITL UX after 8X.3)
+6. **D1–D6** — portfolio packaging
 
 ---
 
@@ -253,6 +268,8 @@ Attach **Phase 2 upgrade quote** on every Lite delivery.
 | Doc | Use |
 |-----|-----|
 | [`ship-plan.md`](../../ship-plan.md) | 14-day / 45-day day-by-day tasks |
+| [`slice8_X.md`](slice8_X.md) | **Preferred ship path index (deploy-first):** CI → finish prod → FE → evals → HITL |
+| [`slice8_ci.md`](slice8_ci.md) / [`slice8_eval.md`](slice8_eval.md) / [`slice8_hitl.md`](slice8_hitl.md) | Detail substep prompts (option B) |
 | [`production.md`](../production.md) | 7P step status tracker |
 | [`total.md`](total.md) | Full slice architecture (0–11) |
 | [`ai.md`](../ai.md) | AI module laws |
@@ -264,5 +281,6 @@ Attach **Phase 2 upgrade quote** on every Lite delivery.
 
 | Date | Change |
 |------|--------|
+| 2026-08-03 | Added preferred **Slice 8X** order; kept alternate “fastest live URL” short-order |
 | 2026-06-30 | Initial extended roadmap (7R, 7A, 6+, …) |
 | 2026-06-30 | **Rewritten** — job-search baseline gate; deferred post-hire slices |

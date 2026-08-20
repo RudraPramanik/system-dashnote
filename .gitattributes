@@ -1,0 +1,2 @@
+# Keep VPS deploy helpers Unix-safe across Windows checkouts
+scripts/deploy/*.sh text eol=lf

@@ -206,12 +206,21 @@ async def chat_stream(
                 "status_code": status.HTTP_400_BAD_REQUEST,
             })
             yield f"data: {error_payload}\n\n"
-        except Exception:
-            # Yield an error event so the client knows the stream failed
-            # Never silently drop errors mid-stream
+        except Exception as exc:
+            from shared.llm.fallback import (
+                LLM_UNAVAILABLE_MESSAGE,
+                LLMUnavailableError,
+                is_model_gone,
+            )
+
+            message = (
+                LLM_UNAVAILABLE_MESSAGE
+                if isinstance(exc, LLMUnavailableError) or is_model_gone(exc)
+                else "Stream encountered an error. Please try again."
+            )
             error_payload = json.dumps({
                 "type": "error",
-                "message": "Stream encountered an error. Please try again.",
+                "message": message,
             })
             yield f"data: {error_payload}\n\n"
 

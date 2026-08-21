@@ -90,6 +90,19 @@ async def lifespan(app: FastAPI):
 
     _s = _get_settings()
     configure_litellm_env(_s)
+    try:
+        from shared.llm.fallback import resolve_llm_model
+
+        resolved = await resolve_llm_model(timeout=12.0)
+        if resolved:
+            logger.info("LLM candidate ready", extra={"model": resolved})
+        else:
+            logger.warning("LLM candidate resolve skipped or failed — /ai/* may degrade")
+    except Exception as e:
+        logger.warning(
+            "LLM candidate resolve failed — API continues",
+            extra={"error": str(e)[:240]},
+        )
     if _s.effective_arq_redis_url:
         app.state.arq_pool = await create_pool(
             RedisSettings.from_dsn(_s.effective_arq_redis_url)

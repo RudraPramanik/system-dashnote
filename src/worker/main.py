@@ -102,6 +102,19 @@ async def startup(ctx: dict) -> None:
     from shared.llm.env import configure_litellm_env
 
     configure_litellm_env(settings)
+    try:
+        from shared.llm.fallback import resolve_llm_model
+
+        resolved = await resolve_llm_model(timeout=12.0)
+        if resolved:
+            logger.info("LLM candidate ready", extra={"model": resolved})
+        else:
+            logger.warning("LLM candidate resolve skipped or failed — AI jobs may degrade")
+    except Exception as exc:
+        logger.warning(
+            "LLM candidate resolve failed — worker continues",
+            extra={"error": str(exc)[:240]},
+        )
     url = settings.effective_arq_redis_url
     if not url:
         logger.warning("ARQ Redis URL not configured — embedding cache disabled in worker")

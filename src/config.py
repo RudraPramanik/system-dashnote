@@ -72,8 +72,12 @@ class Settings(BaseSettings):
     QDRANT_TIMEOUT: int = 30
 
     # ── AI Slice 3: LLM ────────────────────────────────────────────
-    # Provider prefix selects backend — e.g. nvidia_nim/mistralai/mistral-medium-3.5-128b
-    LLM_MODEL: str = "nvidia_nim/mistralai/mistral-medium-3.5-128b"
+    # Provider prefix selects backend. Hosted NIM ids are retired often (HTTP 410);
+    # LLM_MODEL_FALLBACKS walks additional LiteLLM ids after the primary.
+    LLM_MODEL: str = "nvidia_nim/nvidia/nemotron-3-nano-30b-a3b"
+    LLM_MODEL_FALLBACKS: str = (
+        "nvidia_nim/nvidia/nemotron-3-super-120b-a12b,gemini/gemini-2.5-flash"
+    )
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2048
     LLM_MAX_RETRIES: int = 4
@@ -99,6 +103,18 @@ class Settings(BaseSettings):
     # ── AI Slice 6: LangGraph Agent ────────────────────────────────
     AGENT_MAX_ITERATIONS: int = 10    # prevents infinite tool loops
     AGENT_TOOL_TIMEOUT: int = 30      # seconds per tool call
+
+    @property
+    def llm_model_candidates(self) -> list[str]:
+        """Primary LLM_MODEL then unique fallbacks, order preserved."""
+        seen: set[str] = set()
+        out: list[str] = []
+        for raw in [self.LLM_MODEL, *self.LLM_MODEL_FALLBACKS.split(",")]:
+            model = raw.strip()
+            if model and model not in seen:
+                seen.add(model)
+                out.append(model)
+        return out
 
     @property
     def effective_nvidia_nim_api_key(self) -> str | None:

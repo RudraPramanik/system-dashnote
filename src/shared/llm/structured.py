@@ -20,6 +20,7 @@ from tenacity import (
 )
 
 from config import get_settings
+from shared.llm.fallback import acompletion_with_fallback
 from shared.llm.retry import RETRYABLE_EXCEPTIONS
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ async def acompletion_structured(
     async def _invoke() -> Any:
         nonlocal attempt
         attempt += 1
-        return await litellm.acompletion(
+        return await acompletion_with_fallback(
             model=resolved_model,
             messages=messages,
             response_format=schema,

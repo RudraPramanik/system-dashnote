@@ -64,7 +64,7 @@ def _mock_response(content: str) -> AsyncMock:
 @pytest.mark.asyncio
 async def test_acompletion_structured_valid_json():
     with patch(
-        "shared.llm.structured.litellm.acompletion",
+        "shared.llm.structured.acompletion_with_fallback",
         new_callable=AsyncMock,
         return_value=_mock_response('{"tags": ["valid"]}'),
     ):
@@ -79,7 +79,7 @@ async def test_acompletion_structured_valid_json():
 @pytest.mark.asyncio
 async def test_acompletion_structured_markdown_salvage():
     with patch(
-        "shared.llm.structured.litellm.acompletion",
+        "shared.llm.structured.acompletion_with_fallback",
         new_callable=AsyncMock,
         return_value=_mock_response('```json\n{"tags": ["md"]}\n```'),
     ):
@@ -94,7 +94,7 @@ async def test_acompletion_structured_markdown_salvage():
 @pytest.mark.asyncio
 async def test_acompletion_structured_preamble_salvage():
     with patch(
-        "shared.llm.structured.litellm.acompletion",
+        "shared.llm.structured.acompletion_with_fallback",
         new_callable=AsyncMock,
         return_value=_mock_response('Here is the JSON: {"tags": ["pre"]}'),
     ):
@@ -109,7 +109,7 @@ async def test_acompletion_structured_preamble_salvage():
 @pytest.mark.asyncio
 async def test_acompletion_structured_truncated_raises():
     with patch(
-        "shared.llm.structured.litellm.acompletion",
+        "shared.llm.structured.acompletion_with_fallback",
         new_callable=AsyncMock,
         return_value=_mock_response('{"tags": ["bad'),
     ):
@@ -137,7 +137,7 @@ async def test_acompletion_structured_retries_then_succeeds():
         return _mock_response('{"tags": ["retry"]}')
 
     with patch(
-        "shared.llm.structured.litellm.acompletion",
+        "shared.llm.structured.acompletion_with_fallback",
         new_callable=AsyncMock,
         side_effect=side_effect,
     ):

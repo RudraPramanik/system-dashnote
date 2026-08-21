@@ -90,7 +90,7 @@ The system MUST provide `scripts/smoke_prod.py` that, against a configurable bas
 - **THEN** `docs/documentation/production.md` shows 7P.6 as complete
 
 ### Requirement: Soft AI health does not block hard health
-`GET /health` MUST continue to treat Postgres and Redis as hard dependencies and MUST NOT fail solely because Qdrant or LLM providers are unavailable. The system MUST provide `GET /health/ai` that reports AI/Qdrant readiness as soft status (reachable, degraded, or not configured). `GET /health/ai` MUST NOT be required for the deploy smoke hard gate unless an operator explicitly opts into soft checks. Soft Qdrant probe failures MUST NOT crash the API process.
+`GET /health` MUST continue to treat Postgres and Redis as hard dependencies and MUST NOT fail solely because Qdrant or LLM providers are unavailable. The system MUST provide `GET /health/ai` that reports AI/Qdrant readiness as soft status (reachable, degraded, or not configured) **and** a soft LLM dependency (reachable, degraded, or not configured). `GET /health/ai` MUST NOT be required for the deploy smoke hard gate unless an operator explicitly opts into soft checks. Soft Qdrant or LLM probe failures MUST NOT crash the API process.
 
 #### Scenario: API up while Qdrant is down
 - **GIVEN** Postgres and Redis are reachable and Qdrant is unreachable
@@ -108,6 +108,12 @@ The system MUST provide `scripts/smoke_prod.py` that, against a configurable bas
 - **WHEN** a client calls `GET /health/ai`
 - **THEN** the response indicates AI/Qdrant is not configured (soft)
 - **AND** `GET /health` remains independent of that result
+
+#### Scenario: Soft AI health reports LLM separately
+- **GIVEN** the API is running with at least one LLM candidate configured
+- **WHEN** a client calls `GET /health/ai`
+- **THEN** the response includes a soft LLM dependency status
+- **AND** a retired or unreachable LLM does not change the hard success criteria of `GET /health`
 
 ### Requirement: CI runs on pull requests without production secrets
 The repository MUST include a CI workflow that runs on pull requests (and pushes to the default branch as appropriate) executing pytest and a Docker image build. CI MUST NOT require production host credentials or live LLM/Qdrant secrets to pass.

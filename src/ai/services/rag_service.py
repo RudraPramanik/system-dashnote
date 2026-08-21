@@ -38,6 +38,7 @@ from config import get_settings
 from ai.retrieval.wrapper import WorkspaceVectorSearch, SearchResult, get_workspace_vector_search
 from ai.prompts.rag import RAGAnswer
 from observability.tracing import rag_span, rag_trace
+from shared.llm.fallback import acompletion_with_fallback, cached_llm_model
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +312,7 @@ class RagService:
                 trace, "llm_generation", {"model": settings.LLM_MODEL}
             ) as span:
                 try:
-                    response = await litellm.acompletion(
+                    response = await acompletion_with_fallback(
                         model=settings.LLM_MODEL,
                         messages=built.messages,
                         temperature=settings.LLM_TEMPERATURE,
@@ -322,7 +323,7 @@ class RagService:
                     logger.error(
                         "LLM completion failed",
                         extra={
-                            "model": settings.LLM_MODEL,
+                            "model": cached_llm_model() or settings.LLM_MODEL,
                             "workspace_id": workspace_id,
                             "error": str(e),
                         },
@@ -526,7 +527,7 @@ class RagService:
                 trace, "llm_generation", {"model": settings.LLM_MODEL}
             ) as span:
                 try:
-                    response = await litellm.acompletion(
+                    response = await acompletion_with_fallback(
                         model=settings.LLM_MODEL,
                         messages=built.messages,
                         temperature=settings.LLM_TEMPERATURE,
@@ -537,7 +538,7 @@ class RagService:
                     logger.error(
                         "LLM streaming failed",
                         extra={
-                            "model": settings.LLM_MODEL,
+                            "model": cached_llm_model() or settings.LLM_MODEL,
                             "workspace_id": workspace_id,
                             "error": str(e),
                         },

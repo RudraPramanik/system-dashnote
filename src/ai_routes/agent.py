@@ -34,6 +34,11 @@ from ai_memory.repository import ThreadRepository
 from core.database.session import get_session
 from core.security.context import RequestContext
 from core.security.dependency import get_current_context
+from shared.llm.fallback import (
+    LLM_UNAVAILABLE_MESSAGE,
+    LLMUnavailableError,
+    is_model_gone,
+)
 from shared.llm.retry import RETRYABLE_EXCEPTIONS
 
 router = APIRouter(prefix="/ai", tags=["ai-agent"])
@@ -169,6 +174,11 @@ async def agent_chat(
 
         final_state = await graph.ainvoke(initial_state, config=config)
 
+    except LLMUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        ) from e
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -302,10 +312,15 @@ async def agent_chat_stream(
             yield "data: [DONE]\n\n"
 
         except Exception as e:
-            logger.error("Agent stream failed", extra={"error": str(e)})
+            logger.exception("Agent stream failed")
+            message = (
+                LLM_UNAVAILABLE_MESSAGE
+                if isinstance(e, LLMUnavailableError) or is_model_gone(e)
+                else "Agent stream failed. Try /ai/chat for direct RAG."
+            )
             error_payload = {
                 "type": "error",
-                "message": "Agent stream failed. Try /ai/chat for direct RAG.",
+                "message": message,
             }
             yield f"data: {json.dumps(error_payload)}\n\n"
             yield "data: [DONE]\n\n"

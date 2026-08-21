@@ -156,10 +156,10 @@ async def call_model(state: AgentState) -> dict[str, Any]:
         state["messages"]
     )
 
-    from shared.llm.retry import acompletion_with_retry
+    from shared.llm.fallback import acompletion_with_fallback
 
     try:
-        response = await acompletion_with_retry(
+        response = await acompletion_with_fallback(
             model=settings.LLM_MODEL,
             messages=messages,
             tools=openai_tools,

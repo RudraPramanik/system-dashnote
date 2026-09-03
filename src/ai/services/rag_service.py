@@ -72,13 +72,46 @@ def _litellm_usage_output(response: object) -> dict[str, int | float] | None:
 # ── Response models ─────────────────────────────────────────────────────────
 
 class Citation(BaseModel):
-    """A grounded citation from retrieved note content."""
+    """A grounded citation from retrieved note or file content."""
     model_config = ConfigDict(frozen=True)
 
     note_id: str
     chunk_id: str
     title: str
     relevance_score: float
+    source_type: Literal["note", "file"] = "note"
+    file_id: str = ""
+
+
+EMPTY_RETRIEVAL_ANSWER = (
+    "I could not find relevant information in your notes and files for this query."
+)
+
+
+def _chunk_dict(result: SearchResult) -> dict:
+    return {
+        "chunk_id": result.chunk_id,
+        "note_id": result.note_id,
+        "file_id": result.file_id,
+        "source_type": result.source_type,
+        "title": result.title,
+        "text": result.chunk_text,
+        "score": result.score,
+    }
+
+
+def _citation_from_chunk(chunk: dict) -> Citation:
+    source_type: Literal["note", "file"] = (
+        "file" if chunk.get("source_type") == "file" else "note"
+    )
+    return Citation(
+        note_id=str(chunk.get("note_id") or ""),
+        chunk_id=str(chunk["chunk_id"]),
+        title=str(chunk.get("title") or ""),
+        relevance_score=float(chunk.get("score") or 0.0),
+        source_type=source_type,
+        file_id=str(chunk.get("file_id") or ""),
+    )
 
 
 class ChatResult(BaseModel):
@@ -261,9 +294,7 @@ class RagService:
                         "question_length": len(question),
                     },
                 )
-                fallback_answer = (
-                    "I could not find relevant information in your notes for this query."
-                )
+                fallback_answer = EMPTY_RETRIEVAL_ANSWER
                 if db is not None and resolved_thread_id:
                     from ai.memory.service import ThreadService
                     await ThreadService().persist_turn(
@@ -282,16 +313,7 @@ class RagService:
                     thread_id=resolved_thread_id or None,
                 )
 
-            context_chunks: list[dict] = [
-                {
-                    "chunk_id": result.chunk_id,
-                    "note_id": result.note_id,
-                    "title": result.title,
-                    "text": result.chunk_text,
-                    "score": result.score,
-                }
-                for result in retrieved
-            ]
+            context_chunks: list[dict] = [_chunk_dict(result) for result in retrieved]
 
             async with rag_span(trace, "context_building", {}) as span:
                 from ai.memory.context_builder import ContextBuilder
@@ -354,24 +376,12 @@ class RagService:
 
         for chunk_id in rag_answer.cited_chunk_ids:
             if chunk_id in chunk_map:
-                c = chunk_map[chunk_id]
-                citations.append(Citation(
-                    note_id=c["note_id"],
-                    chunk_id=chunk_id,
-                    title=c["title"],
-                    relevance_score=c["score"],
-                ))
+                citations.append(_citation_from_chunk(chunk_map[chunk_id]))
 
         # If LLM cited nothing but we have context, cite top results anyway
         if not citations and built.context_chunks:
             citations = [
-                Citation(
-                    note_id=c["note_id"],
-                    chunk_id=c["chunk_id"],
-                    title=c["title"],
-                    relevance_score=c["score"],
-                )
-                for c in built.context_chunks[:3]
+                _citation_from_chunk(c) for c in built.context_chunks[:3]
             ]
 
         if db is not None and resolved_thread_id:
@@ -475,9 +485,7 @@ class RagService:
                     "stream_answer: no relevant chunks found",
                     extra={"workspace_id": workspace_id},
                 )
-                fallback_answer = (
-                    "I could not find relevant information in your notes for this query."
-                )
+                fallback_answer = EMPTY_RETRIEVAL_ANSWER
                 if db is not None and resolved_thread_id:
                     from ai.memory.service import ThreadService
                     await ThreadService().persist_turn(
@@ -497,16 +505,7 @@ class RagService:
                 )
                 return
 
-            context_chunks: list[dict] = [
-                {
-                    "chunk_id": result.chunk_id,
-                    "note_id": result.note_id,
-                    "title": result.title,
-                    "text": result.chunk_text,
-                    "score": result.score,
-                }
-                for result in retrieved
-            ]
+            context_chunks: list[dict] = [_chunk_dict(result) for result in retrieved]
 
             async with rag_span(trace, "context_building", {}) as span:
                 from ai.memory.context_builder import ContextBuilder
@@ -562,13 +561,7 @@ class RagService:
 
             # ── Step 6: ground citations and yield metadata ──────────────────
             citations: list[Citation] = [
-                Citation(
-                    note_id=c["note_id"],
-                    chunk_id=c["chunk_id"],
-                    title=c["title"],
-                    relevance_score=c["score"],
-                )
-                for c in built.context_chunks[:5]
+                _citation_from_chunk(c) for c in built.context_chunks[:5]
             ]
 
             if db is not None and resolved_thread_id and full_answer:

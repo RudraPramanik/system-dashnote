@@ -1,6 +1,6 @@
 ## DashNoteSystem AI
 
-Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (`notes_chunks`, dim **3072**). API enqueues ARQ jobs; worker indexes vectors.
+Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (`notes_chunks` + `files_chunks`, dim **3072**). API enqueues ARQ jobs; worker indexes vectors. Fast RAG and the agent search **both** collections via `WorkspaceVectorSearch`.
 
 **Related:** platform `src/docs/system.md` · import laws `src/docs/rules.md` · validation `src/docs/observe.md` · runbook `docs/observability.md`
 
@@ -12,7 +12,7 @@ Multi-tenant note embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (
 | `src/ai/*` | Only `config`, `ai.*`, `shared.*`, stdlib, third-party |
 | `src/worker/*` | Only `config`, `ai.*`, `shared.*` — no raw Qdrant in tasks |
 | Qdrant | `workspace_id` **must** filter on every search query; inject from `RequestContext` / `IndexingRequest` only |
-| Qdrant search | **`WorkspaceVectorSearch`** in `ai/retrieval/wrapper.py` only — never `AsyncQdrantClient` in routers |
+| Qdrant search | **`WorkspaceVectorSearch`** in `ai/retrieval/wrapper.py` only — queries `notes_chunks` **and** `files_chunks` (merge by score); never `AsyncQdrantClient` in routers |
 | Qdrant writes | `WorkspaceVectorIndex` + `NoteVectorIndexer` (notes); `WorkspaceFileVectorIndex` + `FileVectorIndexer` (files) — worker/indexer path only |
 | RBAC filter | `build_rbac_filter()` in `ai/retrieval/filters.py` — mirrors `notes/permissions.py` exactly |
 | Routers | Test: **`GET /ai/test-search`**; chat: **`POST /ai/chat`**, **`POST /ai/chat/stream`**; agent: **`POST /ai/agent`**, **`POST /ai/agent/stream`** |
@@ -239,7 +239,7 @@ Auth: Bearer JWT → `RequestContext`. **503** when `ai_enabled` or `qdrant_enab
 | `POST /ai/chat` | `message` (1–2000 chars); optional `thread_id` | `answer`, `citations[]`, `chunks_retrieved`, `chunks_used`, `latency_ms`, `thread_id` |
 | `POST /ai/chat/stream` | Same | SSE: `token` events → `metadata` (citations, `thread_id`) → `[DONE]` |
 
-Stream headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Citations from **top 5 retrieved chunks**, not token stream.
+Stream headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Citations from **top retrieved chunks** (not the token stream). Shape: `{ note_id, chunk_id, title, relevance_score, source_type, file_id }` with `source_type` `note` | `file`. Empty retrieval: *I could not find relevant information in your notes and files for this query.*
 
 ---
 
@@ -283,7 +283,7 @@ Adds **`POST /ai/agent`** and **`POST /ai/agent/stream`**. **`/ai/chat*`** uncha
 
 | Tool | Service |
 |------|---------|
-| `search_notes` | `RagService.answer(...)` |
+| `search_notes` | `RagService.answer(...)` — notes **and** indexed files |
 | `create_note` | `NoteService.create_note(db, ...)` — `db` from `db_session_var` |
 | `update_note` | `NoteService.update_note(db, ...)` |
 | `summarize_workspace` | `RagService.answer(..., retrieval_limit=12)` |

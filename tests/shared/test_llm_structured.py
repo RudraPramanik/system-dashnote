@@ -55,6 +55,24 @@ def test_parse_structured_response_truncated_raises():
         parse_structured_response(raw, TagSchema)
 
 
+def test_parse_file_metadata_extra_leading_brace():
+    from worker.automation.tasks import FileMetadataAnalysis
+
+    raw = (
+        '{\n{\n  "summary": "The paper conducts an empirical analysis of '
+        'machine learning methods.",\n  "tags": ["ml", "llm"]\n}'
+    )
+    result = parse_structured_response(raw, FileMetadataAnalysis)
+    assert "empirical analysis" in result.summary
+    assert "ml" in result.tags
+
+
+def test_parse_structured_response_unrecoverable_still_raises():
+    raw = "not json at all {"
+    with pytest.raises(StructuredLLMParseError):
+        parse_structured_response(raw, TagSchema)
+
+
 def _mock_response(content: str) -> AsyncMock:
     mock = AsyncMock()
     mock.choices = [AsyncMock(message=AsyncMock(content=content))]

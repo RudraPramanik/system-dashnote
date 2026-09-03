@@ -1,7 +1,16 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+EXTRACTED_TEXT_DETAIL_MAX = 8000
+
+
+def clip_extracted_text(text: str | None, *, include: bool) -> str | None:
+    """Return truncated extracted_text for detail responses; null for lists."""
+    if not include or not text:
+        return None
+    return text[:EXTRACTED_TEXT_DETAIL_MAX]
 
 
 class FileCreate(BaseModel):
@@ -31,6 +40,9 @@ class FileResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     download_url: str = ""
+    summary: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    extracted_text: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -16,16 +16,19 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 from qdrant_client.http.models import ScoredPoint
 
 from ai.embeddings.factory import get_embedding_provider
 from ai.retrieval.client import get_async_qdrant_client
-from ai.retrieval.collection import ensure_notes_collection
+from ai.retrieval.collection import ensure_files_collection, ensure_notes_collection
 from ai.retrieval.filters import build_rbac_filter
 from config import get_settings
 
 logger = logging.getLogger(__name__)
+
+SourceType = Literal["note", "file"]
 
 
 @dataclass(frozen=True)
@@ -41,11 +44,39 @@ class SearchResult:
     title: str
     chunk_index: int
     score: float
+    source_type: SourceType = "note"
+    file_id: str = ""
+
+
+def _map_point(point: ScoredPoint, source_type: SourceType) -> SearchResult:
+    p = point.payload or {}
+    chunk_text = str(p.get("text") or p.get("chunk_text") or "")
+    if source_type == "file":
+        note_id = ""
+        file_id = str(p.get("file_id") or "")
+    else:
+        note_id = str(p.get("note_id") or "")
+        file_id = ""
+    return SearchResult(
+        chunk_id=str(point.id),
+        note_id=note_id,
+        workspace_id=str(p.get("workspace_id", "")),
+        created_by=str(p.get("created_by", "")),
+        visibility=str(
+            p.get("visibility") or ("private" if p.get("is_private") else "public")
+        ),
+        chunk_text=chunk_text,
+        title=str(p.get("title", "")),
+        chunk_index=int(p.get("chunk_index", 0)),
+        score=round(float(point.score or 0.0), 4),
+        source_type=source_type,
+        file_id=file_id,
+    )
 
 
 class WorkspaceVectorSearch:
     """
-    Tenant-safe semantic search over the notes_chunks collection.
+    Tenant-safe semantic search over notes_chunks and files_chunks.
 
     Instantiate once and reuse — stateless between calls.
     All search calls require workspace_id, user_id, and role
@@ -99,8 +130,10 @@ class WorkspaceVectorSearch:
         )
 
         await ensure_notes_collection()
+        await ensure_files_collection()
         client = await get_async_qdrant_client()
-        response = await client.query_points(
+
+        notes_response = await client.query_points(
             collection_name=settings.QDRANT_NOTES_COLLECTION,
             query=query_vector,
             query_filter=rbac_filter,
@@ -108,7 +141,23 @@ class WorkspaceVectorSearch:
             score_threshold=score_threshold,
             with_payload=True,
         )
-        raw_results: list[ScoredPoint] = response.points
+        files_response = await client.query_points(
+            collection_name=settings.QDRANT_FILES_COLLECTION,
+            query=query_vector,
+            query_filter=rbac_filter,
+            limit=limit,
+            score_threshold=score_threshold,
+            with_payload=True,
+        )
+
+        results: list[SearchResult] = [
+            _map_point(point, "note") for point in (notes_response.points or [])
+        ]
+        results.extend(
+            _map_point(point, "file") for point in (files_response.points or [])
+        )
+        results.sort(key=lambda item: item.score, reverse=True)
+        results = results[:limit]
 
         logger.debug(
             "Vector search complete",
@@ -116,30 +165,9 @@ class WorkspaceVectorSearch:
                 "workspace_id": workspace_id,
                 "role": role,
                 "query_length": len(query_text),
-                "results_count": len(raw_results),
+                "results_count": len(results),
             },
         )
-
-        results: list[SearchResult] = []
-        for point in raw_results:
-            p = point.payload or {}
-            chunk_text = str(p.get("text") or p.get("chunk_text") or "")
-            results.append(
-                SearchResult(
-                    chunk_id=str(point.id),
-                    note_id=str(p.get("note_id", "")),
-                    workspace_id=str(p.get("workspace_id", "")),
-                    created_by=str(p.get("created_by", "")),
-                    visibility=str(
-                        p.get("visibility")
-                        or ("private" if p.get("is_private") else "public")
-                    ),
-                    chunk_text=chunk_text,
-                    title=str(p.get("title", "")),
-                    chunk_index=int(p.get("chunk_index", 0)),
-                    score=round(float(point.score or 0.0), 4),
-                )
-            )
 
         return results
 

@@ -41,7 +41,7 @@ async def test_search(
     ctx: RequestContext = Depends(get_current_context),
 ) -> list[dict]:
     """
-    Run semantic search against notes_chunks collection.
+    Run semantic search against notes_chunks and files_chunks.
 
     Security:
         workspace_id sourced from JWT (ctx.workspace_id) — not from query.
@@ -73,6 +73,8 @@ async def test_search(
         {
             "chunk_id": r.chunk_id,
             "note_id": r.note_id,
+            "file_id": r.file_id,
+            "source_type": r.source_type,
             "title": r.title,
             "chunk_text": r.chunk_text[:200],
             "score": r.score,

@@ -52,11 +52,12 @@ async def _search_notes(
     role: str,
 ) -> str:
     """
-    Search the user's workspace notes using semantic retrieval.
+    Search the user's workspace notes and uploaded files using semantic retrieval.
 
-    Use this tool when the user asks about content in their notes,
-    wants to find specific information, or needs context from past writing.
-    Always pass workspace_id, user_id, and role from the current agent state.
+    Use this tool when the user asks about content in their notes or files,
+    wants to find specific information, or needs context from past writing
+    or indexed documents. Always pass workspace_id, user_id, and role from
+    the current agent state.
     """
     try:
         from ai.services.rag_service import get_rag_service
@@ -186,9 +187,10 @@ search_notes_tool = StructuredTool.from_function(
     coroutine=_search_notes,
     name="search_notes",
     description=(
-        "Search the user's workspace notes for relevant information. "
-        "Use when the user asks about content in their notes or wants to "
-        "find specific information. Pass workspace_id, user_id, role from state."
+        "Search the user's workspace notes and indexed uploaded files for "
+        "relevant information. Use when the user asks about content in their "
+        "notes or documents, or wants to find specific information. "
+        "Pass workspace_id, user_id, role from state."
     ),
     args_schema=SearchNotesArgs,
 )

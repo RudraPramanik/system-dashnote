@@ -176,7 +176,7 @@ After create/update, the API may enqueue embedding. Treat new notes as **indexin
 | `POST` | `/files/upload` | Multipart upload: `file` + form `is_private` (default true), `description` |
 | `GET` | `/files/` | List (paginated `items` + `total`) |
 | `GET` | `/files/admin/all` | Admin/owner broader list |
-| `GET` | `/files/{file_id}` | Metadata (+ `download_url`) |
+| `GET` | `/files/{file_id}` | Metadata + `download_url`; includes `summary`, `tags`, truncated `extracted_text` (max 8000 chars) |
 | `GET` | `/files/{file_id}/download` | Download bytes when no presigned URL |
 | `PATCH` | `/files/{file_id}` | Update name / privacy / description |
 | `DELETE` | `/files/{file_id}` | Delete |
@@ -198,7 +198,9 @@ await fetch(`${API_BASE}/files/upload`, {
 });
 ```
 
-After upload, workers may extract text and run automation (~tens of seconds). Poll `GET /files/{id}` or refresh the list for updated metadata.
+After upload, workers may extract text and run automation (~tens of seconds). Poll `GET /files/{id}` for `summary` / `tags` / `extracted_text`. List endpoints return `summary` and `tags` but set `extracted_text` to null. Do **not** send `file_id` or `workspace_id` on `/ai/*` — Chat and Agent search indexed files automatically.
+
+**OpenAPI `FileResponse` extra fields:** `summary` (nullable), `tags` (string list), `extracted_text` (nullable; detail only).
 
 ### 4.4 Workspaces & members
 
@@ -245,7 +247,7 @@ All AI routes require Bearer. `workspace_id` / `user_id` / `role` are taken from
 
 **Non-stream** `POST /ai/chat` → `{ answer, citations[], chunks_retrieved, chunks_used, latency_ms, thread_id }`.
 
-**Citation shape** (typical): `{ note_id, chunk_id, title, relevance_score }`.
+**Citation shape:** `{ note_id, chunk_id, title, relevance_score, source_type, file_id }`. `source_type` is `note` or `file`. When `source_type` is `file`, navigate to `/files/{file_id}` — never `/notes/{file_id}`. Note citations still use `note_id`. Do not send `file_id` on the chat body.
 
 ### 5.2 Chat SSE — `/ai/chat/stream`
 
@@ -347,9 +349,9 @@ Agent may create/update notes via tools — refresh the notes list after `done` 
 
 ### 6.1 Indexing lag
 
-After **note create/update** or **file upload**, embedding/automation runs in the worker. RAG/search may miss new content for a short window (often ~30–60s for files/metadata demos).
+After **note create/update** or **file upload**, embedding/automation runs in the worker. RAG/search may miss new content for a short window (often ~30–60s for files/metadata demos). After that, Fast RAG and the agent search **indexed files as well as notes**.
 
-**UI:** Show an “Indexing…” state on new notes/files; delay or retry RAG; avoid claiming “AI is broken” when vectors are still catching up.
+**UI:** Use a **brief** lag copy after create/upload. Do **not** show a permanent “Indexing…” badge solely because `indexing_status` is absent (OpenAPI does not list it). When `extracted_text` or `summary` is present on the file, show that output. Avoid claiming “AI is broken” while vectors are still catching up.
 
 ### 6.2 Rate limits (`429`)
 

@@ -69,6 +69,24 @@ def extract_json_blob(raw: str) -> str:
     return text[start:]
 
 
+def _parse_extra_brace_object(blob: str, schema: type[BaseModel]) -> BaseModel | None:
+    """Recover `{ { ... } }` (extra leading brace) by validating inner objects."""
+    current = blob
+    for _ in range(4):
+        stripped = current.lstrip()
+        if not stripped.startswith("{"):
+            return None
+        rest = stripped[1:].lstrip()
+        if not rest.startswith("{"):
+            return None
+        current = extract_json_blob(rest)
+        try:
+            return schema.model_validate_json(current)
+        except Exception:
+            continue
+    return None
+
+
 def parse_structured_response(raw: str, schema: type[BaseModel]) -> BaseModel:
     """
     Parse LLM text into a Pydantic model.
@@ -81,10 +99,13 @@ def parse_structured_response(raw: str, schema: type[BaseModel]) -> BaseModel:
         salvaged = extract_json_blob(raw)
         try:
             return schema.model_validate_json(salvaged)
-        except Exception as e:
+        except Exception:
+            inner = _parse_extra_brace_object(salvaged, schema)
+            if inner is not None:
+                return inner
             raise StructuredLLMParseError(
                 f"Could not parse {schema.__name__} from LLM output"
-            ) from e
+            ) from None
 
 
 async def acompletion_structured(

@@ -22,7 +22,13 @@ from core.storage.utils import (
 from files import repository as files_repo
 from files.models import File as FileModel
 from files.permissions import assert_can_modify, assert_can_read
-from files.schemas import FileCreate, FileListResponse, FileResponse, FileUpdate
+from files.schemas import (
+    FileCreate,
+    FileListResponse,
+    FileResponse,
+    FileUpdate,
+    clip_extracted_text,
+)
 from notes.permissions import can_manage_note
 from notes.repository import NoteRepository
 
@@ -31,10 +37,26 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _to_response(file: FileModel, storage: StorageBackend) -> FileResponse:
+def _to_response(
+    file: FileModel,
+    storage: StorageBackend,
+    *,
+    include_extracted: bool = False,
+) -> FileResponse:
     url = storage.presigned_url(file.storage_key) or f"/files/{file.id}/download"
     base = FileResponse.model_validate(file)
-    return base.model_copy(update={"download_url": url})
+    tags = list(file.tags) if file.tags else []
+    return base.model_copy(
+        update={
+            "download_url": url,
+            "summary": file.summary,
+            "tags": tags,
+            "extracted_text": clip_extracted_text(
+                file.extracted_text,
+                include=include_extracted,
+            ),
+        }
+    )
 
 
 @router.post("/upload", response_model=FileResponse)
@@ -161,7 +183,7 @@ async def get_file(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
     assert_can_read(row, ctx)
-    return _to_response(row, storage)
+    return _to_response(row, storage, include_extracted=True)
 
 
 @router.get("/{file_id}/download")

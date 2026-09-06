@@ -1,6 +1,7 @@
 # Slice 8X — Deploy-First Ship Path
-## Ship-path index (CI → finish prod → frontend → evals → HITL)
+## Detail index (CI → finish prod → frontend → evals → HITL)
 
+> **Operator default:** Follow [`../blueprint8.md`](../blueprint8.md) first (Alive law + Tier 0/1/2). **This file is the Slice 8X detail index** for Composer phase IDs and links — not a second competing default.  
 > **When to run:** After Slices **0–7.5** and platform **7P.0–7P.3** are complete.  
 > **Goal (chosen):** Public production demo sooner — thin CI, finish VPS CD, minimum frontend, then golden evals (prefer live `--base-url`), then HITL on `/ai/agent*`.  
 > **Not Slice 8 / 9:** Slice **8** = optional GraphRAG. Slice **9** = multi-agent (later). **8X** is the parallel ship path.  
@@ -14,7 +15,7 @@
 | **8X.2** | Eval harness | [`slice8_eval.md`](slice8_eval.md) | 4th (after 7P.8) |
 | **8X.3** | HITL API-first | [`slice8_hitl.md`](slice8_hitl.md) | 5th |
 
-**Also:** [`production.md`](../production.md) · [`goal.md`](goal.md) · [`ai.md`](../ai.md)
+**Also:** [`../blueprint8.md`](../blueprint8.md) (operator default) · [`production.md`](../production.md) · [`goal.md`](goal.md) · [`ai.md`](../ai.md)
 
 ---
 

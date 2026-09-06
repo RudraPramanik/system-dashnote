@@ -21,6 +21,7 @@ from notebooks import models as notebooks_models  # noqa: F401 imported for side
 from notes import models as notes_models  # noqa: F401 imported for side effect
 from files import models as files_models  # noqa: F401 imported for side effect
 from ai_memory.models import AIThread, AIMessage  # noqa: F401
+from integrations import models as integrations_models  # noqa: F401
 
 config = context.config
 

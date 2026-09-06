@@ -1,8 +1,12 @@
 # DashNote Ship Plan — Top 10% (14 days) → Top 3–5% (45 days)
 
+> **Locked path:** Follow [`docs/documentation/blueprint8.md`](documentation/blueprint8.md) first (Alive law + Tier 0 job gate + Tier 1/2 deepeners).  
+> This ship-plan is the day-by-day checklist under that lock. Detail Composer prompts: [`documentation/blueprint/slice8_X.md`](documentation/blueprint/slice8_X.md).  
+> **7P truth:** [`documentation/production.md`](documentation/production.md) (do not trust stale Day-0 rows over the tracker).
+
 **Purpose:** Actionable checklist to turn this repo from a strong backend portfolio into a hiring-manager-ready AI product. Aligns with existing platform work in [`docs/documentation/production.md`](documentation/production.md) (slice **7P**) and observability in [`docs/observability.md`](observability.md).
 
-**Related docs:** [system](documentation/system.md) · [AI architecture](documentation/ai.md) · [LLD](documentation/lld.md) · [UML diagrams](uml/diagrams.md) · [deploy laws](documentation/deploy-low.md)
+**Related docs:** [Blueprint 8 (default)](documentation/blueprint8.md) · [system](documentation/system.md) · [AI architecture](documentation/ai.md) · [LLD](documentation/lld.md) · [UML diagrams](uml/diagrams.md) · [deploy laws](documentation/deploy-low.md)
 
 ---
 
@@ -10,11 +14,14 @@
 
 | Strength | Gap |
 |----------|-----|
-| Multi-tenant RAG + LangGraph agent + worker automation | No live product URL |
-| Langfuse traces, Prometheus, Grafana | No CI/CD (`.github/workflows/` missing) |
+| Multi-tenant RAG + LangGraph agent + worker automation | Live product URL / stranger demo still to prove (goal B + smoke) |
+| Langfuse traces, Prometheus, Grafana | Eval harness + cost SLO doc still thin (goal C / D4) |
 | Excellent internal docs + architecture laws | AI path test coverage thin |
-| Docker Compose local stack | Frontend not wired to prod |
-| E2E scripts (`scripts/e2e_agent_test.py`) | No eval harness or cost SLO doc |
+| Docker Compose local stack | Frontend ↔ prod wiring / TLS demo path |
+| E2E scripts (`scripts/e2e_agent_test.py`) | HITL + Langfuse retrieval-depth (Tier 1) not done |
+| CI/CD workflows present (see `production.md` 7P.7–7P.8) | Claim production-live only after VPS smoke proof |
+
+**Phase 1 = Blueprint8 Tier 0** (job gate → top ~10%). **Phase 2 = Tier 1 then Tier 2** (HITL, Langfuse depth, fixture CI, experiments / recall / faithfulness → top ~3–5%).
 
 **Target after 14 days:** Recruiter clicks live app in 30s; tech lead sees CI, prod, evals, cost — **top ~10%** of mid-level AI engineer portfolios.
 
@@ -367,7 +374,16 @@ evals/
 
 ## Phase 2 — Days 15–45 (Top ~3–5%)
 
-### Weeks 3–4 (Days 15–28) — Quality engineering
+> **Blueprint8 mapping:** Phase 2 = **Tier 1** (HITL, Langfuse retrieval-depth + experiments, fixture CI, agent goldens, cost/latency, failure modes) then **Tier 2** (recall@k/MRR, faithfulness nightly, EXPERIMENTS.md, optional hybrid/rerank).  
+> Keep **Alive law**: VPS-hostile judges/rerankers stay local/nightly — never PR-blocking. Prefer **Langfuse-native** thickeners; RAGAS optional; DeepEval not required. See [`documentation/blueprint8.md`](documentation/blueprint8.md).
+
+### Weeks 3–4 (Days 15–28) — Quality engineering (Tier 1 → start Tier 2)
+
+#### HITL + Langfuse depth (Tier 1 centerpieces)
+
+- [ ] HITL API-first on agent create/update ([`slice8_hitl.md`](documentation/blueprint/slice8_hitl.md))
+- [ ] Enrich Langfuse retrieval spans with chunk/note ids + scores (not counts only)
+- [ ] Langfuse dataset / experiment path documented for post-C-gate judges (does not replace `evals/` golden harness)
 
 #### Evals v2 — regression gate
 
@@ -376,11 +392,12 @@ evals/
 - [ ] CI job `eval.yml`: run golden set on every PR (against docker compose stack in GitHub Actions service containers)
 - [ ] **Gate:** Intentionally break retrieval filter → CI fails
 
-#### Retrieval metrics (quantified)
+#### Retrieval metrics (quantified) — Tier 2 / nightly OK
 
 - [ ] Implement recall@k and MRR in `evals/run_eval.py`
 - [ ] Target: recall@5 ≥ 0.8 on golden set ( tune chunk size, score threshold 0.4 )
 - [ ] Document tuning experiments in `evals/EXPERIMENTS.md` (3+ iterations with numbers)
+- [ ] Optional: faithfulness / answer-relevancy via Langfuse judges (or RAGAS nightly) — **not** PR-blocking
 
 #### Agent evals
 
@@ -388,6 +405,7 @@ evals/
   - “Create a note titled X” → expect `create_note` tool + note in DB
   - “Search for Y” → expect `search_notes` + citation in answer
   - “Summarize workspace” → expect `summarize_workspace`
+  - Plain question → **forbid** surprise `create_note`
 - [ ] Mock or sandbox LLM for CI; real LLM for weekly manual run
 - [ ] **Gate:** ≥5 agent scenarios automated
 
@@ -443,6 +461,7 @@ evals/
 - [ ] **Eval dashboard** — Grafana panel or static HTML report from `run_eval.py --json`
 - [ ] **Human review queue** — UI for `[AUTOMATION_GOVERNANCE_BLOCK]` decisions (Slice 7.4 payoff)
 - [ ] **File type expansion** — PDF eval cases in golden set
+- [ ] **Inbound email → WhatsApp → optional agentic** — first-party `/integrations/inbound` (email dump MVP, WhatsApp link + text, agentic enrichment flag). OpenSpec: `openspec/changes/inbound-email-whatsapp`. **n8n is optional thin adapter only** (IMAP → inbound API); never store user JWTs in automation tools. **MUST NOT displace Days 1–14 top-10% gates** (live URL, CI/CD, evals v1, portfolio packaging) — schedule after Day 14 or as parallel evening work only.
 
 #### Public narrative (required for top 3–5%)
 
@@ -484,7 +503,7 @@ evals/
 4. Langfuse cost snapshot in README
 5. CI pytest
 6. **Lite template demo** (Tier A — if you need Upwork income before Day 14)
-7. Everything else in Phase 2
+7. Everything else in Phase 2 (including inbound email/WhatsApp — **after** items 1–5; never block Day 14)
 
 ---
 
@@ -548,6 +567,7 @@ evals/
 - SOC2-lite security doc for B2B freelance clients
 - Open-source one reusable package (`tenant-rag`, `eval-runner`) extracted from repo
 - Conference CFP submission
+- Finish inbound channels if not picked as a Phase 2 advanced feature: email-in demo → WhatsApp text → agentic flag (see OpenSpec `inbound-email-whatsapp`)
 
 ---
 

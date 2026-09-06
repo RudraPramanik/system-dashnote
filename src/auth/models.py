@@ -15,6 +15,11 @@ class User(Base, TimestampMixin):
         nullable=False,
     )
     password_hash: Mapped[str] = mapped_column(nullable=False)
+    inbound_default_workspace_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     workspaces = relationship(
         "WorkspaceUser",

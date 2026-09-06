@@ -1,7 +1,8 @@
 # DashNote — Job Search Baseline Checklist
 
+> **Locked path:** Follow [`../blueprint8.md`](../blueprint8.md) first (Alive + Tier 0/1/2). This file is the checkbox tracker under that lock.  
 > **Purpose:** Finish this checklist, **then** start applying for remote AI engineer roles and freelance RAG/LLM work.  
-> **Detail:** Day-by-day plan in [`docs/ship-plan.md`](../../ship-plan.md) · Platform steps in [`production.md`](../production.md) · Full slice roadmap in [`total.md`](total.md)
+> **Detail:** Day-by-day plan in [`docs/ship-plan.md`](../../ship-plan.md) · Platform steps in [`production.md`](../production.md) · Slice 8X detail index [`slice8_X.md`](slice8_X.md) · Full slice roadmap in [`total.md`](total.md)
 
 ---
 
@@ -13,7 +14,7 @@ Until then, you have a strong backend portfolio — not a hireable story. Recrui
 
 | Track | Baseline target | After baseline |
 |-------|-----------------|----------------|
-| **Remote AI engineer** (employment) | Top ~10% portfolio — live product + CI + evals + demo video | Phase 2 in ship-plan → top ~3–5% |
+| **Remote AI engineer** (employment) | Top ~10% portfolio — live product + CI + evals + demo video | Phase 2 / blueprint8 Tier 1–2 → top ~3–5% |
 | **Freelance / Upwork** | Tier A Lite demo **or** Tier B DashNote live URL + Loom | Lite for <$2k jobs; DashNote for $5k+ |
 
 ---
@@ -171,16 +172,17 @@ FREELANCE (one of)
 
 ## Recommended order
 
-### Preferred — Slice 8X deploy-first (chosen)
+### Preferred — Blueprint 8 (operator default) + Slice 8X detail
 
-Follow [`slice8_X.md`](slice8_X.md) (index). Live URL first; evals after VPS (still required for C-gate):
+Follow [`../blueprint8.md`](../blueprint8.md) for Alive + Tier map. Execute Composer substages via [`slice8_X.md`](slice8_X.md) (index). Live URL first; evals after VPS (still required for C-gate):
 
 1. **A5 / 8X.1** — thin CI ([`slice8_ci.md`](slice8_ci.md))
 2. **A1–A4, A6–A7 / 8X.4** — finish platform + live smoke (7P.4–7P.6, 7P.8)
 3. **B1–B7 / 8X.5** — frontend ([`frontendguide.md`](../frontendguide.md))
 4. **C1–C4 / 8X.2** — evals ([`slice8_eval.md`](slice8_eval.md); prefer `--base-url` against prod)
-5. **8X.3** — HITL API ([`slice8_hitl.md`](slice8_hitl.md); HITL UX after API exists)
+5. **8X.3** — HITL API ([`slice8_hitl.md`](slice8_hitl.md); HITL UX after API exists) — Tier 1
 6. **D1–D6** — portfolio packaging
+7. **Tier 1–2 deepeners** — Langfuse depth, fixture CI, EXPERIMENTS / recall / faithfulness per blueprint8 (while interviewing)
 
 ### Alternate — AI-depth-first (harness before URL)
 

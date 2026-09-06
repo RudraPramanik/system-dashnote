@@ -30,6 +30,7 @@ from membership.router import router as membership_router
 from workspaces.router import router as workspaces_router
 from core.health import router as health_router
 from ai_gateway.search import router as ai_search_router
+from integrations.router import router as integrations_router
 
 logger = get_logger(__name__)
 
@@ -42,6 +43,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(notes_router)
     app.include_router(workspaces_router)
     app.include_router(membership_router)
+    app.include_router(integrations_router)
     # --- AI Slice 2: internal search validation ---
     app.include_router(ai_search_router)
     # --- AI Slice 3: Chat MVP ---

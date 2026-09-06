@@ -195,6 +195,8 @@ Use only when interview harness depth matters more than a public URL this week:
 5. **B1–B7 / 8X.5** — frontend (+ HITL UX after 8X.3)
 6. **D1–D6** — portfolio packaging
 
+**Active (2026-09):** Local AI-depth-first Tier 1 is in progress (`openspec/changes/tier1-local-ai-depth`). Compose + local FE are the demo surface. **Do not** mark A4/A7 or job-search ready until HTTPS prod smoke passes — local Tier 1 ≠ hire gate.
+
 ---
 
 ## Explicitly NOT required for job-search baseline
@@ -217,14 +219,19 @@ Finish these **after** you are applying or employed — do not block job search 
 
 Improves offer rate and rate negotiation; not a blocker to **first** applications.
 
-| Item | Target | Doc |
-|------|--------|-----|
-| Evals in CI | Bad PR fails merge | ship-plan Day 15–28 |
-| recall@5 ≥ 0.8 | Quantified retrieval story | Slice 7R |
-| Agent eval scenarios ≥5 | Tool-use proof | ship-plan Phase 2 |
-| Public technical article | LinkedIn + dev.to | ship-plan Day 36–45 |
-| Runbook + rollback tested | “Production-ready” claim | 7P.5 |
-| Lite template clone | Fast Upwork turnaround | ship-plan §Lite |
+| Item | Target | Status (local Tier 1 window) | Doc |
+|------|--------|------------------------------|-----|
+| HITL before agent create/update | API interrupt + resume/reject | ✅ local | `slice8_hitl.md` |
+| Langfuse retrieval depth | ids + scores on traces | ✅ local | `observe.md` |
+| Agent trajectory goldens ≥5 | forbid surprise create | ✅ fixture | `evals/golden/agent_trajectory.jsonl` |
+| Fixture evals in CI | PR fails on fixture break | ✅ | `.github/workflows/ci.yml` |
+| Failure-mode notes | empty retrieval / LLM 503 / embed lag | ✅ | runbook + talk track |
+| Evals in CI | Bad PR fails merge | (same as fixture row) | ship-plan Day 15–28 |
+| recall@5 ≥ 0.8 | Quantified retrieval story | ⬜ Tier 2 | Slice 7R |
+| Public technical article | LinkedIn + dev.to | ⬜ | ship-plan Day 36–45 |
+| Lite template clone | Fast Upwork turnaround | ⬜ | ship-plan §Lite |
+
+**Reminder:** completing local Tier 1 does **not** check A4/A7 or start job search.
 
 ---
 

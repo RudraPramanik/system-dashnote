@@ -181,3 +181,74 @@ async def rag_span(
                 span_obs.end()
             except Exception:
                 logger.debug("rag_span finalize failed", exc_info=True)
+
+
+def score_trace(
+    parent: Any,
+    *,
+    name: str,
+    value: float | int | str,
+    comment: str | None = None,
+) -> None:
+    """
+    Attach a score to the current Langfuse observation/trace.
+    Soft no-op when Langfuse is disabled or the call fails.
+    """
+    if _is_noop_parent(parent):
+        return
+    try:
+        obs = getattr(parent, "_obs", None)
+        if obs is None:
+            return
+        kwargs: dict[str, Any] = {"name": name, "value": value}
+        if comment:
+            kwargs["comment"] = comment
+        score_fn = getattr(obs, "score", None)
+        if callable(score_fn):
+            score_fn(**kwargs)
+            return
+        client = get_langfuse_client()
+        if client is None:
+            return
+        obs_id = getattr(obs, "id", None) or getattr(obs, "trace_id", None)
+        if obs_id is None:
+            return
+        client.score(trace_id=str(obs_id), **kwargs)
+    except Exception:
+        logger.debug("Langfuse score_trace failed", exc_info=True)
+
+
+def retrieval_depth_payload(results: list[Any]) -> dict[str, Any]:
+    """
+    Build span output with retrieved identities + scores (not counts only).
+    Accepts SearchResult-like objects or dicts with chunk_id/note_id/score.
+    """
+    items: list[dict[str, Any]] = []
+    for result in results:
+        if isinstance(result, dict):
+            items.append(
+                {
+                    "chunk_id": result.get("chunk_id"),
+                    "note_id": result.get("note_id"),
+                    "file_id": result.get("file_id"),
+                    "source_type": result.get("source_type"),
+                    "score": result.get("score"),
+                }
+            )
+            continue
+        items.append(
+            {
+                "chunk_id": getattr(result, "chunk_id", None),
+                "note_id": getattr(result, "note_id", None),
+                "file_id": getattr(result, "file_id", None),
+                "source_type": getattr(result, "source_type", None),
+                "score": getattr(result, "score", None),
+            }
+        )
+    return {
+        "chunks_retrieved": len(items),
+        "retrieved": items,
+        "chunk_ids": [i.get("chunk_id") for i in items if i.get("chunk_id")],
+        "note_ids": list({i.get("note_id") for i in items if i.get("note_id")}),
+        "scores": [i.get("score") for i in items if i.get("score") is not None],
+    }

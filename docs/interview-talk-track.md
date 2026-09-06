@@ -12,4 +12,10 @@ I built a **multi-tenant notes backend** with RBAC-aware RAG and a LangGraph age
 
 ## Optional fourth (if asked about GraphRAG / HITL)
 
-GraphRAG and multi-agent supervisors are deferred; Tier 1 next is HITL before agent note mutations and Langfuse retrieval-depth—not more infra for the hire gate.
+GraphRAG and multi-agent supervisors stay deferred. **HITL is live on the API:** agent `create_note` / `update_note` emit `approval_required` then resume/reject (`POST /ai/agent/resume|reject`). Langfuse retrieval spans log chunk/note ids + scores. Failure modes (empty retrieval, LLM 503, embed lag) are in the deploy runbook.
+
+## Failure modes (30-second version)
+
+1. **Empty retrieval** — honest fallback answer; check embeds / workspace / Langfuse `empty_retrieval`.
+2. **LLM 503** — provider unavailable; chat and agent return safe errors; demo `/ai/chat` vs agent separately.
+3. **Embed lag** — note exists in DB before Qdrant; wait for worker; don’t claim instant search.

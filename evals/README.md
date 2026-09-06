@@ -22,8 +22,8 @@ evals/
 | **fixture** | `--mode fixture` | Loads recorded JSON under `evals/fixtures/`. No live LLM keys. |
 | **live** | `--mode live` | Calls HTTP API (`--base-url` + `--token`). Prefer local Compose or prod. |
 
-PR CI must not require `--mode live` or paid LLM keys. Wiring fixture evals as a
-blocking CI job is a **Tier 1** thickener; this harness only documents readiness.
+PR CI must not require `--mode live` or paid LLM keys. Fixture evals (including
+agent trajectory goldens) are wired as a blocking step in `.github/workflows/ci.yml`.
 
 ## PYTHONPATH / how to run
 
@@ -62,9 +62,9 @@ Common fields:
 | Field | Meaning |
 |-------|---------|
 | `id` | Stable case id |
-| `theme` | `retrieval` \| `tenant_isolation` |
+| `theme` | `retrieval` \| `tenant_isolation` \| `agent_trajectory` |
 | `mode_hint` | `fixture` \| `live` \| `either` |
-| `surface` | e.g. `GET /ai/test-search` |
+| `surface` | e.g. `GET /ai/test-search` or `POST /ai/agent` |
 | `skip_if_modes` | optional list of modes to skip |
 
 **Retrieval** extras:
@@ -82,9 +82,12 @@ Common fields:
 - `fixture_ref` — recorded search response for fixture mode
 - `forged_workspace_probe` — if true, live mode sends an extra body field; results must still be JWT-scoped (Pydantic ignores unknown fields; workspace never taken from body)
 
-**Agent trajectories** (Tier 1 / 8X.2.3 — schema reserved, not scored in Tier 0):
+**Agent trajectories** (Tier 1):
 
 - `forbidden_tools`, `required_tools`, `sequence_mode` (`exact` \| `subset`)
+- `fixture_ref` — JSON with `{ "tools": [...], "answer": "..." }` (no live LLM in fixture mode)
+- At least one case must forbid surprise `create_note`
+- Live trajectory scoring is not required for CI (fixture-only)
 
 ## Seed / fixture ID law
 
@@ -96,13 +99,13 @@ Common fields:
 
 | When | Mode | Target | Result |
 |------|------|--------|--------|
-| 2026-09-06 | fixture | n/a | **PASS: 15/15** |
+| 2026-09-07 | fixture | n/a | **PASS: 20/20** (15 retrieval/tenant + 5 trajectory) |
 | 2026-09-06 | live + `--seed-live` | `http://127.0.0.1` | **PASS: 8/8** (7 skipped: fixture-only / need `--token-b`) |
 
 Target C-gate: ≥80% on the retrieval + tenant set used for hire docs. Record the
 honest `PASS: X/Y` even when below 100%.
 
-## Post-C-gate (not this harness)
+## Post-C-gate (not replacing this harness)
 
 Langfuse-native datasets/experiments preferred for judges; optional recall@k /
 faithfulness are Tier 2 / nightly. Do not replace this golden CLI.

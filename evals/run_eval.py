@@ -27,7 +27,7 @@ import httpx
 ROOT = Path(__file__).resolve().parent
 GOLDEN_DIR = ROOT / "golden"
 FIXTURE_DIR = ROOT / "fixtures"
-DEFAULT_FILES = ("retrieval.jsonl", "tenant_isolation.jsonl")
+DEFAULT_FILES = ("retrieval.jsonl", "tenant_isolation.jsonl", "agent_trajectory.jsonl")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -82,6 +82,35 @@ def score_case(case: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, str
     return True, "ok"
 
 
+def score_trajectory(case: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, str]:
+    """Assert required_tools / forbidden_tools / sequence_mode against observed tools."""
+    tools = payload.get("tools")
+    if not isinstance(tools, list):
+        return False, "fixture missing tools list"
+    observed = [str(t) for t in tools]
+
+    for name in case.get("forbidden_tools") or []:
+        if name in observed:
+            return False, f"forbidden tool used: {name}"
+
+    required = [str(t) for t in (case.get("required_tools") or [])]
+    mode = (case.get("sequence_mode") or "subset").lower()
+    if mode == "exact":
+        if observed != required:
+            return False, f"exact sequence want={required} got={observed}"
+    else:
+        # subset: required tools must appear in order as a subsequence
+        if not required:
+            return True, "ok"
+        idx = 0
+        for tool in observed:
+            if idx < len(required) and tool == required[idx]:
+                idx += 1
+        if idx != len(required):
+            return False, f"subset missing required={required} got={observed}"
+    return True, "ok"
+
+
 def normalize_search_payload(data: Any) -> dict[str, Any]:
     """Accept gateway list[dict] or legacy {results: [...]} shapes."""
     if isinstance(data, list):
@@ -97,7 +126,10 @@ def load_fixture(ref: str) -> dict[str, Any]:
     path = FIXTURE_DIR / ref
     if not path.exists():
         raise FileNotFoundError(f"fixture not found: {path}")
-    return normalize_search_payload(json.loads(path.read_text(encoding="utf-8-sig")))
+    raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    if isinstance(raw, dict) and "tools" in raw:
+        return raw
+    return normalize_search_payload(raw)
 
 
 def auth_headers(token: str) -> dict[str, str]:
@@ -216,9 +248,16 @@ def run_cases(
                         skipped += 1
                         print(f"  SKIP  {cid}: live actor=b needs --token-b")
                         continue
+                    if case.get("theme") == "agent_trajectory":
+                        skipped += 1
+                        print(f"  SKIP  {cid}: live trajectory not wired (use fixture)")
+                        continue
                     payload = live_search(client, headers, case)
 
-                ok, detail = score_case(case, payload)
+                if case.get("theme") == "agent_trajectory":
+                    ok, detail = score_trajectory(case, payload)
+                else:
+                    ok, detail = score_case(case, payload)
                 if ok:
                     passed += 1
                     print(f"  PASS  {cid}")

@@ -76,8 +76,9 @@ tiktoken ~= 0.13.0
 qdrant-client ~= 1.16.0
 
 # --- AI Slice 5: Memory + LangGraph prep ---
-langgraph>=0.1.0
-langgraph-checkpoint-postgres>=0.1.0
+# Pinned to interrupt()/Command HITL API used by agent-hitl (verified 1.1.x)
+langgraph>=1.1.0,<1.3
+langgraph-checkpoint-postgres>=2.0.0,<4.0
 
 # --- AI Slice 6: LangGraph workflows ---
 psycopg[async]>=3.1.0   # required by AsyncPostgresSaver (psycopg3, not asyncpg)

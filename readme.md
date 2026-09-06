@@ -44,9 +44,9 @@ FastAPI · async SQLAlchemy · PostgreSQL · Redis/ARQ · Qdrant · LiteLLM · L
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| Eval pass rate (fixture) | **PASS: 15/15** | `python evals/run_eval.py --mode fixture` |
+| Eval pass rate (fixture) | **PASS: 20/20** | retrieval+tenant (15) + trajectory (5); CI gated |
 | Eval pass rate (live local) | **PASS: 8/8** runnable live cases | seeded retrieval + forged-workspace probe; tenant dual-token cases skipped without `--token-b` |
-| Cost / latency | _pending_ | Fill from Langfuse export or fixed 20-request sample |
+| Cost / latency | **local/sample — pending fill** | Label as local until A-gate; fill from Langfuse export or fixed sample — **not** a production SLO |
 | Demo video | _pending_ | |
 
 ## Documentation

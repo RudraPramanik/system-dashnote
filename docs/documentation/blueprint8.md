@@ -62,6 +62,20 @@ ALWAYS ON — Tier 0 job gate (hire minimum)
 Compatible with Slice 8X **deploy-first** calendar: CI → finish prod → frontend → evals → HITL  
 (see [`slice8_X.md`](blueprint/slice8_X.md)). Blueprint8 adds Alive + Tier map on top; it does not invent a second contradictory order.
 
+### Active window (2026-09) — local AI-depth-first Tier 1
+
+VPS A-gate (HTTPS smoke / A4–A7) is deferred. Operators **MAY** implement Tier 1 deepeners (HITL, Langfuse depth, trajectory goldens, fixture CI) against the **local Compose + FE** Alive stack now.
+
+This follows Slice 8X’s **alternate AI-depth-first** path — it is **not** a waiver of Tier 0 production proof.
+
+| Allowed now | Still forbidden |
+|-------------|-----------------|
+| Local HITL / evals / Langfuse depth | Claiming **production-live** |
+| Fixture CI gates | Claiming **hire-ready / job search** solely from local Tier 1 |
+| Local cost/latency samples (label as local) | GraphRAG / multi-agent on the default path |
+
+When VPS work resumes: close A4/A7 smoke before any production-live claim.
+
 ---
 
 ## Tier 0 — Job gate (mandatory before claiming hire-ready)

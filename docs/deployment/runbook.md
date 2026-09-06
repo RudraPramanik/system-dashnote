@@ -199,9 +199,21 @@ docker compose -f docker-compose.prod.yml config
 
 Ensure shell scripts keep **LF** line endings (see `.gitattributes` for `scripts/deploy/*.sh`). After clone on Linux: `chmod +x scripts/deploy/*.sh`.
 
+## Failure-mode notes (demo / ops talk track)
+
+| Symptom | Likely cause | What to do / say |
+|---------|--------------|------------------|
+| Chat answers “I could not find relevant information…” | Empty retrieval (threshold / no embeds / wrong workspace) | Check note was embedded (worker logs); wait for embed lag; confirm JWT workspace; Langfuse may show `empty_retrieval` score |
+| `503` on `/ai/chat*` or `/ai/agent*` | LLM provider down / keys / rate limit | Message is user-safe; retry; FE shows AI-unavailable copy; use `/health` (hard) vs AI soft deps |
+| Search misses a note just created | Embed lag (ARQ worker queue) | Wait `wait_embed_sec`-class delay; worker healthy; Qdrant soft boot does not block API but search needs indexer |
+| Agent returns `approval_required` | HITL before `create_note` / `update_note` | Call `POST /ai/agent/resume` or `/ai/agent/reject` with same `thread_id`; FE polish optional — see `scripts/smoke_hitl.py` |
+
+Also linked from [`../interview-talk-track.md`](../interview-talk-track.md).
+
 ## Related
 
 - [`storage.md`](storage.md) — R2 / object storage contract (7P.4)
 - [`../documentation/production.md`](../documentation/production.md) — platform tracker
 - [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) — CD (7P.8)
 - `docker-compose.prod.yml` — api, worker, migrate, nginx, optional prometheus (`IMAGE=` for registry pulls)
+- [`scripts/smoke_hitl.py`](../../scripts/smoke_hitl.py) — local HITL approve/reject smoke

@@ -2,7 +2,12 @@
 
 from observability.langfuse_client import get_langfuse_client
 from observability.logging import get_logger, setup_logging
-from observability.tracing import rag_span, rag_trace
+from observability.tracing import (
+    rag_span,
+    rag_trace,
+    retrieval_depth_payload,
+    score_trace,
+)
 
 __all__ = [
     "get_logger",
@@ -10,4 +15,6 @@ __all__ = [
     "get_langfuse_client",
     "rag_trace",
     "rag_span",
+    "retrieval_depth_payload",
+    "score_trace",
 ]

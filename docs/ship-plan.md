@@ -23,6 +23,8 @@
 
 **Phase 1 = Blueprint8 Tier 0** (job gate → top ~10%). **Phase 2 = Tier 1 then Tier 2** (HITL, Langfuse depth, fixture CI, experiments / recall / faithfulness → top ~3–5%).
 
+**Active window (2026-09):** local AI-depth-first Tier 1 while VPS A-gate is deferred — see `blueprint8.md` §Active window. Local deepeners do **not** authorize production-live or hire-ready claims.
+
 **Target after 14 days:** Recruiter clicks live app in 30s; tech lead sees CI, prod, evals, cost — **top ~10%** of mid-level AI engineer portfolios.
 
 **Target after 45 days:** Regression-gated quality, production ops story, differentiated depth — **top ~3–5%**.

@@ -37,7 +37,12 @@ from pydantic import BaseModel, ConfigDict
 from config import get_settings
 from ai.retrieval.wrapper import WorkspaceVectorSearch, SearchResult, get_workspace_vector_search
 from ai.prompts.rag import RAGAnswer
-from observability.tracing import rag_span, rag_trace
+from observability.tracing import (
+    rag_span,
+    rag_trace,
+    retrieval_depth_payload,
+    score_trace,
+)
 from shared.llm.fallback import acompletion_with_fallback, cached_llm_model
 
 logger = logging.getLogger(__name__)
@@ -284,7 +289,7 @@ class RagService:
                     role=role,
                     limit=retrieval_limit,
                 )
-                span.update(output={"chunks_retrieved": len(retrieved)})
+                span.update(output=retrieval_depth_payload(retrieved))
 
             if not retrieved:
                 logger.info(
@@ -293,6 +298,12 @@ class RagService:
                         "workspace_id": workspace_id,
                         "question_length": len(question),
                     },
+                )
+                score_trace(
+                    trace,
+                    name="empty_retrieval",
+                    value=1,
+                    comment="no chunks above threshold",
                 )
                 fallback_answer = EMPTY_RETRIEVAL_ANSWER
                 if db is not None and resolved_thread_id:
@@ -478,12 +489,18 @@ class RagService:
                     role=role,
                     limit=retrieval_limit,
                 )
-                span.update(output={"chunks_retrieved": len(retrieved)})
+                span.update(output=retrieval_depth_payload(retrieved))
 
             if not retrieved:
                 logger.info(
                     "stream_answer: no relevant chunks found",
                     extra={"workspace_id": workspace_id},
+                )
+                score_trace(
+                    trace,
+                    name="empty_retrieval",
+                    value=1,
+                    comment="no chunks above threshold",
                 )
                 fallback_answer = EMPTY_RETRIEVAL_ANSWER
                 if db is not None and resolved_thread_id:

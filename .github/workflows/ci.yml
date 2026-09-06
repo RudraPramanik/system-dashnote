@@ -52,6 +52,11 @@ jobs:
           --ignore=tests/notes/test_notes_rbac_api.py
           --ignore=tests/pages/test_versioning.py
 
+      - name: Fixture evals (no live LLM keys)
+        run: python evals/run_eval.py --mode fixture
+        env:
+          PYTHONPATH: src
+
   build:
     runs-on: ubuntu-latest
     needs: [test]

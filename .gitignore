@@ -50,3 +50,7 @@ coverage.xml
 # If you have local config you NEVER want committed, put it here, e.g.:
 # config.local.py
 
+
+# Local compose port overrides
+docker-compose.override.yml
+

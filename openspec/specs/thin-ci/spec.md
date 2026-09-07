@@ -65,3 +65,17 @@ When pytest and Docker build succeed on CI without production secrets, `docs/doc
 - **GIVEN** the thin CI gate is green (pytest + docker build, no prod secrets)
 - **WHEN** the implementer closes Slice 8X.1 / 7P.7
 - **THEN** `production.md` shows 7P.7 as complete
+
+### Requirement: PR CI runs fixture evals without live LLM keys
+The thin PR CI workflow MUST include a job or step that executes the golden eval harness in fixture mode (e.g. `python evals/run_eval.py --mode fixture` with `PYTHONPATH=src` as needed). That step MUST NOT require live LLM provider keys, production VPS credentials, or SSH. Failure of fixture evals MUST fail the CI check.
+
+#### Scenario: Fixture evals gate the PR
+- **GIVEN** a pull request that breaks a fixture golden assertion
+- **WHEN** thin CI runs
+- **THEN** the fixture-eval step exits non-zero
+- **AND** the workflow does not call live LLM APIs to evaluate those fixtures
+
+#### Scenario: Green CI still needs no prod secrets
+- **GIVEN** fixture goldens and unit tests pass
+- **WHEN** thin CI completes
+- **THEN** green status still does not depend on production host secrets or live AI keys

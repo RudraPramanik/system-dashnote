@@ -2,6 +2,8 @@
 
 Short answers tied to how this repository is built today. Use this for technical interviews, Upwork client calls, and system-design discussions.
 
+**Production AI / RAG interview (general):** [`qs2.md`](qs2.md) — concept-clearance and hire-loop Q&A that is not tied to this repo’s file names.
+
 **§1–20** — core Q&A on what we built and why.  
 **§21** — **counter-questions**: pushback and “why not X?” follow-ups interviewers ask after your first answer. Practice answering without reading.
 

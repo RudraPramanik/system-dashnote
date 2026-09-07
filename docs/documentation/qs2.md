@@ -6,6 +6,7 @@ This file is **general**. It is not a tour of this repository.
 
 - **This file (`qs2.md`)** — how you would design and operate production RAG/agent systems at a company that already has databases, identity, and SLAs.
 - **Companion (`qs.md`)** — how *DashNoteSystem* is built today. Use that when they ask “walk me through *your* repo.”
+- **Agents / workflows / automations:** [`qs3.md`](qs3.md) — five workflow patterns, tools, plan-execute, reflection, orchestration. Does not repeat this file.
 
 **Length is expected.** Completeness beats brevity. Skip sections you already own; do not skip §4, §8, §10, §12–15, or §20.
 

@@ -4,6 +4,8 @@ Short answers tied to how this repository is built today. Use this for technical
 
 **Production AI / RAG interview (general):** [`qs2.md`](qs2.md) — concept-clearance and hire-loop Q&A that is not tied to this repo’s file names.
 
+**Production agents / workflows / automations:** [`qs3.md`](qs3.md) — five workflow patterns, tools, plan-execute, orchestration (points back to `qs2.md` for RAG).
+
 **§1–20** — core Q&A on what we built and why.  
 **§21** — **counter-questions**: pushback and “why not X?” follow-ups interviewers ask after your first answer. Practice answering without reading.
 

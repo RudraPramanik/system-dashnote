@@ -441,8 +441,8 @@ Keep chat and agent as separate routes or clearly labeled tabs.
 
 ## Quick reference — method/path corrections vs older docs
 
-Some older backend docs mention `GET /ai/test-search`. The live router is:
+Live OpenAPI for engineering search validation:
 
-- **`POST /ai/test-search`** with body `{ "query_text": "...", "limit": 5 }`
+- **`GET /ai/test-search?q=...&limit=5`** (gateway `ai_gateway/search.py`) — JWT workspace only; never send `workspace_id` to override tenancy.
 
-When in doubt, trust **`/docs`** and `src/*/router.py` over narrative docs.
+When in doubt, trust **`/docs`** and the mounted routers over narrative docs.

@@ -1,0 +1,6 @@
+{
+  "tools": ["create_note"],
+  "answer": "Created note Sprint Plan.",
+  "status": "approval_required",
+  "tool": "create_note"
+}

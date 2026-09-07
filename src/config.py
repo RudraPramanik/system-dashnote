@@ -104,6 +104,15 @@ class Settings(BaseSettings):
     AGENT_MAX_ITERATIONS: int = 10    # prevents infinite tool loops
     AGENT_TOOL_TIMEOUT: int = 30      # seconds per tool call
 
+    # ── Inbound channels (email / WhatsApp) ─────────────────────────
+    INBOUND_API_KEY: str = ""
+    INBOUND_HMAC_SECRET: str = ""
+    INBOUND_AGENTIC_ENABLED: bool = False
+    INBOUND_AGENTIC_TIMEOUT_SECONDS: float = 12.0
+    WHATSAPP_VERIFY_TOKEN: str = ""
+    WHATSAPP_APP_SECRET: str = ""
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
+
     @property
     def llm_model_candidates(self) -> list[str]:
         """Primary LLM_MODEL then unique fallbacks, order preserved."""

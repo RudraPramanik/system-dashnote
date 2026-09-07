@@ -1,7 +1,8 @@
 # DashNote — Job Search Baseline Checklist
 
+> **Locked path:** Follow [`../blueprint8.md`](../blueprint8.md) first (Alive + Tier 0/1/2). This file is the checkbox tracker under that lock.  
 > **Purpose:** Finish this checklist, **then** start applying for remote AI engineer roles and freelance RAG/LLM work.  
-> **Detail:** Day-by-day plan in [`docs/ship-plan.md`](../../ship-plan.md) · Platform steps in [`production.md`](../production.md) · Full slice roadmap in [`total.md`](total.md)
+> **Detail:** Day-by-day plan in [`docs/ship-plan.md`](../../ship-plan.md) · Platform steps in [`production.md`](../production.md) · Slice 8X detail index [`slice8_X.md`](slice8_X.md) · Full slice roadmap in [`total.md`](total.md)
 
 ---
 
@@ -13,7 +14,7 @@ Until then, you have a strong backend portfolio — not a hireable story. Recrui
 
 | Track | Baseline target | After baseline |
 |-------|-----------------|----------------|
-| **Remote AI engineer** (employment) | Top ~10% portfolio — live product + CI + evals + demo video | Phase 2 in ship-plan → top ~3–5% |
+| **Remote AI engineer** (employment) | Top ~10% portfolio — live product + CI + evals + demo video | Phase 2 / blueprint8 Tier 1–2 → top ~3–5% |
 | **Freelance / Upwork** | Tier A Lite demo **or** Tier B DashNote live URL + Loom | Lite for <$2k jobs; DashNote for $5k+ |
 
 ---
@@ -47,13 +48,13 @@ Copy this section into your tracker. Check each item. **All must be ✅ before j
 
 | # | Task | Status | Output |
 |---|------|--------|--------|
-| A1 | Hosted services provisioned (Postgres, Redis, Qdrant Cloud, R2 or equiv.) | ⬜ | Credentials in VPS `.env` only |
-| A2 | **7P.4** R2/storage — worker reads uploads without local volume | ⬜ | Documented in `.env.production.example` |
-| A3 | **7P.5** Deploy scripts + runbook | ⬜ | `scripts/deploy/*`, `docs/deployment/runbook.md` |
-| A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ⬜ | health + auth + note + optional search |
-| A5 | **7P.7** CI green on PR (`pytest` + docker build) | ⬜ | `.github/workflows/ci.yml` |
-| A6 | **7P.8** CD deploys `main` → VPS; smoke exits 0 | ⬜ | `.github/workflows/deploy.yml` |
-| A7 | TLS live API | ⬜ | `https://api.<domain>/health` → 200 |
+| A1 | Hosted services provisioned (Postgres, Redis, Qdrant Cloud, R2 or equiv.) | ⬜ | Credentials in VPS `.env` only — operator confirm |
+| A2 | **7P.4** R2/storage — worker reads uploads without local volume | ✅ | Documented in `.env.production.example` + `docs/deployment/storage.md` |
+| A3 | **7P.5** Deploy scripts + runbook | ✅ | `scripts/deploy/*`, `docs/deployment/runbook.md` |
+| A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ⬜ | Local `http://127.0.0.1` smoke PASS (2026-09-06); **HTTPS prod still required** |
+| A5 | **7P.7** CI green on PR (`pytest` + docker build) | ✅ | `.github/workflows/ci.yml` |
+| A6 | **7P.8** CD workflow + gate docs | ✅ | `.github/workflows/deploy.yml` (live VPS proof still needed for A4/A7 claim) |
+| A7 | TLS live API | ⬜ | `https://api.<domain>/health` → 200 — need prod URL |
 
 ```powershell
 # A-gate commands
@@ -70,13 +71,13 @@ Build against the API using **[frontendguide.md](../frontendguide.md)** (auth, d
 
 | # | Task | Status | Output |
 |---|------|--------|--------|
-| B1 | Auth: register, login, Bearer on API calls | ⬜ | No CORS errors vs prod API |
-| B2 | Notes CRUD + file upload UI | ⬜ | Upload → ~45s → metadata visible |
-| B3 | Chat UI: SSE stream + citations from `metadata` event | ⬜ | Grounded answer with sources |
-| B4 | Threads sidebar + history | ⬜ | Continue prior conversation |
-| B5 | Agent view (optional but strong): tool_start / tool_end | ⬜ | Multi-step demo works |
-| B6 | Error UX: 503 LLM down, 429 rate limit | ⬜ | User-visible messages |
-| B7 | Frontend deployed with TLS | ⬜ | `https://app.<domain>` |
+| B1 | Auth: register, login, Bearer on API calls | ✅ | Sibling `dashnotes` Playwright `b-gate.spec.ts` vs local API (2026-09-06) |
+| B2 | Notes CRUD + file upload UI | ✅ | Same B-gate e2e |
+| B3 | Chat UI: SSE stream + citations from `metadata` event | ✅ | B-gate e2e (tolerates AI-down path) |
+| B4 | Threads sidebar + history | ⬜ | Not asserted in current B-gate e2e |
+| B5 | Agent view (optional but strong): tool_start / tool_end | ✅ | B-gate navigates agent + run |
+| B6 | Error UX: 503 LLM down, 429 rate limit | ✅ | B-gate accepts AI-unavailable copy |
+| B7 | Frontend deployed with TLS | ⬜ | `https://app.<domain>` — pending |
 
 **Demo gate (record on video):** register → create note → upload file → RAG question with citation → agent creates/updates note.
 
@@ -86,10 +87,10 @@ Build against the API using **[frontendguide.md](../frontendguide.md)** (auth, d
 
 | # | Task | Status | Output |
 |---|------|--------|--------|
-| C1 | `evals/golden/` — ≥10 cases (retrieval + tenant isolation) | ⬜ | `retrieval.jsonl`, `tenant_isolation.jsonl` |
-| C2 | `evals/run_eval.py` — pass/fail summary CLI | ⬜ | `PASS: 8/10` or better |
-| C3 | Tenant isolation case: member cannot retrieve peer's private note | ⬜ | Automated check in runner |
-| C4 | Eval pass rate ≥ **80%** documented in README | ⬜ | Honest score if not 100% |
+| C1 | `evals/golden/` — ≥10 cases (retrieval + tenant isolation) | ✅ | 10 retrieval + 5 tenant JSONL cases |
+| C2 | `evals/run_eval.py` — pass/fail summary CLI | ✅ | fixture + live; `PASS: X/Y` |
+| C3 | Tenant isolation case: member cannot retrieve peer's private note | ✅ | Fixture automated; live dual-token via `--token-b` |
+| C4 | Eval pass rate ≥ **80%** documented in README | ✅ | Fixture **15/15**; live local **8/8** (see `evals/README.md` / root README) |
 
 ```powershell
 python evals/run_eval.py --base-url https://api.<domain> --token <token>
@@ -103,12 +104,12 @@ python evals/run_eval.py --base-url https://api.<domain> --token <token>
 
 | # | Task | Status | Output |
 |---|------|--------|--------|
-| D1 | README: pitch, live links, stack, architecture diagram link | ⬜ | `readme.md` |
+| D1 | README: pitch, live links, stack, architecture diagram link | ✅ | `readme.md` — prod URLs explicit pending |
 | D2 | Screenshots or GIF on README | ⬜ | Chat + citations visible |
 | D3 | **3-minute demo video** (Loom / YouTube unlisted) | ⬜ | Link in README |
-| D4 | Cost + latency table (even rough) | ⬜ | Langfuse export or 20-request sample |
-| D5 | GitHub topics: `rag`, `langgraph`, `fastapi`, `qdrant` | ⬜ | Repo discoverability |
-| D6 | `docs/interview-talk-track.md` — 2-min pitch + 3 tradeoffs | ⬜ | Interview prep |
+| D4 | Cost + latency table (even rough) | ⬜ | Placeholder in README — fill from Langfuse / sample |
+| D5 | GitHub topics: `rag`, `langgraph`, `fastapi`, `qdrant` | ⬜ | Set on remote when `gh`/UI available |
+| D6 | `docs/interview-talk-track.md` — 2-min pitch + 3 tradeoffs | ✅ | Interview prep |
 
 **Stranger test:** Someone unfamiliar opens README → uses live app in **<2 minutes** without your help.
 
@@ -130,35 +131,35 @@ Do **not** sell Tier B scope at Tier A price. See [`ship-plan.md`](../../ship-pl
 ```
 PRODUCTION
 [ ] A1 Hosted services live
-[ ] A2 Storage contract (R2)
-[ ] A3 Deploy scripts + runbook
-[ ] A4 smoke_prod.py PASS on prod
-[ ] A5 CI green on PR
-[ ] A6 CD deploy + smoke on merge
+[x] A2 Storage contract (R2)
+[x] A3 Deploy scripts + runbook
+[ ] A4 smoke_prod.py PASS on prod (local PASS 2026-09-06)
+[x] A5 CI green on PR
+[x] A6 CD workflow + gate docs (live VPS proof still open)
 [ ] A7 https://api.<domain>/health → 200
 
 FRONTEND
-[ ] B1 Auth + CORS
-[ ] B2 Notes + file upload
-[ ] B3 Chat SSE + citations
+[x] B1 Auth + CORS (local Playwright B-gate)
+[x] B2 Notes + file upload
+[x] B3 Chat SSE + citations
 [ ] B4 Threads
-[ ] B5 Agent UI (recommended)
-[ ] B6 Error states
+[x] B5 Agent UI (recommended)
+[x] B6 Error states
 [ ] B7 https://app.<domain> live
 
 EVALUATION
-[ ] C1 ≥10 golden cases
-[ ] C2 run_eval.py CLI
-[ ] C3 Tenant isolation automated
-[ ] C4 ≥80% pass rate in README
+[x] C1 ≥10 golden cases
+[x] C2 run_eval.py CLI
+[x] C3 Tenant isolation automated
+[x] C4 ≥80% pass rate in README
 
 PORTFOLIO
-[ ] D1 README with live links
+[x] D1 README with live links / pending honesty
 [ ] D2 Screenshots/GIF
 [ ] D3 Demo video
 [ ] D4 Cost/latency table
 [ ] D5 GitHub topics
-[ ] D6 Interview talk track
+[x] D6 Interview talk track
 
 FREELANCE (one of)
 [ ] Tier B: all above
@@ -171,16 +172,17 @@ FREELANCE (one of)
 
 ## Recommended order
 
-### Preferred — Slice 8X deploy-first (chosen)
+### Preferred — Blueprint 8 (operator default) + Slice 8X detail
 
-Follow [`slice8_X.md`](slice8_X.md) (index). Live URL first; evals after VPS (still required for C-gate):
+Follow [`../blueprint8.md`](../blueprint8.md) for Alive + Tier map. Execute Composer substages via [`slice8_X.md`](slice8_X.md) (index). Live URL first; evals after VPS (still required for C-gate):
 
 1. **A5 / 8X.1** — thin CI ([`slice8_ci.md`](slice8_ci.md))
 2. **A1–A4, A6–A7 / 8X.4** — finish platform + live smoke (7P.4–7P.6, 7P.8)
 3. **B1–B7 / 8X.5** — frontend ([`frontendguide.md`](../frontendguide.md))
 4. **C1–C4 / 8X.2** — evals ([`slice8_eval.md`](slice8_eval.md); prefer `--base-url` against prod)
-5. **8X.3** — HITL API ([`slice8_hitl.md`](slice8_hitl.md); HITL UX after API exists)
+5. **8X.3** — HITL API ([`slice8_hitl.md`](slice8_hitl.md); HITL UX after API exists) — Tier 1
 6. **D1–D6** — portfolio packaging
+7. **Tier 1–2 deepeners** — Langfuse depth, fixture CI, EXPERIMENTS / recall / faithfulness per blueprint8 (while interviewing)
 
 ### Alternate — AI-depth-first (harness before URL)
 
@@ -192,6 +194,8 @@ Use only when interview harness depth matters more than a public URL this week:
 4. **A1–A4, A6–A7 / 8X.4** — finish platform + live smoke
 5. **B1–B7 / 8X.5** — frontend (+ HITL UX after 8X.3)
 6. **D1–D6** — portfolio packaging
+
+**Active (2026-09):** Local AI-depth-first Tier 1 is in progress (`openspec/changes/tier1-local-ai-depth`). Compose + local FE are the demo surface. **Do not** mark A4/A7 or job-search ready until HTTPS prod smoke passes — local Tier 1 ≠ hire gate.
 
 ---
 
@@ -215,14 +219,19 @@ Finish these **after** you are applying or employed — do not block job search 
 
 Improves offer rate and rate negotiation; not a blocker to **first** applications.
 
-| Item | Target | Doc |
-|------|--------|-----|
-| Evals in CI | Bad PR fails merge | ship-plan Day 15–28 |
-| recall@5 ≥ 0.8 | Quantified retrieval story | Slice 7R |
-| Agent eval scenarios ≥5 | Tool-use proof | ship-plan Phase 2 |
-| Public technical article | LinkedIn + dev.to | ship-plan Day 36–45 |
-| Runbook + rollback tested | “Production-ready” claim | 7P.5 |
-| Lite template clone | Fast Upwork turnaround | ship-plan §Lite |
+| Item | Target | Status (local Tier 1 window) | Doc |
+|------|--------|------------------------------|-----|
+| HITL before agent create/update | API interrupt + resume/reject | ✅ local | `slice8_hitl.md` |
+| Langfuse retrieval depth | ids + scores on traces | ✅ local | `observe.md` |
+| Agent trajectory goldens ≥5 | forbid surprise create | ✅ fixture | `evals/golden/agent_trajectory.jsonl` |
+| Fixture evals in CI | PR fails on fixture break | ✅ | `.github/workflows/ci.yml` |
+| Failure-mode notes | empty retrieval / LLM 503 / embed lag | ✅ | runbook + talk track |
+| Evals in CI | Bad PR fails merge | (same as fixture row) | ship-plan Day 15–28 |
+| recall@5 ≥ 0.8 | Quantified retrieval story | ⬜ Tier 2 | Slice 7R |
+| Public technical article | LinkedIn + dev.to | ⬜ | ship-plan Day 36–45 |
+| Lite template clone | Fast Upwork turnaround | ⬜ | ship-plan §Lite |
+
+**Reminder:** completing local Tier 1 does **not** check A4/A7 or start job search.
 
 ---
 

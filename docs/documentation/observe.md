@@ -396,3 +396,19 @@ Nginx → FastAPI
           ├─ Langfuse (RAG/agent traces)
           └─ Prometheus → Grafana
 ```
+
+## Retrieval-depth traces (Tier 1)
+
+When Langfuse keys are set (`LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`), RAG retrieval spans record **identities + scores**, not counts only:
+
+- Span `retrieval` output includes `retrieved[]` (`chunk_id`, `note_id`, `file_id`, `score`), plus `chunk_ids` / `note_ids` / `scores`
+- Empty retrieval attaches score `empty_retrieval=1` on the parent trace (soft; never crashes when Langfuse is off)
+
+### Operator verify (local)
+
+1. Ensure Langfuse env vars are in `.env` and restart API
+2. `POST /ai/chat` with a real question that hits notes
+3. Open Langfuse UI → latest `rag.answer` trace → `retrieval` span → confirm `retrieved` / scores
+4. Ask a nonsense query → confirm `empty_retrieval` score when no chunks return
+
+AI modules must not import the Langfuse SDK — only `observability.tracing` helpers.

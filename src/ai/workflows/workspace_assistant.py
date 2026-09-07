@@ -38,7 +38,7 @@ from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from ai.tools.note_tools import db_session_var, get_note_tools
+from ai.tools.note_tools import get_note_tools
 from ai.workflows.state import AgentState
 from config import get_settings
 
@@ -219,15 +219,12 @@ async def execute_tools(state: AgentState) -> dict[str, Any]:
     """
     Tool execution node: run tools called by the agent.
 
-    Sets db_session_var context variable before execution so
-    mutation tools (create_note, update_note) can access the session.
+    DB session for mutation tools is injected by agent routes via
+    db_session_var before graph invoke — do not clear it here.
+    create_note / update_note call LangGraph interrupt() before side effects.
     """
     tool_node = ToolNode(get_note_tools())
-    token = db_session_var.set(None)
-    try:
-        return await tool_node.ainvoke(state)
-    finally:
-        db_session_var.reset(token)
+    return await tool_node.ainvoke(state)
 
 
 def should_continue(state: AgentState) -> str:

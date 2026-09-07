@@ -75,6 +75,26 @@ async def _search_notes(
         return f"Search failed: {str(e)}"
 
 
+def _ensure_checkpointer_for_mutation() -> str | None:
+    """
+    Fail closed: mutations require a live checkpointer so HITL can resume.
+    Returns an error string if unavailable, else None.
+    """
+    try:
+        from ai.memory.checkpointer import get_graph_checkpointer
+
+        get_graph_checkpointer()
+    except RuntimeError:
+        return (
+            "Error: note mutations require human approval and a checkpointer. "
+            "Checkpointer is not initialized — mutation blocked."
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error("checkpointer probe failed", extra={"error": str(e)})
+        return "Error: note mutations unavailable (checkpointer error)."
+    return None
+
+
 async def _create_note(
     title: str,
     content: str,
@@ -90,6 +110,29 @@ async def _create_note(
     agent state — never guess or fabricate these values.
     Returns the new note's ID as confirmation.
     """
+    blocked = _ensure_checkpointer_for_mutation()
+    if blocked:
+        return blocked
+
+    from langgraph.types import interrupt
+
+    from ai.hitl import build_approval_payload, is_approved
+
+    decision = interrupt(
+        build_approval_payload(
+            tool="create_note",
+            args={
+                "title": title,
+                "content": content,
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "role": role,
+            },
+        )
+    )
+    if not is_approved(decision):
+        return "Note creation rejected by user. No note was created."
+
     db = db_session_var.get()
     if db is None:
         return "Error: database session not available for note creation."
@@ -129,6 +172,29 @@ async def _update_note(
     Requires a note_id — ask the user for it or find it via search_notes first.
     workspace_id is enforced — cannot modify notes from other workspaces.
     """
+    blocked = _ensure_checkpointer_for_mutation()
+    if blocked:
+        return blocked
+
+    from langgraph.types import interrupt
+
+    from ai.hitl import build_approval_payload, is_approved
+
+    decision = interrupt(
+        build_approval_payload(
+            tool="update_note",
+            args={
+                "note_id": note_id,
+                "content": content,
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "role": role,
+            },
+        )
+    )
+    if not is_approved(decision):
+        return "Note update rejected by user. No changes were saved."
+
     db = db_session_var.get()
     if db is None:
         return "Error: database session not available for note update."

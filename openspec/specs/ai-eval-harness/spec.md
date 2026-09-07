@@ -44,3 +44,41 @@ Operators MUST be able to record the eval pass rate in project documentation (RE
 - **GIVEN** a completed eval runner execution with summary `PASS: X/Y`
 - **WHEN** portfolio or eval docs are updated for the baseline
 - **THEN** the documented pass rate matches that summary (honest if X < Y)
+
+### Requirement: Post-C-gate eval thickeners are documented without replacing the harness
+Planning documentation for the eval program (at minimum `docs/documentation/blueprint8.md`, and `evals/README.md` when the harness exists) MUST describe post-C-gate thickeners: Langfuse-native datasets/experiments as the preferred judge/experiment path, optional recall@k or MRR on goldens, optional faithfulness/answer-relevancy as operator/nightly, and an EXPERIMENTS / before-after record. These thickeners MUST NOT replace the golden JSONL + `run_eval.py` C-gate harness, and MUST NOT require live LLM judges to green PR CI.
+
+#### Scenario: Operator finds preferred eval stack
+- **GIVEN** blueprint8 (and evals README when present)
+- **WHEN** an operator plans quality work after C-gate
+- **THEN** Langfuse-native experiments/judges are documented as the primary thickener
+- **AND** RAGAS is optional nightly if mentioned
+- **AND** PR CI remains fixture/deterministic-only for blocking gates
+
+#### Scenario: C-gate remains the hire minimum
+- **GIVEN** the documented eval program
+- **WHEN** an operator checks the hire-ready eval minimum
+- **THEN** ≥10 retrieval/tenant cases, pass/fail CLI summary, tenant isolation automation, and honest pass-rate docs remain required
+- **AND** faithfulness or recall@k are not required to claim the C-gate
+
+### Requirement: Agent trajectory golden corpus exists
+The `evals/golden/` corpus MUST include at least five agent trajectory cases covering tool-use expectations. Cases MUST support constraints such as `required_tools`, `forbidden_tools`, and `sequence_mode` (`exact` or `subset`). At least one case MUST forbid surprise note creation (e.g. `create_note` in `forbidden_tools` when the user did not ask to create).
+
+#### Scenario: Trajectory set meets minimum
+- **GIVEN** this change is complete
+- **WHEN** an operator inspects agent trajectory goldens
+- **THEN** there are at least five trajectory cases
+- **AND** at least one case fails if the agent unexpectedly calls `create_note`
+
+#### Scenario: Fixture mode supports trajectory without live LLM
+- **GIVEN** recorded fixtures for trajectory cases
+- **WHEN** the operator runs `evals/run_eval.py --mode fixture` including trajectory cases
+- **THEN** the runner evaluates tool constraints without requiring live LLM API keys
+
+### Requirement: Trajectory results appear in the eval summary
+The eval runner MUST include trajectory cases in the aggregate `PASS: X/Y` summary and identify failing case ids when tool constraints are violated.
+
+#### Scenario: Forbidden tool fails the case
+- **GIVEN** a trajectory case that forbids `create_note`
+- **WHEN** the observed tool sequence includes `create_note`
+- **THEN** that case is marked fail in the runner output

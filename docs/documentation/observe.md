@@ -3,7 +3,7 @@
 Short reference for humans and AI agents working on observability in this repo.
 
 **Code layout:** `src/observability/`  
-**Blueprint (full steps):** `src/docs/blueprint/observation-blueprint.md`
+**Blueprint (full steps):** [blueprint/observation-blueprint.md](./blueprint/observation-blueprint.md)
 
 ---
 
@@ -15,8 +15,8 @@ Short reference for humans and AI agents working on observability in this repo.
 | 2 | Langfuse lazy client (`get_langfuse_client`) | Done |
 | 3 | RAG traces in `RagService` | Done |
 | 4 | Prometheus `/metrics` | Done |
-| 5 | Prometheus + Grafana (Compose) | Done |
-| 6 | Grafana provisioning + dashboards | Done |
+| 5 | Prometheus Compose (`:9090`) | Done (Grafana optional / not default Compose) |
+| 6 | Grafana provisioning files (optional UI) | Done (files may exist; not required locally) |
 
 ---
 
@@ -285,15 +285,17 @@ Expect `# TYPE dashnote_api_http_requests_total counter` and histogram types for
 
 ---
 
-## Step 5 — Prometheus + Grafana (Docker)
+## Step 5 — Prometheus (+ optional Grafana)
 
-### Files
+### Current local Compose
+
+`docker-compose.yml` ships **`prometheus`** (`:9090`, 256m). It does **not** include a Grafana service. Scrape `api:8000` at `/metrics`.
 
 | Path | Role |
 |------|------|
 | `monitoring/prometheus.yml` | Scrape `api:8000` at `/metrics`, 15s interval |
-| `docker-compose.yml` | `prometheus` (256m) + `grafana` (512m) services |
-| `monitoring/grafana/provisioning/` | Mount point for Step 6 datasources/dashboards |
+| `docker-compose.yml` | `prometheus` service only (no grafana) |
+| `monitoring/grafana/provisioning/` | Optional leftover provisioning for Grafana Cloud or a manually added Grafana container |
 
 ### Prometheus config
 
@@ -301,37 +303,26 @@ Expect `# TYPE dashnote_api_http_requests_total counter` and histogram types for
 - **Retention:** 7d (`--storage.tsdb.retention.time=7d`)
 - **Image:** `prom/prometheus:v2.51.2`
 
-### Grafana config
+### Grafana (optional — not default Compose)
 
-- **URL:** http://localhost:3001 (host port `3001` → container `3000`)
-- **Login:** `admin` / password from `GRAFANA_ADMIN_PASSWORD` in `.env` (default `changeme` via Compose)
-- **Sign-up / anonymous:** disabled in Compose env
-- **Image:** `grafana/grafana:10.4.2`
-- **Datasource/dashboards:** Step 6 adds files under `monitoring/grafana/provisioning/`
+Provisioning files under `monitoring/grafana/` may still exist for Grafana Cloud or a custom Compose service. Do **not** expect http://localhost:3001 from a plain `docker compose up`. Prefer Grafana Cloud remote_write in production (see `docker-compose.prod.yml` observability profile).
 
 ### Env (`.env.example`)
 
 ```env
+# Optional — only if you add a Grafana container yourself
 GRAFANA_ADMIN_PASSWORD=changeme
 ```
 
-Compose maps this to `GF_SECURITY_ADMIN_PASSWORD` on the Grafana service.
-
 ### mem_limit note
 
-`mem_limit` on `prometheus` and `grafana` is enforced by Docker Engine directly. `deploy.resources` is only respected in Swarm mode and is not used here.
+`mem_limit` on `prometheus` is enforced by Docker Engine directly. `deploy.resources` is only respected in Swarm mode and is not used here.
 
 ### Bring up / verify
 
 ```powershell
-cd g:\projects\dashnotesystemv1
-docker compose up -d prometheus grafana
-```
-
-Ensure `api` is running (scrape target is the API container hostname `api` on the Compose network):
-
-```powershell
-docker compose up -d api
+cd g:\projects\notesystem\dashnotesystemv1
+docker compose up -d api prometheus
 ```
 
 ### Validation gate (confirmed)
@@ -340,7 +331,6 @@ docker compose up -d api
 |-------|----------------|----------|
 | Prometheus targets | http://localhost:9090/targets | Job **`dashnote_api`**, endpoint `http://api:8000/metrics`, **State: UP** (green) |
 | Targets API | `curl.exe -sS http://localhost:9090/api/v1/targets` | `"health":"up"` for `job":"dashnote_api"` |
-| Grafana UI | http://localhost:3001/login | HTTP 200, login page loads |
 
 On the targets page, **State: UP** means the last scrape succeeded (`health: up` in the API). If the API container is down, the target shows **DOWN** with a last error such as connection refused.
 
@@ -351,9 +341,11 @@ On the targets page, **State: UP** means the last scrape succeeded (`health: up`
 
 ---
 
-## Step 6 — Grafana dashboards + docs
+## Step 6 — Grafana dashboards + docs (optional)
 
-**Human guide:** [`docs/observability.md`](../../docs/observability.md) (architecture, validation, troubleshooting). Also referenced from `src/docs/system.md`, `src/docs/ai.md`, and `src/docs/lld.md` §4.16.
+**Human guide:** [`docs/observability.md`](../observability.md) (architecture, validation, troubleshooting). Also referenced from [system.md](./system.md), [ai.md](./ai.md), and [lld.md](./lld.md) §4.16.
+
+Grafana dashboards are **optional**. Local Compose does not start Grafana. Provisioning files below are for operators who add Grafana or use Grafana Cloud.
 
 ### Provisioning files
 
@@ -374,17 +366,14 @@ On the targets page, **State: UP** means the last scrape succeeded (`health: up`
 
 Uses `_bucket` because Step 4 confirmed `dashnote_api_http_request_duration_seconds_bucket` on `/metrics`.
 
-### Reload + validate
+### Reload + validate (only if you run Grafana yourself)
 
 ```powershell
-docker compose restart grafana
-# UI: http://localhost:3001 → DashNote folder → API Overview
-1..10 | ForEach-Object { curl.exe -sS http://localhost:8000/health | Out-Null }
+# Not part of default docker compose up — add a grafana service first, or use Grafana Cloud
+# UI: DashNote folder → API Overview
 ```
 
-### Images
-
-Pinned `prom/prometheus:v2.51.2` and `grafana/grafana:10.4.2` are the standard lightweight official images; see `docs/observability.md` for alternatives note.
+Pinned `prom/prometheus:v2.51.2` is the local Compose metrics image. `grafana/grafana:10.4.2` remains the documented optional UI image; see `docs/observability.md`.
 
 ---
 
@@ -394,7 +383,7 @@ Pinned `prom/prometheus:v2.51.2` and `grafana/grafana:10.4.2` are the standard l
 Nginx → FastAPI
           ├─ JSON logs (stdout)
           ├─ Langfuse (RAG/agent traces)
-          └─ Prometheus → Grafana
+          └─ Prometheus (:9090)  [Grafana optional / Cloud]
 ```
 
 ## Retrieval-depth traces (Tier 1)

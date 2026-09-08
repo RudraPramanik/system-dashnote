@@ -2,7 +2,7 @@
 
 **Purpose:** Implementation patterns, call flows, module responsibilities, and abstractions — use ASCII flows below as source material for UML sequence/class diagrams.
 
-**Related:** `src/docs/system.md` (routing, Compose) · `src/docs/ai.md` (AI contracts) · `src/docs/rules.md` (import laws) · `src/docs/observe.md` (validation) · [`docs/uml/`](../../docs/uml/README.md) (Mermaid diagrams)
+**Related:** [system.md](./system.md) (routing, Compose) · [ai.md](./ai.md) (AI contracts) · [rules.md](./rules.md) (import laws) · [observe.md](./observe.md) (validation) · [`docs/uml/`](../uml/README.md) (Mermaid diagrams)
 
 ---
 
@@ -10,7 +10,7 @@
 
 Implementation-level design for the backend in this repository, aligned with code that exists today.
 
-**In scope:** Auth/JWT context · multi-tenant repositories · RBAC · storage backends · modules `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files` · AI slices 1–7.5 · observability (`observability/*`, Prometheus, Grafana)
+**In scope:** Auth/JWT context · multi-tenant repositories · RBAC · storage backends · modules `auth`, `workspaces`, `membership`, `notes`, `notebooks`, `files`, `integrations`, `pages` (ORM only) · AI slices 1–7.5 + HITL · observability (`observability/*`, Prometheus; Grafana Cloud / optional local Grafana files)
 
 **Out of scope:** Frontend · cloud provisioning beyond Compose/nginx/monitoring · Loki/Tempo/Jaeger/OTel Collector · non-implemented runtime components
 
@@ -33,13 +33,15 @@ Implementation-level design for the backend in this repository, aligned with cod
 
 ### 3.1 Composition (`src/main.py`)
 
-Router map, middleware, rate limits, Compose services: **`src/docs/system.md`**.
+Router map, middleware, rate limits, Compose services: **[system.md](./system.md)**.
 
 LLD-relevant wiring:
 
-- **Lifespan:** `setup_logging()` → ARQ pool → Qdrant bootstrap → LangGraph checkpointer (non-fatal)
-- **Global deps:** `enforce_global_rate_limit` (Redis fixed-window)
+- **Middleware:** `CORSMiddleware` (`CORS_ORIGINS`) + `ProxyHeadersMiddleware` + global `enforce_global_rate_limit`
+- **Lifespan:** `setup_logging()` → `configure_litellm_env` / `resolve_llm_model` (non-fatal) → ARQ pool → Qdrant bootstrap (non-fatal) → LangGraph checkpointer (non-fatal)
+- **Routers:** includes `integrations` (`/integrations`) and HITL agent resume/reject — see system.md table
 - **Metrics:** `Instrumentator` → `GET /metrics` (`dashnote_api_*`)
+- **Health:** hard `GET /health`; soft `GET /health/ai`
 
 ### 3.2 Protected request flow (sequence diagram source)
 
@@ -79,7 +81,7 @@ Client
 | `POST /auth/refresh` | Validate refresh JWT; rotate when Redis tracks `jti` |
 | `POST /auth/logout` | Blacklist access `jti`; revoke refresh when enabled |
 
-Token state: `core/redis/redis.py` (`get_token_store`). Details: `src/docs/auth.md`.
+Token state: `core/redis/redis.py` (`get_token_store`). Details: [auth.md](./auth.md).
 
 ### 4.2 `core.redis`
 
@@ -316,7 +318,7 @@ POST /ai/agent { message, thread_id? }
 
 Graph: `START → agent → tools → agent → END` · LiteLLM `tools=` (OpenAI function defs) · `AGENT_MAX_ITERATIONS` guard · lazy compile with optional checkpointer.
 
-**Coexistence:** `/ai/chat*` unchanged (fast RAG) · `/ai/agent*` additive. See `src/docs/rules.md` for modification laws.
+**Coexistence:** `/ai/chat*` unchanged (fast RAG) · `/ai/agent*` additive (incl. HITL resume/reject). See [rules.md](./rules.md) for modification laws.
 
 ### 4.16 Observability
 
@@ -325,7 +327,7 @@ RagService.answer / stream_answer
     └─► rag_trace → spans: retrieval, context_building, llm_generation
             └─► get_langfuse_client() (lazy, optional)
 
-HTTP → Instrumentator → dashnote_api_* → Prometheus → Grafana (API Overview)
+HTTP → Instrumentator → dashnote_api_* → Prometheus (:9090). Grafana is optional (Grafana Cloud or a separately added Compose service); provisioning files may live under `monitoring/grafana/` without a default local Grafana container.
 ```
 
 | Langfuse observation | Outputs |
@@ -335,7 +337,7 @@ HTTP → Instrumentator → dashnote_api_* → Prometheus → Grafana (API Overv
 | `context_building` | chunks_used, char_budget, latency_ms |
 | `llm_generation` | tokens, cost, latency_ms |
 
-Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Validation: **`src/docs/observe.md`**.
+Langfuse SDK only in `observability/langfuse_client.py` and `tracing.py`. Validation: **[observe.md](./observe.md)**.
 
 ### 4.17 Automation governance (Slice 7.4)
 

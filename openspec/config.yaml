@@ -14,25 +14,27 @@ context: |
   - Vectors: Qdrant (`notes_chunks`, `files_chunks`, embedding dim 3072)
   - LLM: LiteLLM (embeddings + chat); LangGraph agent; Langfuse via `observability.tracing` only
   - Storage: `get_storage()` — backends `local` | `minio` | `r2` (bytes in object store; metadata in Postgres `files`)
-  - Edge: Nginx rate limit + reverse proxy; Prometheus `/metrics`, Grafana in Compose
-  - Local: `docker compose up -d --build` → health at `http://127.0.0.1/health`
+  - Edge: Nginx rate limit + reverse proxy; Prometheus `/metrics` (Grafana optional / Cloud — not default local Compose)
+  - Local: `docker compose up -d --build` → health at `http://127.0.0.1/health` (+ soft `GET /health/ai`)
 
   ## Product domains (src modules)
   - `auth` — register/login/JWT (`sub`, `wid`, `role`, `jti`, `typ`); Redis refresh + access blacklist when Redis on
   - `workspaces`, `membership` — tenants and roles (`owner` | `admin` | `member`)
-  - `notebooks`, `notes`, `pages`, `files` — core content + attachments
-  - `ai`, `ai_gateway`, `ai_routes`, `ai_memory`, `ai_search` — embeddings, RAG chat, threads, LangGraph agent
+  - `notebooks`, `notes`, `pages` (ORM only, no HTTP), `files` — core content + attachments
+  - `integrations` — inbound email (API key) + WhatsApp webhook/link (`docs/inbound-channels.md`)
+  - `ai`, `ai_gateway`, `ai_routes`, `ai_memory` — embeddings, RAG chat, threads, LangGraph agent + HITL (`ai_search` POST router unmounted)
   - `core` — DB session, security/RequestContext, Redis, storage, rate limit
-  - `shared` — events bus, parsers, LLM helpers
+  - `shared` — events bus, parsers, LLM helpers (retry/fallback/structured)
   - `worker` — ingestion + automation tasks
   - `observability` — JSON logs, tracing, metrics
 
   ## HTTP surface (prefixes)
-  - `/health`, `/metrics`
+  - `/health` (hard: Postgres+Redis), `/health/ai` (soft: Qdrant+LLM), `/metrics`
   - `/auth` — register, login, refresh, logout
   - `/workspaces`, `/workspaces/members`
   - `/notebooks`, `/notes`, `/files`
-  - `/ai` — `GET /ai/test-search`; `POST /ai/chat`, `/ai/chat/stream`; threads; `POST /ai/agent`, `/ai/agent/stream`
+  - `/integrations` — inbound email; WhatsApp webhook + JWT link
+  - `/ai` — `GET /ai/test-search`; `POST /ai/chat`, `/ai/chat/stream`; threads; `POST /ai/agent`, `/ai/agent/stream`, `/ai/agent/resume`, `/ai/agent/reject`
   - Fast RAG (`/ai/chat*`) and agent (`/ai/agent*`) MUST coexist — never replace one with the other
 
   ## Tenancy & request context
@@ -63,6 +65,7 @@ context: |
   - `docs/documentation/auth.md` — JWT and injection
   - `docs/documentation/rules.md` — import/worker/storage/governance laws
   - `docs/documentation/observe.md` / `docs/observability.md` — observability
+  - `docs/inbound-channels.md` — email / WhatsApp inbound operators
   - Blueprint slices under `docs/documentation/blueprint/`
 
   ## Testing

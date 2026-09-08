@@ -2,7 +2,7 @@
 
 Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (`notes_chunks` + `files_chunks`, dim **3072**). API enqueues ARQ jobs; worker indexes vectors. Fast RAG and the agent search **both** collections via `WorkspaceVectorSearch`.
 
-**Related:** platform `src/docs/system.md` · import laws `src/docs/rules.md` · validation `src/docs/observe.md` · runbook `docs/observability.md`
+**Related:** platform [system.md](./system.md) · import laws [rules.md](./rules.md) · validation [observe.md](./observe.md) · runbook [observability.md](../observability.md) · soft AI probe `GET /health/ai`
 
 ### Architecture laws (enforce in all AI code)
 
@@ -15,9 +15,10 @@ Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM →
 | Qdrant search | **`WorkspaceVectorSearch`** in `ai/retrieval/wrapper.py` only — queries `notes_chunks` **and** `files_chunks` (merge by score); never `AsyncQdrantClient` in routers |
 | Qdrant writes | `WorkspaceVectorIndex` + `NoteVectorIndexer` (notes); `WorkspaceFileVectorIndex` + `FileVectorIndexer` (files) — worker/indexer path only |
 | RBAC filter | `build_rbac_filter()` in `ai/retrieval/filters.py` — mirrors `notes/permissions.py` exactly |
-| Routers | Test: **`GET /ai/test-search`**; chat: **`POST /ai/chat`**, **`POST /ai/chat/stream`**; agent: **`POST /ai/agent`**, **`POST /ai/agent/stream`** |
+| Routers | Test: **`GET /ai/test-search`**; chat: **`POST /ai/chat`**, **`POST /ai/chat/stream`**; agent: **`POST /ai/agent`**, **`POST /ai/agent/stream`**, **`POST /ai/agent/resume`**, **`POST /ai/agent/reject`** |
 | Services | **`RagService.answer()`** / **`stream_answer()`** — plain `workspace_id` / `user_id` / `role` strings only |
-| Streaming | SSE citations in final `metadata` event only — never parsed from token stream |
+| Streaming | SSE citations in final `metadata` event only — never parsed from token stream; quiet streams emit SSE comment heartbeats (`ai_routes/sse_heartbeat.py`) |
+| HITL | Mutation tools (`create_note`, `update_note`) interrupt → `approval_required` then stream ends; client reconnects via resume/reject |
 | Memory ORM | **`src/ai_memory/`** — `AIThread`, `AIMessage`; never import SQLAlchemy from `src/ai/*` |
 | Memory service | **`ThreadService`**, **`ContextBuilder`** |
 | Agent tools | **`get_note_tools()`** — `StructuredTool` + Pydantic `args_schema`; service layer only |
@@ -152,6 +153,7 @@ Resilience for automation LLM calls and agent `call_model`. Blueprint: `docs/doc
 |------|------|
 | `shared/llm/env.py` | `configure_litellm_env()` — push provider keys into `os.environ` at API/worker startup |
 | `shared/llm/retry.py` | `RETRYABLE_EXCEPTIONS`, `FATAL_EXCEPTIONS`, `acompletion_with_retry()` |
+| `shared/llm/fallback.py` | `acompletion_with_fallback` / `resolve_llm_model` — wall-clock abort + walk `LLM_MODEL` then `LLM_MODEL_FALLBACKS` on 410 or timeout |
 | `shared/llm/structured.py` | `extract_json_blob()`, `parse_structured_response()`, `acompletion_structured()`, `StructuredLLMParseError` |
 
 **Import law:** `shared/llm/*` may import `config`, `litellm`, `pydantic`, `tenacity`, stdlib only. Both `src/worker/*` and `src/ai/*` import from `shared/llm/` — never `worker` from `ai`.
@@ -162,13 +164,15 @@ Resilience for automation LLM calls and agent `call_model`. Blueprint: `docs/doc
 |--------|----------|----------------------|
 | `generate_note_tags`, `generate_file_metadata` | `acompletion_structured` | Re-raise → ARQ job retry |
 | `AutomationDecisionEngine.evaluate_action` | `acompletion_structured` | Fail-safe block (`is_destructive=True`) |
-| `workspace_assistant.call_model` | `acompletion_with_retry` | Re-raise → route maps to **503** |
+| `workspace_assistant.call_model`, `RagService` | `acompletion_with_fallback` | Exhausted candidates → **503** / `LLMUnavailableError` |
 
 **Log markers:** `[AUTOMATION_LLM_RETRY_EXHAUSTED]`, `[AUTOMATION_LLM_PARSE_FAIL]`, `[AUTOMATION_LLM_AUTH_FAIL]`
 
 **Embedding retry** stays in `ai/embeddings/litellm_provider.py` — not merged into `shared/llm/`.
 
-**Agent HTTP:** `ai_routes/agent.py` maps exhausted `RateLimitError` / `ServiceUnavailableError` to **503** `"LLM temporarily unavailable; retry shortly"` (not opaque 500).
+**Soft health:** `GET /health/ai` reports Qdrant + LLM reachability; never part of hard `GET /health`.
+
+**Agent / chat HTTP:** `ai_routes/agent.py` and chat map exhausted LLM to **503** `"LLM temporarily unavailable; retry shortly"` (not opaque 500). Streams use `iter_with_heartbeat` so nginx does not drop a quiet first hop.
 
 ---
 
@@ -239,7 +243,7 @@ Auth: Bearer JWT → `RequestContext`. **503** when `ai_enabled` or `qdrant_enab
 | `POST /ai/chat` | `message` (1–2000 chars); optional `thread_id` | `answer`, `citations[]`, `chunks_retrieved`, `chunks_used`, `latency_ms`, `thread_id` |
 | `POST /ai/chat/stream` | Same | SSE: `token` events → `metadata` (citations, `thread_id`) → `[DONE]` |
 
-Stream headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Citations from **top retrieved chunks** (not the token stream). Shape: `{ note_id, chunk_id, title, relevance_score, source_type, file_id }` with `source_type` `note` | `file`. Empty retrieval: *I could not find relevant information in your notes and files for this query.*
+Stream headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Quiet streams also emit SSE comment heartbeats via `iter_with_heartbeat`. Citations from **top retrieved chunks** (not the token stream). Shape: `{ note_id, chunk_id, title, relevance_score, source_type, file_id }` with `source_type` `note` | `file`. Empty retrieval: *I could not find relevant information in your notes and files for this query.*
 
 ---
 
@@ -265,38 +269,49 @@ Cross-workspace access: **404** on thread routes, **400** on chat reuse. `worksp
 
 ---
 
-## Slice 6 — LangGraph workspace assistant
+## Slice 6 — LangGraph workspace assistant (+ HITL)
 
-Adds **`POST /ai/agent`** and **`POST /ai/agent/stream`**. **`/ai/chat*`** unchanged (fast RAG).
+Adds **`POST /ai/agent`**, **`POST /ai/agent/stream`**, **`POST /ai/agent/resume`**, **`POST /ai/agent/reject`**. **`/ai/chat*`** unchanged (fast RAG).
 
 | Path | Role |
 |------|------|
 | `ai/memory/checkpointer.py` | `AsyncPostgresSaver` (psycopg3); `init_checkpointer()` in lifespan |
+| `ai/hitl.py` | Interrupt extraction → `approval_required` event fields |
 | `notes/service.py` | `create_note()` / `update_note()` for agent tools |
 | `ai/tools/schemas.py` | Pydantic `args_schema` models |
-| `ai/tools/note_tools.py` | Four `StructuredTool`s; `db_session_var` for mutations |
+| `ai/tools/note_tools.py` | Four `StructuredTool`s; `db_session_var` for mutations; HITL before create/update side effects |
 | `ai/workflows/state.py` | `AgentState` — messages, tenant fields, `steps_taken`, `thread_id` |
 | `ai/workflows/workspace_assistant.py` | Graph: `START → agent → tools → agent → END`; lazy compile |
 | `ai_routes/agent.py` | Agent HTTP endpoints |
+| `ai_routes/sse_heartbeat.py` | SSE comment keepalives for quiet streams |
 
 **Tool chain** (never shortcut to repository):
 
-| Tool | Service |
-|------|---------|
-| `search_notes` | `RagService.answer(...)` — notes **and** indexed files |
-| `create_note` | `NoteService.create_note(db, ...)` — `db` from `db_session_var` |
-| `update_note` | `NoteService.update_note(db, ...)` |
-| `summarize_workspace` | `RagService.answer(..., retrieval_limit=12)` |
+| Tool | Service | HITL |
+|------|---------|------|
+| `search_notes` | `RagService.answer(...)` — notes **and** indexed files | No |
+| `create_note` | `NoteService.create_note(db, ...)` — `db` from `db_session_var` | **Yes** — interrupt before persist |
+| `update_note` | `NoteService.update_note(db, ...)` | **Yes** — interrupt before persist |
+| `summarize_workspace` | `RagService.answer(..., retrieval_limit=12)` | No |
 
-**Agent contract:** `POST /ai/agent` → `AgentResponse` (`answer`, `thread_id`, `steps_taken`, `tool_calls_made`). Stream: SSE from `graph.astream_events` (`token`, `tool_start`, `tool_end`, `done`, `[DONE]`). LangGraph config: `{"configurable": {"thread_id": thread_id}}`. LiteLLM `tools=` with OpenAI function defs — not LangChain `.bind_tools()`. `call_model` uses `shared.llm.acompletion_with_retry` (Slice 7.5).
+**Agent contract:**
 
-Slice 6 invariants: see `src/docs/rules.md`.
+| Route | Behavior |
+|-------|----------|
+| `POST /ai/agent` | JSON: completed turn **or** `approval_required` (`tool`, `args`, `thread_id`, `interrupt_id`) |
+| `POST /ai/agent/stream` | SSE: `token`, `tool_start`, `tool_end`, `approval_required`, `done`/`error`, `[DONE]`. After `approval_required`, stream **ends** |
+| `POST /ai/agent/resume` | Body `{ thread_id, interrupt_id? }` — JWT workspace only; continues pending mutation |
+| `POST /ai/agent/reject` | Same body — ends turn without applying create/update |
+
+LangGraph config: `{"configurable": {"thread_id": thread_id}}`. LiteLLM `tools=` with OpenAI function defs — not LangChain `.bind_tools()`. `call_model` uses `shared.llm.acompletion_with_fallback` (wall-clock + candidate walk).
+
+Slice 6 invariants: see [rules.md](./rules.md). HITL blueprint history: [blueprint/slice8_hitl.md](./blueprint/slice8_hitl.md).
 
 ---
 
 ## Observability
 
-RAG instrumentation via `observability.tracing` (`rag_trace` → spans `retrieval`, `context_building`, `llm_generation`). HTTP metrics at `GET /metrics` (`dashnote_api_*`). Details and validation commands: **`src/docs/observe.md`**.
+RAG instrumentation via `observability.tracing` (`rag_trace` → spans `retrieval`, `context_building`, `llm_generation`). HTTP metrics at `GET /metrics` (`dashnote_api_*`). Soft AI readiness: **`GET /health/ai`**. Details and validation commands: **[observe.md](./observe.md)**.
 
 ---
 
@@ -304,9 +319,10 @@ RAG instrumentation via `observability.tracing` (`rag_trace` → spans `retrieva
 
 | Doc | Content |
 |-----|---------|
-| `src/docs/system.md` | Routers, tenancy, Compose, rate limits |
-| `src/docs/rules.md` | Import direction, Slice 6 modification laws |
-| `src/docs/lld.md` | §4.12–4.18 (flows, retrieval, RAG, agent, automation, shared LLM) |
-| `src/docs/observe.md` | Validation commands, observability steps |
-| `src/docs/blueprint/slice*.md` | Per-slice build history and sign-off gates |
-| `docs/documentation/blueprint/slice7-llm-hardening.md` | Slice 7.5 recovery blueprint and gate criteria |
+| [system.md](./system.md) | Routers, tenancy, Compose, rate limits, `/health` vs `/health/ai` |
+| [rules.md](./rules.md) | Import direction, Slice 6 modification laws |
+| [lld.md](./lld.md) | §4.12–4.18 (flows, retrieval, RAG, agent, automation, shared LLM) |
+| [observe.md](./observe.md) | Validation commands, observability steps |
+| [frontendguide.md](./frontendguide.md) | Client SSE + HITL Approve/Reject |
+| [blueprint/](./blueprint/) | Per-slice build history and sign-off gates |
+| [blueprint/slice7-llm-hardening.md](./blueprint/slice7-llm-hardening.md) | Slice 7.5 recovery blueprint and gate criteria |

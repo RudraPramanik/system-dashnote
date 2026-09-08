@@ -331,11 +331,18 @@ Pass returned `thread_id` back into chat/agent requests to continue. Message obj
 | `token` | `content` | Stream assistant text |
 | `tool_start` | `tool`, `args` | Show “Running {tool}…” |
 | `tool_end` | `tool`, `result` (truncated) | Show tool finished |
+| `approval_required` | `tool`, `args`, `thread_id`, `interrupt_id` | Stream then **ends**. Show Approve / Reject. Do not auto-approve. |
 | `done` | `thread_id`, `steps_taken` | Finalize |
 | `error` | `message` | User-visible error; suggest falling back to chat |
 | `[DONE]` | literal | Close stream |
 
-Agent may create/update notes via tools — refresh the notes list after `done` when tools ran. Agent failures often return **503** (`LLM temporarily unavailable`) on the non-stream route.
+If the stream closes with no `token`, `done`, `approval_required`, or `error`, treat it as failure and show `LLM temporarily unavailable; retry shortly` — not an empty bubble.
+
+**Approve:** `POST /ai/agent/resume` body `{ "thread_id": "...", "interrupt_id": "..." }` (interrupt_id optional). JWT only — do **not** send `workspace_id`. JSON response is the continued turn (`answer`, …) or another `approval_required`.
+
+**Reject:** `POST /ai/agent/reject` with the same body. No note create/update persists.
+
+Agent may create/update notes via tools — refresh the notes list after a successful resume. Agent failures often return **503** (`LLM temporarily unavailable`) on the non-stream route. Chat (`/ai/chat*`) remains a separate mode without this gate.
 
 ### 5.5 Chat vs agent UX
 

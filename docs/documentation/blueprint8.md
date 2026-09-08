@@ -62,19 +62,19 @@ ALWAYS ON — Tier 0 job gate (hire minimum)
 Compatible with Slice 8X **deploy-first** calendar: CI → finish prod → frontend → evals → HITL  
 (see [`slice8_X.md`](blueprint/slice8_X.md)). Blueprint8 adds Alive + Tier map on top; it does not invent a second contradictory order.
 
-### Active window (2026-09) — local AI-depth-first Tier 1
+### Active window (2026-09) — VPS HTTP first-boot (local Tier 1 complete)
 
-VPS A-gate (HTTPS smoke / A4–A7) is deferred. Operators **MAY** implement Tier 1 deepeners (HITL, Langfuse depth, trajectory goldens, fixture CI) against the **local Compose + FE** Alive stack now.
+Local AI-depth-first Tier 1 (HITL, Langfuse depth, trajectory goldens, fixture CI) is **done**. That window was **not** a waiver of Tier 0.
 
-This follows Slice 8X’s **alternate AI-depth-first** path — it is **not** a waiver of Tier 0 production proof.
+VPS work has **resumed** on AWS t3.small (~2 GB RAM / 30 GiB): HTTP-on-IP first-boot of api/worker/nginx against hosted Supabase/Redis/Qdrant/R2. There is **no domain yet** — first-boot smoke is `http://<vps-ipv4>`.
 
 | Allowed now | Still forbidden |
 |-------------|-----------------|
-| Local HITL / evals / Langfuse depth | Claiming **production-live** |
-| Fixture CI gates | Claiming **hire-ready / job search** solely from local Tier 1 |
+| HTTP first-boot + hard-gate smoke on the public IP | Claiming **production-live** from HTTP-IP |
+| Recording A1 (hosted plane) and first-boot evidence | Claiming **hire-ready / job search** |
 | Local cost/latency samples (label as local) | GraphRAG / multi-agent on the default path |
 
-When VPS work resumes: close A4/A7 smoke before any production-live claim.
+**HTTPS A4/A7 smoke remains required** before any production-live claim. GitHub CD HTTPS is not required to close first-boot.
 
 ---
 

@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai.hitl import approval_event_from_interrupt, extract_interrupts
+from ai_routes.sse_heartbeat import iter_with_heartbeat
 from ai.memory.service import ThreadService
 from ai.tools.note_tools import db_session_var
 from ai.workflows.workspace_assistant import get_workspace_assistant
@@ -405,53 +406,62 @@ async def agent_chat_stream(
             }
 
             steps = 0
-            async for event in graph.astream_events(
-                initial_state, config=config, version="v2"
-            ):
-                kind = event.get("event", "")
-                data = event.get("data", {})
 
-                if kind == "on_chat_model_stream":
-                    chunk = data.get("chunk", {})
-                    content = _extract_stream_chunk_content(chunk)
-                    if content:
-                        yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
+            async def _sse_frames():
+                nonlocal steps
+                async for event in graph.astream_events(
+                    initial_state, config=config, version="v2"
+                ):
+                    kind = event.get("event", "")
+                    data = event.get("data", {})
 
-                elif kind == "on_tool_start":
-                    payload = {
-                        "type": "tool_start",
-                        "tool": event.get("name", ""),
-                        "args": data.get("input", {}),
-                    }
-                    yield f"data: {json.dumps(payload)}\n\n"
+                    if kind == "on_chat_model_stream":
+                        chunk = data.get("chunk", {})
+                        content = _extract_stream_chunk_content(chunk)
+                        if content:
+                            yield (
+                                f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
+                            )
 
-                elif kind == "on_tool_end":
-                    result = data.get("output", "")
-                    payload = {
-                        "type": "tool_end",
-                        "tool": event.get("name", ""),
-                        "result": str(result)[:200],
-                    }
-                    yield f"data: {json.dumps(payload)}\n\n"
+                    elif kind == "on_tool_start":
+                        payload = {
+                            "type": "tool_start",
+                            "tool": event.get("name", ""),
+                            "args": data.get("input", {}),
+                        }
+                        yield f"data: {json.dumps(payload)}\n\n"
 
-                elif kind == "on_chain_end" and event.get("name") == "LangGraph":
-                    output = data.get("output", {})
-                    if isinstance(output, dict):
-                        steps = int(output.get("steps_taken", 0))
+                    elif kind == "on_tool_end":
+                        result = data.get("output", "")
+                        payload = {
+                            "type": "tool_end",
+                            "tool": event.get("name", ""),
+                            "result": str(result)[:200],
+                        }
+                        yield f"data: {json.dumps(payload)}\n\n"
 
-            # After stream: HITL pause → approval_required then close (no done)
-            snap = await graph.aget_state(config)
-            pending = extract_interrupts(snap)
-            if pending:
-                event_payload = approval_event_from_interrupt(
-                    pending[0], thread_id=resolved_thread_id
+                    elif kind == "on_chain_end" and event.get("name") == "LangGraph":
+                        output = data.get("output", {})
+                        if isinstance(output, dict):
+                            steps = int(output.get("steps_taken", 0))
+
+                snap = await graph.aget_state(config)
+                pending = extract_interrupts(snap)
+                if pending:
+                    event_payload = approval_event_from_interrupt(
+                        pending[0], thread_id=resolved_thread_id
+                    )
+                    yield f"data: {json.dumps(event_payload)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                yield (
+                    f"data: {json.dumps({'type': 'done', 'thread_id': resolved_thread_id, 'steps_taken': steps})}\n\n"
                 )
-                yield f"data: {json.dumps(event_payload)}\n\n"
                 yield "data: [DONE]\n\n"
-                return
 
-            yield f"data: {json.dumps({'type': 'done', 'thread_id': resolved_thread_id, 'steps_taken': steps})}\n\n"
-            yield "data: [DONE]\n\n"
+            async for frame in iter_with_heartbeat(_sse_frames()):
+                yield frame
 
         except Exception as e:
             logger.exception("Agent stream failed")

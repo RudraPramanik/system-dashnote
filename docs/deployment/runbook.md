@@ -1,48 +1,112 @@
 # VPS deploy runbook
 
 > Platform steps **7P.5** (scripts) + **7P.8** (CD gate). Compose file: `docker-compose.prod.yml` only.  
-> Storage contract: [`storage.md`](storage.md). Never commit a filled `.env`.  
-> Do **not** claim production-live until the **production gate checklist** below passes (hard health + smoke).
+> Storage contract: [`storage.md`](storage.md). Never commit a filled `.env` or `.env.production`.  
+> **First-boot (no domain):** HTTP on the VPS public IPv4 is enough to prove the thin stack. That is **not** A7, **not** production-live, **not** hire-ready.  
+> **Production-live:** still requires `GET https://<prod-api>/health` and HTTPS `smoke_prod.py` exit 0. GitHub CD HTTPS success is **not** required to close HTTP first-boot.
 
 ## 1. Prerequisites checklist
 
 | Item | Expected |
 |------|----------|
 | VPS OS | Ubuntu 22.04+ (or equivalent Linux) |
+| VPS size | AWS t3.small (~2 GB RAM / 30 GiB) or equivalent thin compute |
 | Docker | Docker Engine + **Compose plugin** (`docker compose version`) |
-| Hosted Postgres | `DATABASE_URL` reachable from the VPS |
-| Hosted Redis | `REDIS_URL` reachable from the VPS |
+| Hosted Postgres | `DATABASE_URL` reachable **from the VPS** |
+| Hosted Redis | `REDIS_URL` reachable from the VPS (`ARQ_REDIS_URL` MAY be the same host if BLPOP works) |
 | Qdrant Cloud | `QDRANT_URL` (+ key if required); soft at boot — see 7P.3 |
 | Object storage | Cloudflare R2 (or S3-compatible) per [`storage.md`](storage.md) |
-| DNS | A record (or Cloudflare proxy) → VPS public IP |
-| Secrets | Copy from `.env.production.example` → VPS `.env` (not in git) |
+| DNS | Optional for first-boot. Required later for TLS / A7 (`api.<domain>`). |
+| Secrets | Fill gitignored `.env.production` from `.env.production.example`, copy to VPS as `.env` |
 
-**Compose law:** On the VPS always use `-f docker-compose.prod.yml`. Never run the local full-stack `docker-compose.yml` in production (it expects in-compose db/redis/qdrant).
+**Compose law:** On the VPS always use `-f docker-compose.prod.yml`. Never run the local full-stack `docker-compose.yml` on the VPS (it starts in-box db/redis/qdrant and will OOM a 2 GB box). Sibling frontend stays off this VPS.
 
-## 2. First-time VPS setup
+## 2. HTTP first-boot (no domain)
+
+Current compute: **AWS t3.small (~2 GB RAM / 30 GiB disk)**. Hosted data plane stays off-box. Nginx publishes **:80** only; api `:8000` stays unpublished.
+
+### 2.1 Edge / SSH
+
+- AWS security group (and ufw if enabled): **22** from your IP; **80** from your IP (open to `0.0.0.0/0` only if you need a public probe).
+- Do **not** publish or SG-open api **8000**. Do **not** open **443** until TLS exists.
+- SSH in as the deploy user. Confirm public IPv4 (`curl -4 -s ifconfig.me` or the AWS console).
+
+### 2.2 RAM rules (2 GB)
+
+| Do | Do not |
+|----|--------|
+| `docker-compose.prod.yml` → api + worker + nginx | Local `docker-compose.yml` (db/redis/qdrant/prometheus) |
+| 1–2 GiB swap (recommended before image build) | `--profile observability` / Prometheus on first boot |
+| Hosted Postgres, Redis, Qdrant, R2 | Frontend / Node on this box |
+
+Swap (once, if missing):
 
 ```bash
-# On the VPS, from the repo root (clone or copy compose + nginx + monitoring files)
-git clone <repo-url> dashnotesystemv1
+sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+```
+
+### 2.3 Env file
+
+On the operator machine (not in git):
+
+```bash
+cp .env.production.example .env.production
+# fill hosted URLs, R2, JWT, LLM keys — CORS_ORIGINS MUST NOT be "*"
+scp .env.production user@<vps-ipv4>:/path/to/dashnotesystemv1/.env
+```
+
+On the VPS, probe hosted-plane reachability **before** `up` (use the real hosts/ports from `.env`):
+
+```bash
+# nc -vz <postgres-host> 6543
+# nc -vz <redis-host> 6379
+# curl -sS -o /dev/null -w "%{http_code}\n" "$QDRANT_URL"
+```
+
+TLS/auth failures can still prove the network path. Fix pooler port / SSL / IP allowlists here — do not change app code.
+
+### 2.4 Image, migrate, up
+
+```bash
+git clone <repo-url> dashnotesystemv1   # or sync compose + nginx + scripts
 cd dashnotesystemv1
-
-cp .env.production.example .env
-# Edit .env — fill DATABASE_URL, REDIS_URL, QDRANT_*, JWT secrets, R2_*, LLM keys, etc.
-
 chmod +x scripts/deploy/*.sh
 
-docker compose -f docker-compose.prod.yml build
+# Preferred: pull a pre-built image (avoids OOM during docker build on 2 GB)
+# export IMAGE=ghcr.io/<owner>/<repo>:<tag>
+# docker pull "$IMAGE"
+
+# Fallback: swap on, then build
+# docker compose -f docker-compose.prod.yml build
+
 ./scripts/deploy/migrate.sh
 ./scripts/deploy/up.sh
 ./scripts/deploy/health-check.sh
 ```
 
-Optional observability (Prometheus profile only):
+Leave Prometheus **off**. Do not pass `--profile observability`.
+
+### 2.5 HTTP-on-IP proof (first-boot only)
+
+From your laptop (security group must allow your IP on :80):
 
 ```bash
-docker compose -f docker-compose.prod.yml --profile observability up -d prometheus
+curl -sS http://<vps-ipv4>/health
+SMOKE_BASE_URL=http://<vps-ipv4> python scripts/smoke_prod.py
 ```
 
+If laptop cannot reach :80, on the VPS:
+
+```bash
+python scripts/smoke_prod.py   # default http://127.0.0.1
+```
+
+and from the laptop still run `curl -sS http://<vps-ipv4>/health` so the public edge is proven.
+
+**HTTP-IP PASS = first-boot evidence only.** It does **not** close A7 TLS, production-live, or job search. TLS stays a later decision (section 5) after a domain exists. GitHub CD is optional; do not wait on `deploy.yml` to finish first-boot.
 ## 3. Deploy sequence (every release)
 
 From the repo root on the VPS:
@@ -88,9 +152,11 @@ If a bad image is running, prefer pinning `IMAGE=<previous_tag>` in `.env` and r
 | **Caddy** | Replace or sit in front of nginx; automatic Let's Encrypt. Documented as a common thin-VPS choice. |
 | **Certbot + nginx** | Obtain certificates on the host; extend nginx to listen on 443 and mount certs (compose currently comments 443 — wire when chosen). |
 
-This section is decision documentation only. Shipping a specific TLS setup is deferred (typically with 7P.8 / real VPS).
+This section is decision documentation only. **First-boot does not implement TLS.** Wire one of these after a domain exists (A7). HTTP-on-IP PASS does not satisfy A7.
 
 ## 6. Optional observability profile
+
+**MUST stay off on first-boot** of a 2 GB VPS (Prometheus is ~256 MB you do not have to spare). Enable only after RAM headroom is proven:
 
 ```bash
 docker compose -f docker-compose.prod.yml --profile observability up -d prometheus
@@ -103,10 +169,13 @@ Grafana stays off-VPS (e.g. Grafana Cloud remote_write). See compose comments on
 After `health-check.sh` (or against a public URL), run the lean hard gate:
 
 ```bash
-# On VPS (nginx edge) or against a public API URL
-python scripts/smoke_prod.py
-# Or:
+# First-boot (no domain) — laptop against public IPv4
+SMOKE_BASE_URL=http://<vps-ipv4> python scripts/smoke_prod.py
+
+# Fallback on the VPS (plus laptop curl to the public IP)
 SMOKE_BASE_URL=http://127.0.0.1 python scripts/smoke_prod.py
+
+# Production-live (after domain + TLS) — required for A7
 SMOKE_BASE_URL=https://api.example.com python scripts/smoke_prod.py
 ```
 
@@ -172,18 +241,27 @@ docker pull "$IMAGE"
 SMOKE_BASE_URL=https://api.example.com python scripts/smoke_prod.py
 ```
 
-### Production gate checklist
+### First-boot checklist (HTTP-on-IP — not production-live)
 
-Complete **all** before claiming production-live or starting post-7P.8 feature work:
+- [ ] `./scripts/deploy/health-check.sh` → success
+- [ ] `curl -sS http://<vps-ipv4>/health` → hard deps (Postgres + Redis)
+- [ ] `SMOKE_BASE_URL=http://<vps-ipv4> python scripts/smoke_prod.py` → exit 0
+- [ ] `docker compose -f docker-compose.prod.yml ps` — api/worker/nginx up; **no** db/redis/qdrant containers; Prometheus profile off
+- [ ] Record as first-boot only in `goal.md` — leave A7 unchecked
 
-- [ ] `./scripts/deploy/health-check.sh` (or `curl` to the public `/health`) → success
-- [ ] `SMOKE_BASE_URL=... python scripts/smoke_prod.py` → exit 0
-- [ ] `docker compose -f docker-compose.prod.yml ps` — api/worker/nginx healthy / up
+GitHub CD HTTPS is **not** required to tick this list.
+
+### Production-live checklist (HTTPS — A7)
+
+Complete **all** before claiming production-live or hire-ready:
+
+- [ ] `GET https://<prod-api>/health` → success
+- [ ] `SMOKE_BASE_URL=https://<prod-api> python scripts/smoke_prod.py` → exit 0
 - [ ] Worker logs: no crash loop (`docker compose -f docker-compose.prod.yml logs worker --tail 100`)
 - [ ] Qdrant Cloud shows collections (soft — informational)
 - [ ] After a test upload, R2 (or configured object store) has objects (soft — informational)
 
-CD fails the GitHub Actions job if SSH health-check or runner smoke exits non-zero. A green workflow is necessary but operators should still tick the checklist on a real VPS once.
+CD fails the GitHub Actions job if SSH health-check or runner smoke exits non-zero. A green CD workflow is not a substitute for HTTPS smoke on a real URL.
 
 ## Windows / PowerShell notes (local operators)
 

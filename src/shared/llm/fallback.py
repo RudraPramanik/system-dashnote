@@ -1,5 +1,6 @@
 """
-Walk LLM_MODEL then LLM_MODEL_FALLBACKS when a hosted id is gone (HTTP 410).
+Walk LLM_MODEL then LLM_MODEL_FALLBACKS when a hosted id is gone (HTTP 410)
+or exceeds the per-candidate wall clock.
 
 Import law: config, litellm, shared.llm.retry, stdlib only.
 """
@@ -27,6 +28,28 @@ class LLMUnavailableError(RuntimeError):
 
     def __init__(self, message: str = LLM_UNAVAILABLE_MESSAGE) -> None:
         super().__init__(message)
+
+
+class _ReplayStream:
+    """Async iterator that replays the first chunk then continues the source."""
+
+    def __init__(self, first: Any, rest: Any, *, empty: bool) -> None:
+        self._first = first
+        self._rest = rest
+        self._empty = empty
+        self._sent_first = False
+
+    def __aiter__(self) -> _ReplayStream:
+        return self
+
+    async def __anext__(self) -> Any:
+        if self._empty and not self._sent_first:
+            self._sent_first = True
+            raise StopAsyncIteration
+        if not self._sent_first:
+            self._sent_first = True
+            return self._first
+        return await self._rest.__anext__()
 
 
 def is_model_gone(exc: BaseException) -> bool:
@@ -80,26 +103,81 @@ def _candidates(explicit: str | None) -> list[str]:
     return [m for m in ordered if m not in _skip] or list(ordered)
 
 
+def _wall_clock(settings: Any) -> float:
+    raw = getattr(settings, "AGENT_TOOL_TIMEOUT", 30)
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return float(raw)
+    return 30.0
+
+
+def _disable_nvidia_thinking(call_kwargs: dict[str, Any]) -> None:
+    """Nemotron thinking traces can ignore LLM_MAX_TOKENS; keep agent hops bounded."""
+    model = str(call_kwargs.get("model") or "")
+    if not model.startswith("nvidia_nim/"):
+        return
+    extra = call_kwargs.get("extra_body")
+    extra_body: dict[str, Any] = dict(extra) if isinstance(extra, dict) else {}
+    chat_kwargs = extra_body.get("chat_template_kwargs")
+    merged = dict(chat_kwargs) if isinstance(chat_kwargs, dict) else {}
+    merged["enable_thinking"] = False
+    extra_body["chat_template_kwargs"] = merged
+    call_kwargs["extra_body"] = extra_body
+
+
+async def _first_chunk_stream(stream: Any, wall: float) -> Any:
+    aiter = stream.__aiter__()
+    try:
+        first = await asyncio.wait_for(aiter.__anext__(), timeout=wall)
+    except StopAsyncIteration:
+        return _ReplayStream(None, aiter, empty=True)
+    return _ReplayStream(first, aiter, empty=False)
+
+
+async def _invoke_candidate(
+    *, stream: bool, call_kwargs: dict[str, Any], wall: float
+) -> Any:
+    if stream:
+        result = await asyncio.wait_for(
+            litellm.acompletion(**call_kwargs), timeout=wall
+        )
+        if hasattr(result, "__aiter__"):
+            return await _first_chunk_stream(result, wall)
+        return result
+    return await asyncio.wait_for(
+        acompletion_with_retry(**call_kwargs), timeout=wall
+    )
+
+
 async def acompletion_with_fallback(**kwargs: Any) -> Any:
     """
-    litellm.acompletion with model-gone fallback.
+    litellm.acompletion with model-gone and wall-clock fallback.
 
-    Non-stream calls use acompletion_with_retry (transient errors).
-    Stream calls use litellm.acompletion directly.
+    Non-stream calls use acompletion_with_retry (transient errors) inside
+    asyncio.wait_for(AGENT_TOOL_TIMEOUT). Stream calls use litellm.acompletion
+    and wait for the first chunk under the same budget.
     """
     stream = bool(kwargs.get("stream", False))
     models = _candidates(kwargs.get("model") if isinstance(kwargs.get("model"), str) else None)
+    settings = get_settings()
+    wall = _wall_clock(settings)
     last_exc: BaseException | None = None
 
     for model in models:
         call_kwargs = {**kwargs, "model": model}
+        _disable_nvidia_thinking(call_kwargs)
         try:
-            if stream:
-                result = await litellm.acompletion(**call_kwargs)
-            else:
-                result = await acompletion_with_retry(**call_kwargs)
+            result = await _invoke_candidate(
+                stream=stream, call_kwargs=call_kwargs, wall=wall
+            )
             _remember(model)
             return result
+        except asyncio.TimeoutError as exc:
+            last_exc = exc
+            logger.warning(
+                "LLM candidate timed out; trying next",
+                extra={"model": model, "timeout_s": wall},
+            )
+            continue
         except Exception as exc:
             last_exc = exc
             if is_model_gone(exc):

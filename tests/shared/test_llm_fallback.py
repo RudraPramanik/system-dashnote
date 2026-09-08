@@ -93,3 +93,77 @@ async def test_stream_fallback_uses_litellm_acompletion():
         )
 
     assert result == {"stream": True}
+
+
+@pytest.mark.asyncio
+async def test_fallback_skips_timed_out_primary():
+    settings = MagicMock()
+    settings.llm_model_candidates = ["slow-model", "live-model"]
+    settings.AGENT_TOOL_TIMEOUT = 0.05
+
+    async def fake_retry(**kwargs):
+        if kwargs["model"] == "slow-model":
+            await __import__("asyncio").sleep(1)
+        return {"ok": True}
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        patch(
+            "shared.llm.fallback.acompletion_with_retry",
+            new_callable=AsyncMock,
+            side_effect=fake_retry,
+        ),
+    ):
+        result = await acompletion_with_fallback(
+            messages=[{"role": "user", "content": "hi"}]
+        )
+
+    assert result == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_all_candidates_timeout_raises_unavailable():
+    settings = MagicMock()
+    settings.llm_model_candidates = ["a", "b"]
+    settings.AGENT_TOOL_TIMEOUT = 0.05
+
+    async def fake_retry(**kwargs):
+        await __import__("asyncio").sleep(1)
+        return {"ok": True}
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        patch(
+            "shared.llm.fallback.acompletion_with_retry",
+            new_callable=AsyncMock,
+            side_effect=fake_retry,
+        ),
+    ):
+        with pytest.raises(LLMUnavailableError, match="LLM temporarily unavailable"):
+            await acompletion_with_fallback(messages=[{"role": "user", "content": "hi"}])
+
+
+@pytest.mark.asyncio
+async def test_nvidia_thinking_disabled_on_nim_candidate():
+    settings = MagicMock()
+    settings.llm_model_candidates = ["nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"]
+    settings.AGENT_TOOL_TIMEOUT = 30
+
+    captured: dict = {}
+
+    async def fake_retry(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        patch(
+            "shared.llm.fallback.acompletion_with_retry",
+            new_callable=AsyncMock,
+            side_effect=fake_retry,
+        ),
+    ):
+        await acompletion_with_fallback(messages=[{"role": "user", "content": "hi"}])
+
+    extra = captured.get("extra_body") or {}
+    assert extra.get("chat_template_kwargs", {}).get("enable_thinking") is False

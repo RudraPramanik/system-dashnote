@@ -32,6 +32,7 @@ from core.database.session import get_session
 from core.security.dependency import get_current_context
 from core.security.context import RequestContext
 from ai.services.rag_service import ChatResult, Citation, get_rag_service, RagService
+from ai_routes.sse_heartbeat import iter_with_heartbeat
 
 router = APIRouter(prefix="/ai", tags=["ai-chat"])
 
@@ -188,16 +189,19 @@ async def chat_stream(
         ctx is never referenced here. rag singleton captured by closure.
         """
         try:
-            async for event in rag.stream_answer(
-                question=body.message,
-                workspace_id=workspace_id,
-                user_id=user_id,
-                role=role,
-                thread_id=thread_id_str,
-                db=db,
-            ):
-                # Serialize StreamToken or StreamMetadata to JSON
-                yield f"data: {event.model_dump_json()}\n\n"
+            async def _frames():
+                async for event in rag.stream_answer(
+                    question=body.message,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    role=role,
+                    thread_id=thread_id_str,
+                    db=db,
+                ):
+                    yield f"data: {event.model_dump_json()}\n\n"
+
+            async for frame in iter_with_heartbeat(_frames()):
+                yield frame
 
         except ValueError as exc:
             error_payload = json.dumps({

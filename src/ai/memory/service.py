@@ -49,12 +49,12 @@ class ThreadService:
         thread_id: str | None,
         workspace_id: str,
         user_id: str,
-    ) -> "AIThread":
+    ) -> tuple["AIThread", bool]:
         """
-        Return existing thread or create a new one.
+        Return (thread, created_this_request).
 
         If thread_id is provided: verify it belongs to workspace_id.
-        If thread_id is None: create a new thread.
+        If thread_id is None: create a new thread (created_this_request=True).
         Security: thread from wrong workspace raises ValueError.
         """
         if thread_id:
@@ -68,13 +68,58 @@ class ThreadService:
                     f"Thread {thread_id} not found or does not belong to workspace {workspace_id}. "
                     "Cross-workspace thread access is not permitted."
                 )
-            return thread
+            return thread, False
 
-        # Create new thread
-        return await _repo.create_thread(
+        thread = await _repo.create_thread(
             db,
             workspace_id=workspace_id,
             user_id=user_id,
+        )
+        return thread, True
+
+    async def set_title_for_new_thread(
+        self,
+        db: "AsyncSession",
+        *,
+        thread_id: str,
+        workspace_id: str,
+        title: str,
+        created_this_request: bool,
+    ) -> bool:
+        """
+        Persist a title only for threads created in this request/turn.
+
+        Used for one-shot auto-titling (deterministic + optional polish).
+        Does nothing when created_this_request is False so historical
+        null-title threads are never backfilled on continue.
+        """
+        cleaned = (title or "").strip()
+        if not created_this_request or not cleaned:
+            return False
+        return await _repo.update_thread_title(
+            db,
+            thread_id=thread_id,
+            workspace_id=workspace_id,
+            title=cleaned[:255],
+        )
+
+    async def rename_thread(
+        self,
+        db: "AsyncSession",
+        *,
+        thread_id: str,
+        workspace_id: str,
+        title: str,
+    ) -> bool:
+        """Manual rename — always updates when the thread exists in workspace."""
+        cleaned = (title or "").strip()
+        if not cleaned:
+            return False
+        return await _repo.update_thread_title(
+            db,
+            thread_id=thread_id,
+            workspace_id=workspace_id,
+            title=cleaned[:255],
         )
 
     async def load_history_as_messages(

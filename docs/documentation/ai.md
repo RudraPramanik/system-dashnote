@@ -263,6 +263,7 @@ Stream headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Quiet stream
 |-------|---------|
 | `GET /ai/threads` | List user threads in JWT workspace |
 | `GET /ai/threads/{thread_id}/messages` | Message history (default limit 50) |
+| `PATCH /ai/threads/{thread_id}` | Rename thread (`{ "title": "..." }`) |
 | `DELETE /ai/threads/{thread_id}` | Soft delete (`is_active=false`) |
 
 Cross-workspace access: **404** on thread routes, **400** on chat reuse. `workspace_id` always from JWT, never query/body/path.

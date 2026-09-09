@@ -115,21 +115,21 @@ async def _resolve_thread_id(
     workspace_id: str,
     user_id: str,
     db: AsyncSession,
-) -> str:
+) -> tuple[str, bool]:
     """
-    Return existing thread_id or create a new thread.
+    Return (thread_id, created_this_request).
     Validates cross-workspace access before returning.
     """
     if thread_id:
         # Validate thread belongs to workspace (raises ValueError if not)
         svc = ThreadService()
-        thread = await svc.get_or_create_thread(
+        thread, created = await svc.get_or_create_thread(
             db,
             thread_id=thread_id,
             workspace_id=workspace_id,
             user_id=user_id,
         )
-        return str(thread.id)
+        return str(thread.id), created
 
     # Create new thread for this agent conversation
     repo = ThreadRepository()
@@ -139,7 +139,32 @@ async def _resolve_thread_id(
         user_id=user_id,
         title=None,
     )
-    return str(thread.id)
+    return str(thread.id), True
+
+
+async def _maybe_auto_title_agent(
+    *,
+    db: AsyncSession,
+    thread_id: str,
+    workspace_id: str,
+    user_message: str,
+    assistant_text: str | None,
+    created_this_request: bool,
+) -> str | None:
+    """One-shot title for agent threads created in this request."""
+    if not created_this_request:
+        return None
+    from ai.memory.titles import generate_thread_title
+
+    title = await generate_thread_title(user_message, assistant_text)
+    ok = await ThreadService().set_title_for_new_thread(
+        db,
+        thread_id=thread_id,
+        workspace_id=workspace_id,
+        title=title,
+        created_this_request=True,
+    )
+    return title if ok else None
 
 
 def _extract_stream_chunk_content(chunk: Any) -> str:
@@ -279,7 +304,7 @@ async def agent_chat(
     role = ctx.role
 
     try:
-        resolved_thread_id = await _resolve_thread_id(
+        resolved_thread_id, created_this_request = await _resolve_thread_id(
             body.thread_id, workspace_id, user_id, db
         )
     except ValueError as e:
@@ -337,6 +362,14 @@ async def agent_chat(
 
     interrupts = extract_interrupts(final_state)
     if interrupts:
+        await _maybe_auto_title_agent(
+            db=db,
+            thread_id=resolved_thread_id,
+            workspace_id=workspace_id,
+            user_message=body.message,
+            assistant_text=None,
+            created_this_request=created_this_request,
+        )
         event = approval_event_from_interrupt(
             interrupts[0], thread_id=resolved_thread_id
         )
@@ -348,6 +381,14 @@ async def agent_chat(
         )
 
     answer, tool_calls_made = _final_answer_from_state(final_state)
+    await _maybe_auto_title_agent(
+        db=db,
+        thread_id=resolved_thread_id,
+        workspace_id=workspace_id,
+        user_message=body.message,
+        assistant_text=answer,
+        created_this_request=created_this_request,
+    )
     return AgentResponse(
         answer=answer,
         thread_id=resolved_thread_id,
@@ -381,7 +422,7 @@ async def agent_chat_stream(
     role = ctx.role
 
     try:
-        resolved_thread_id = await _resolve_thread_id(
+        resolved_thread_id, created_this_request = await _resolve_thread_id(
             body.thread_id, workspace_id, user_id, db
         )
     except ValueError as e:
@@ -406,6 +447,7 @@ async def agent_chat_stream(
             }
 
             steps = 0
+            streamed_parts: list[str] = []
 
             async def _sse_frames():
                 nonlocal steps
@@ -419,6 +461,7 @@ async def agent_chat_stream(
                         chunk = data.get("chunk", {})
                         content = _extract_stream_chunk_content(chunk)
                         if content:
+                            streamed_parts.append(content)
                             yield (
                                 f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
                             )
@@ -447,17 +490,33 @@ async def agent_chat_stream(
 
                 snap = await graph.aget_state(config)
                 pending = extract_interrupts(snap)
+                assistant_text = "".join(streamed_parts) or None
+                title = await _maybe_auto_title_agent(
+                    db=db,
+                    thread_id=resolved_thread_id,
+                    workspace_id=workspace_id,
+                    user_message=message,
+                    assistant_text=assistant_text,
+                    created_this_request=created_this_request,
+                )
                 if pending:
                     event_payload = approval_event_from_interrupt(
                         pending[0], thread_id=resolved_thread_id
                     )
+                    if title:
+                        event_payload["title"] = title
                     yield f"data: {json.dumps(event_payload)}\n\n"
                     yield "data: [DONE]\n\n"
                     return
 
-                yield (
-                    f"data: {json.dumps({'type': 'done', 'thread_id': resolved_thread_id, 'steps_taken': steps})}\n\n"
-                )
+                done_payload: dict[str, Any] = {
+                    "type": "done",
+                    "thread_id": resolved_thread_id,
+                    "steps_taken": steps,
+                }
+                if title:
+                    done_payload["title"] = title
+                yield f"data: {json.dumps(done_payload)}\n\n"
                 yield "data: [DONE]\n\n"
 
             async for frame in iter_with_heartbeat(_sse_frames()):

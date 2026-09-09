@@ -3,6 +3,7 @@ Thread management routes for DashNoteSystem AI conversations.
 
 GET    /ai/threads                     — list user's threads
 GET    /ai/threads/{thread_id}/messages — load messages for a thread
+PATCH  /ai/threads/{thread_id}         — rename a thread
 DELETE /ai/threads/{thread_id}         — soft-delete a thread
 
 SECURITY: workspace_id always from RequestContext (JWT wid claim).
@@ -10,15 +11,14 @@ SECURITY: workspace_id always from RequestContext (JWT wid claim).
 """
 from __future__ import annotations
 
-from uuid import UUID
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.security.dependency import get_current_context
 from core.security.context import RequestContext
 from core.database.session import get_session
+from ai.memory.service import ThreadService
 from ai_memory.repository import ThreadRepository
 
 router = APIRouter(prefix="/ai", tags=["ai-threads"])
@@ -45,6 +45,10 @@ class MessageResponse(BaseModel):
     citations: list[dict]
     token_count: int | None
     created_at: str
+
+
+class ThreadTitleUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -122,6 +126,67 @@ async def get_thread_messages(
         )
         for m in messages
     ]
+
+
+@router.patch("/threads/{thread_id}", response_model=ThreadResponse)
+async def rename_thread(
+    thread_id: str,
+    body: ThreadTitleUpdate,
+    ctx: RequestContext = Depends(get_current_context),
+    db: AsyncSession = Depends(get_session),
+) -> ThreadResponse:
+    """
+    Rename a conversation thread.
+    Security: only the JWT workspace can update the thread.
+    Empty/whitespace titles are rejected by schema + service.
+    """
+    workspace_id = str(ctx.workspace_id)
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Title must not be empty.",
+        )
+
+    thread = await _repo.get_thread(
+        db, thread_id=thread_id, workspace_id=workspace_id
+    )
+    if thread is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thread not found.",
+        )
+
+    ok = await ThreadService().rename_thread(
+        db,
+        thread_id=thread_id,
+        workspace_id=workspace_id,
+        title=title,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thread not found.",
+        )
+
+    refreshed = await _repo.get_thread(
+        db, thread_id=thread_id, workspace_id=workspace_id
+    )
+    if refreshed is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thread not found.",
+        )
+
+    return ThreadResponse(
+        id=str(refreshed.id),
+        workspace_id=str(refreshed.workspace_id),
+        created_by=str(refreshed.created_by),
+        title=refreshed.title,
+        is_active=refreshed.is_active,
+        created_at=refreshed.created_at.isoformat(),
+        updated_at=refreshed.updated_at.isoformat(),
+    )
 
 
 @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -269,7 +269,7 @@ POST /ai/chat/stream
 | SSE `type` | Payload |
 |------------|---------|
 | `token` | `content` |
-| `metadata` | `citations`, `chunks_*`, `latency_ms`, `thread_id` |
+| `metadata` | `citations`, `chunks_*`, `latency_ms`, `thread_id`, `title?` |
 | `error` | `message` (generic) |
 
 Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
@@ -286,7 +286,7 @@ Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
 | Execution | LangGraph `AsyncPostgresSaver` | Agent checkpoints (Slice 6); linked by `thread_id` string |
 
 ```
-GET /ai/threads | GET /ai/threads/{id}/messages | DELETE /ai/threads/{id}
+GET /ai/threads | GET /ai/threads/{id}/messages | PATCH /ai/threads/{id} | DELETE /ai/threads/{id}
     └─► ThreadRepository (workspace_id on every query) → 404 cross-tenant
 ```
 

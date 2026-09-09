@@ -36,7 +36,7 @@ async def test_agent_maps_rate_limit_to_503():
     )
 
     with (
-        patch("ai_routes.agent._resolve_thread_id", new_callable=AsyncMock, return_value="t1"),
+        patch("ai_routes.agent._resolve_thread_id", new_callable=AsyncMock, return_value=("t1", False)),
         patch("ai_routes.agent.get_workspace_assistant", return_value=mock_graph),
         patch("ai_routes.agent.db_session_var"),
     ):
@@ -62,7 +62,7 @@ async def test_agent_maps_llm_unavailable_to_503():
     mock_graph.ainvoke = AsyncMock(side_effect=LLMUnavailableError())
 
     with (
-        patch("ai_routes.agent._resolve_thread_id", new_callable=AsyncMock, return_value="t1"),
+        patch("ai_routes.agent._resolve_thread_id", new_callable=AsyncMock, return_value=("t1", False)),
         patch("ai_routes.agent.get_workspace_assistant", return_value=mock_graph),
         patch("ai_routes.agent.db_session_var"),
     ):
@@ -95,7 +95,7 @@ async def test_agent_stream_unavailable_copy():
     from ai_routes.agent import agent_chat_stream
 
     with (
-        patch("ai_routes.agent._resolve_thread_id", new_callable=AsyncMock, return_value="t1"),
+        patch("ai_routes.agent._resolve_thread_id", new_callable=AsyncMock, return_value=("t1", False)),
         patch("ai_routes.agent.get_workspace_assistant", return_value=mock_graph),
         patch("ai_routes.agent.db_session_var"),
     ):

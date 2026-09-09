@@ -11,6 +11,7 @@ Build a **Next.js** (App Router) client against the DashNoteSystem FastAPI backe
 | [system.md](./system.md) | Routing, request lifecycle, modules |
 | [auth.md](./auth.md) | JWT claims, refresh/blacklist, `RequestContext` |
 | [ai.md](./ai.md) | AI laws, RAG vs agent, settings |
+| [inbound-channels.md](../inbound-channels.md) | Email / WhatsApp inbound operators |
 | [blueprint/goal.md](./blueprint/goal.md) §B | Frontend ship checklist |
 | OpenAPI `/docs` | **Normative** request/response field lists |
 
@@ -56,9 +57,10 @@ Next.js (browser) ──Bearer JWT──► Nginx (optional) ──► FastAPI
 | Workspace / members | `/workspaces/*`, `/workspaces/members` |
 | Notes / notebooks | `/notes`, `/notebooks` |
 | Files | `/files` |
+| Integrations (settings) | `/integrations/whatsapp/link*` (JWT); inbound email is provider webhook — see [inbound-channels.md](../inbound-channels.md) |
 | RAG chat | `/ai/chat`, `/ai/chat/stream` |
 | Threads sidebar | `/ai/threads*` |
-| Agent demo | `/ai/agent`, `/ai/agent/stream` |
+| Agent demo | `/ai/agent`, `/ai/agent/stream` (+ resume/reject) |
 
 ---
 
@@ -217,7 +219,22 @@ After upload, workers may extract text and run automation (~tens of seconds). Po
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/health` | API + DB + Redis; `200` / `503` |
+| `GET` | `/health` | **Hard** gate: API + DB + Redis; `200` (`ok`) / `503` (`unavailable`) |
+| `GET` | `/health/ai` | **Soft** probe: Qdrant + LLM; `ok` / `degraded` — never treat as whole-API down |
+
+Use `/health/ai` only to explain “AI unavailable / degraded” banners. If `/health` fails, the API is down for product screens.
+
+### 4.6 Integrations
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/integrations/whatsapp/link/start` | Bearer JWT | Body `{ phone }` → `{ phone, code }` |
+| `POST` | `/integrations/whatsapp/link/confirm` | Bearer JWT | Body `{ phone, code }` → verified link |
+| `DELETE` | `/integrations/whatsapp/link?phone=...` | Bearer JWT | Unlink phone |
+| `POST` | `/integrations/inbound/email` | `X-Inbound-Api-Key` (+ optional HMAC) | Provider/n8n webhook — **not** a logged-in user upload |
+| `GET`/`POST` | `/integrations/whatsapp/webhook` | Meta verify / signature | WhatsApp Cloud API — not a browser session call |
+
+WhatsApp link routes use JWT tenancy (`wid` / `user_id`). Do **not** send a client-chosen `workspace_id`. Inbound email must **not** be called from the Next.js app with only the user JWT as the inbound secret — configure n8n/provider with `INBOUND_API_KEY`. Operator details: [inbound-channels.md](../inbound-channels.md).
 
 ---
 
@@ -229,10 +246,10 @@ Both **chat** and **agent** MUST remain available as separate modes (tabs/pages)
 |------|-----------|---------|
 | Fast RAG | `POST /ai/chat`, `POST /ai/chat/stream` | Quick grounded Q&A + citations |
 | Agent | `POST /ai/agent`, `POST /ai/agent/stream` | Multi-step tools (search, create/update notes) |
-| Threads | `GET /ai/threads`, `GET /ai/threads/{id}/messages`, `DELETE /ai/threads/{id}` | History sidebar |
-| Dev search | `POST /ai/test-search` | Diagnostic retrieval (`{ query_text, limit? }`) — not primary product UI |
+| Threads | `GET /ai/threads`, `GET /ai/threads/{id}/messages`, `PATCH /ai/threads/{id}`, `DELETE /ai/threads/{id}` | History sidebar |
+| Dev search | `GET /ai/test-search?q=...&limit=5` | Diagnostic retrieval — not primary product UI |
 
-All AI routes require Bearer. `workspace_id` / `user_id` / `role` are taken from JWT only.
+All AI routes require Bearer. `workspace_id` / `user_id` / `role` are taken from JWT only — never send `workspace_id` on these routes.
 
 ### 5.1 Chat request / response
 
@@ -256,7 +273,7 @@ Content-Type: `text/event-stream`. Events:
 | Event | Shape | UI action |
 |-------|--------|-----------|
 | token | `{ "type": "token", "content": "..." }` | Append to answer (skip empty) |
-| metadata | `{ "type": "metadata", "citations": [...], "chunks_retrieved", "chunks_used", "latency_ms", "thread_id"? }` | Render sources **here only** |
+| metadata | `{ "type": "metadata", "citations": [...], "chunks_retrieved", "chunks_used", "latency_ms", "thread_id"?, "title"? }` | Render sources **here only**; if `title` is present, update the thread sidebar label |
 | error | `{ "type": "error", "message": "...", "status_code"? }` | Show error |
 | done | literal `data: [DONE]` | Close reader |
 
@@ -314,9 +331,10 @@ Prefer `fetch` + `ReadableStream` over `EventSource` because this is a **POST** 
 |--------|------|---------|
 | `GET` | `/ai/threads` | List current user’s active threads in JWT workspace |
 | `GET` | `/ai/threads/{thread_id}/messages` | Load messages (up to ~50 recent) |
+| `PATCH` | `/ai/threads/{thread_id}` | Rename thread body `{ "title": "..." }` (non-empty); wrong workspace → `404` |
 | `DELETE` | `/ai/threads/{thread_id}` | Soft-delete (`204`); wrong workspace → `404` |
 
-Pass returned `thread_id` back into chat/agent requests to continue. Message objects include `role`, `content`, `citations`.
+New threads receive an auto-generated `title` after the first successful chat/agent turn (deterministic truncate, optional LLM polish). Existing null titles are not backfilled. Pass returned `thread_id` back into chat/agent requests to continue. Message objects include `role`, `content`, `citations`.
 
 ### 5.4 Agent — `/ai/agent` & `/ai/agent/stream`
 
@@ -331,11 +349,18 @@ Pass returned `thread_id` back into chat/agent requests to continue. Message obj
 | `token` | `content` | Stream assistant text |
 | `tool_start` | `tool`, `args` | Show “Running {tool}…” |
 | `tool_end` | `tool`, `result` (truncated) | Show tool finished |
-| `done` | `thread_id`, `steps_taken` | Finalize |
+| `approval_required` | `tool`, `args`, `thread_id`, `interrupt_id`, `title`? | Stream then **ends**. Show Approve / Reject. Do not auto-approve. |
+| `done` | `thread_id`, `steps_taken`, `title`? | Finalize; update sidebar title when present |
 | `error` | `message` | User-visible error; suggest falling back to chat |
 | `[DONE]` | literal | Close stream |
 
-Agent may create/update notes via tools — refresh the notes list after `done` when tools ran. Agent failures often return **503** (`LLM temporarily unavailable`) on the non-stream route.
+If the stream closes with no `token`, `done`, `approval_required`, or `error`, treat it as failure and show `LLM temporarily unavailable; retry shortly` — not an empty bubble.
+
+**Approve:** `POST /ai/agent/resume` body `{ "thread_id": "...", "interrupt_id": "..." }` (interrupt_id optional). JWT only — do **not** send `workspace_id`. JSON response is the continued turn (`answer`, …) or another `approval_required`.
+
+**Reject:** `POST /ai/agent/reject` with the same body. No note create/update persists.
+
+Agent may create/update notes via tools — refresh the notes list after a successful resume. Agent failures often return **503** (`LLM temporarily unavailable`) on the non-stream route. Chat (`/ai/chat*`) remains a separate mode without this gate.
 
 ### 5.5 Chat vs agent UX
 

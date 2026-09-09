@@ -161,6 +161,7 @@ class StreamMetadata(BaseModel):
     chunks_used: int
     latency_ms: float
     thread_id: str | None = None
+    title: str | None = None
 
 
 # Union type for the generator yield type
@@ -195,12 +196,12 @@ class RagService:
         workspace_id: str,
         user_id: str,
         db: "AsyncSession | None",
-    ) -> tuple[str, list[dict]]:
+    ) -> tuple[str, list[dict], bool]:
         """
         Load conversation history if thread_id provided.
 
         Returns:
-            (resolved_thread_id, history_messages_list)
+            (resolved_thread_id, history_messages_list, created_this_request)
             history_messages_list is empty if no thread or no db session.
 
         Security: ThreadService.get_or_create_thread() verifies
@@ -209,12 +210,12 @@ class RagService:
         """
         if db is None or not hasattr(db, "execute"):
             # No DB session available — skip history gracefully
-            return (thread_id or "", [])
+            return (thread_id or "", [], False)
 
         from ai.memory.service import ThreadService
         thread_svc = ThreadService()
 
-        thread = await thread_svc.get_or_create_thread(
+        thread, created_this_request = await thread_svc.get_or_create_thread(
             db,
             thread_id=thread_id,
             workspace_id=workspace_id,
@@ -232,7 +233,33 @@ class RagService:
         else:
             history = []
 
-        return (resolved_id, history)
+        return (resolved_id, history, created_this_request)
+
+    async def _maybe_auto_title(
+        self,
+        *,
+        db: "AsyncSession | None",
+        thread_id: str,
+        workspace_id: str,
+        question: str,
+        answer: str,
+        created_this_request: bool,
+    ) -> str | None:
+        """One-shot title for threads created in this request; None otherwise."""
+        if db is None or not created_this_request or not thread_id:
+            return None
+        from ai.memory.service import ThreadService
+        from ai.memory.titles import generate_thread_title
+
+        title = await generate_thread_title(question, answer)
+        ok = await ThreadService().set_title_for_new_thread(
+            db,
+            thread_id=thread_id,
+            workspace_id=workspace_id,
+            title=title,
+            created_this_request=True,
+        )
+        return title if ok else None
 
     async def answer(
         self,
@@ -266,7 +293,7 @@ class RagService:
         start = time.monotonic()
         settings = get_settings()
 
-        resolved_thread_id, history_messages = await self._load_thread_context(
+        resolved_thread_id, history_messages, created_this_request = await self._load_thread_context(
             thread_id=thread_id,
             workspace_id=workspace_id,
             user_id=user_id,
@@ -315,6 +342,14 @@ class RagService:
                         assistant_answer=fallback_answer,
                         citations=[],
                     )
+                await self._maybe_auto_title(
+                    db=db,
+                    thread_id=resolved_thread_id,
+                    workspace_id=workspace_id,
+                    question=question,
+                    answer=fallback_answer,
+                    created_this_request=created_this_request,
+                )
                 return ChatResult(
                     answer=fallback_answer,
                     citations=[],
@@ -405,6 +440,15 @@ class RagService:
                 citations=[c.model_dump() for c in citations],
             )
 
+        await self._maybe_auto_title(
+            db=db,
+            thread_id=resolved_thread_id,
+            workspace_id=workspace_id,
+            question=question,
+            answer=rag_answer.answer,
+            created_this_request=created_this_request,
+        )
+
         latency_ms = round((time.monotonic() - start) * 1000, 2)
 
         logger.info(
@@ -466,7 +510,7 @@ class RagService:
         start = time.monotonic()
         settings = get_settings()
 
-        resolved_thread_id, history_messages = await self._load_thread_context(
+        resolved_thread_id, history_messages, created_this_request = await self._load_thread_context(
             thread_id=thread_id,
             workspace_id=workspace_id,
             user_id=user_id,
@@ -512,6 +556,14 @@ class RagService:
                         assistant_answer=fallback_answer,
                         citations=[],
                     )
+                title = await self._maybe_auto_title(
+                    db=db,
+                    thread_id=resolved_thread_id,
+                    workspace_id=workspace_id,
+                    question=question,
+                    answer=fallback_answer,
+                    created_this_request=created_this_request,
+                )
                 yield StreamToken(content=fallback_answer)
                 yield StreamMetadata(
                     citations=[],
@@ -519,6 +571,7 @@ class RagService:
                     chunks_used=0,
                     latency_ms=round((time.monotonic() - start) * 1000, 2),
                     thread_id=resolved_thread_id or None,
+                    title=title,
                 )
                 return
 
@@ -591,6 +644,15 @@ class RagService:
                     citations=[c.model_dump() for c in citations],
                 )
 
+            title = await self._maybe_auto_title(
+                db=db,
+                thread_id=resolved_thread_id,
+                workspace_id=workspace_id,
+                question=question,
+                answer=full_answer,
+                created_this_request=created_this_request,
+            )
+
             latency_ms = round((time.monotonic() - start) * 1000, 2)
 
             logger.info(
@@ -611,6 +673,7 @@ class RagService:
                 chunks_used=len(built.context_chunks),
                 latency_ms=latency_ms,
                 thread_id=resolved_thread_id or None,
+                title=title,
             )
 
 

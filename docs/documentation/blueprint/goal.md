@@ -48,16 +48,20 @@ Copy this section into your tracker. Check each item. **All must be ✅ before j
 
 | # | Task | Status | Output |
 |---|------|--------|--------|
-| A1 | Hosted services provisioned (Postgres, Redis, Qdrant Cloud, R2 or equiv.) | ⬜ | Credentials in VPS `.env` only — operator confirm |
+| A1 | Hosted services provisioned (Postgres, Redis, Qdrant Cloud, R2 or equiv.) | ✅ | Operator-confirmed 2026-09-08 — credentials in VPS `.env` only |
 | A2 | **7P.4** R2/storage — worker reads uploads without local volume | ✅ | Documented in `.env.production.example` + `docs/deployment/storage.md` |
 | A3 | **7P.5** Deploy scripts + runbook | ✅ | `scripts/deploy/*`, `docs/deployment/runbook.md` |
-| A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ⬜ | Local `http://127.0.0.1` smoke PASS (2026-09-06); **HTTPS prod still required** |
+| A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ⬜ | Local `http://127.0.0.1` smoke PASS (2026-09-06); **next:** HTTP-on-IP first-boot; **HTTPS prod still required** |
 | A5 | **7P.7** CI green on PR (`pytest` + docker build) | ✅ | `.github/workflows/ci.yml` |
-| A6 | **7P.8** CD workflow + gate docs | ✅ | `.github/workflows/deploy.yml` (live VPS proof still needed for A4/A7 claim) |
-| A7 | TLS live API | ⬜ | `https://api.<domain>/health` → 200 — need prod URL |
+| A6 | **7P.8** CD workflow + gate docs | ✅ | `.github/workflows/deploy.yml` (CD HTTPS not required for first-boot; live TLS proof still needed for A7) |
+| A7 | TLS live API | ⬜ | `https://api.<domain>/health` → 200 — **no domain yet** |
 
 ```powershell
 # A-gate commands
+# First-boot (no domain):
+curl.exe -sS http://<vps-ipv4>/health
+$env:SMOKE_BASE_URL="http://<vps-ipv4>"; python scripts/smoke_prod.py
+# Production-live (after domain + TLS):
 curl.exe -sS https://api.<domain>/health
 $env:SMOKE_BASE_URL="https://api.<domain>"; python scripts/smoke_prod.py
 python scripts/e2e_agent_test.py --base-url https://api.<domain>
@@ -130,12 +134,12 @@ Do **not** sell Tier B scope at Tier A price. See [`ship-plan.md`](../../ship-pl
 
 ```
 PRODUCTION
-[ ] A1 Hosted services live
+[x] A1 Hosted services live (operator-confirmed 2026-09-08)
 [x] A2 Storage contract (R2)
 [x] A3 Deploy scripts + runbook
-[ ] A4 smoke_prod.py PASS on prod (local PASS 2026-09-06)
+[ ] A4 smoke_prod.py PASS on prod (local PASS 2026-09-06; HTTP-IP first-boot pending; HTTPS still required)
 [x] A5 CI green on PR
-[x] A6 CD workflow + gate docs (live VPS proof still open)
+[x] A6 CD workflow + gate docs (live TLS proof still open)
 [ ] A7 https://api.<domain>/health → 200
 
 FRONTEND
@@ -195,7 +199,7 @@ Use only when interview harness depth matters more than a public URL this week:
 5. **B1–B7 / 8X.5** — frontend (+ HITL UX after 8X.3)
 6. **D1–D6** — portfolio packaging
 
-**Active (2026-09):** Local AI-depth-first Tier 1 is in progress (`openspec/changes/tier1-local-ai-depth`). Compose + local FE are the demo surface. **Do not** mark A4/A7 or job-search ready until HTTPS prod smoke passes — local Tier 1 ≠ hire gate.
+**Active (2026-09):** Local AI-depth-first Tier 1 is **complete**. VPS work resumed as **HTTP first-boot** on AWS t3.small (no domain). **Do not** mark A7 or job-search ready until HTTPS prod smoke passes — HTTP-IP first-boot and local Tier 1 ≠ hire gate.
 
 ---
 
@@ -231,7 +235,7 @@ Improves offer rate and rate negotiation; not a blocker to **first** application
 | Public technical article | LinkedIn + dev.to | ⬜ | ship-plan Day 36–45 |
 | Lite template clone | Fast Upwork turnaround | ⬜ | ship-plan §Lite |
 
-**Reminder:** completing local Tier 1 does **not** check A4/A7 or start job search.
+**Reminder:** completing local Tier 1 or HTTP-IP first-boot does **not** check A7 or start job search. HTTPS smoke still required.
 
 ---
 
@@ -290,6 +294,7 @@ Attach **Phase 2 upgrade quote** on every Lite delivery.
 
 | Date | Change |
 |------|--------|
+| 2026-09-08 | A1 operator-confirmed; VPS HTTP first-boot window (no domain); A7/HTTPS still open |
 | 2026-08-03 | Added preferred **Slice 8X** order; kept alternate “fastest live URL” short-order |
 | 2026-06-30 | Initial extended roadmap (7R, 7A, 6+, …) |
 | 2026-06-30 | **Rewritten** — job-search baseline gate; deferred post-hire slices |

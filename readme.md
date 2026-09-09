@@ -9,11 +9,11 @@ Multi-tenant notes backend: **FastAPI**, **PostgreSQL**, **Redis**, **Qdrant**, 
 | Surface | URL |
 |---------|-----|
 | API (local) | `http://127.0.0.1/health` after `docker compose up` |
-| API (production) | _pending — record HTTPS URL after A-gate smoke_ |
+| API (production) | _pending HTTPS after A7 — HTTP-on-IP first-boot is operator proof only, not a stranger TLS demo_ |
 | App (sibling `dashnotes`) | local Playwright B-gate proven; production TLS _pending_ |
 | Demo video | _pending Loom/YouTube link_ |
 
-Do **not** claim production-live until `scripts/smoke_prod.py` exits 0 against the HTTPS API.
+Do **not** claim production-live until `scripts/smoke_prod.py` exits 0 against the **HTTPS** API. An HTTP public-IP first-boot (no domain) is operator evidence only — not hire-ready.
 
 ## Quick start
 

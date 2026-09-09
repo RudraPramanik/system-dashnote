@@ -1,9 +1,9 @@
 # DashNote Observability
 
-Production-oriented guide for logging, LLM tracing (Langfuse), and metrics (Prometheus + Grafana) in local Docker Compose.
+Production-oriented guide for logging, LLM tracing (Langfuse), and metrics (Prometheus; Grafana optional) in local Docker Compose.
 
-**Agent quick reference:** `src/docs/observe.md`  
-**Implementation blueprint:** `src/docs/blueprint/observation-blueprint.md`
+**Agent quick reference:** [docs/documentation/observe.md](./documentation/observe.md)  
+**Implementation blueprint:** [docs/documentation/blueprint/observation-blueprint.md](./documentation/blueprint/observation-blueprint.md)
 
 ---
 
@@ -32,11 +32,7 @@ Production-oriented guide for logging, LLM tracing (Langfuse), and metrics (Prom
                 │          │   └──────┬───────┘
                 │          │          │
                 │          │          ▼
-                │          │   ┌──────────────┐
-                │          │   │   Grafana    │  :3001 → :3000
-                │          │   │  DashNote/   │
-                │          │   │  API Overview│
-                │          │   └──────────────┘
+                │          │   [Grafana optional / Cloud — not in default Compose]
                 │          │
                 │          ▼
                 │   ┌──────────────┐
@@ -53,9 +49,9 @@ Production-oriented guide for logging, LLM tracing (Langfuse), and metrics (Prom
 | Service | Image | Notes |
 |---------|--------|--------|
 | Prometheus | `prom/prometheus:v2.51.2` | Official minimal binary image; no smaller drop-in with full PromQL compatibility. |
-| Grafana | `grafana/grafana:10.4.2` | Official OSS image; `grafana/grafana-oss` is the same product line. |
+| Grafana (optional) | `grafana/grafana:10.4.2` | Not in default `docker-compose.yml`; use Grafana Cloud or add a service manually. |
 
-Alternatives (VictoriaMetrics single-binary, etc.) would change scrape/query semantics and are not used here. Current pins are the standard lightweight pair for a dev/small-prod stack.
+Alternatives (VictoriaMetrics single-binary, etc.) would change scrape/query semantics and are not used here. Local Compose ships Prometheus; Grafana UI is optional.
 
 ---
 
@@ -200,15 +196,17 @@ curl.exe -sS http://localhost:9090/api/v1/targets
 
 ---
 
-## 4. Grafana
+## 4. Grafana (optional)
 
-### Access
+**Not part of default local Compose.** Prefer Grafana Cloud remote_write (prod observability profile). Provisioning files under `monitoring/grafana/` remain for operators who add a Grafana container.
+
+### Access (only if you run Grafana yourself)
 
 | Item | Value |
 |------|--------|
-| URL | http://localhost:3001 |
+| URL | http://localhost:3001 (only when a Grafana service is added) |
 | User | `admin` |
-| Password | `GRAFANA_ADMIN_PASSWORD` in `.env` (Compose default: `changeme`) |
+| Password | `GRAFANA_ADMIN_PASSWORD` in `.env` |
 
 ### Provisioning layout
 
@@ -218,12 +216,6 @@ monitoring/grafana/provisioning/
 └── dashboards/
     ├── dashboard.yml            # folder: DashNote
     └── api_overview.json        # API Overview dashboard
-```
-
-After editing provisioning files:
-
-```powershell
-docker compose restart grafana
 ```
 
 ### Dashboard: API Overview
@@ -241,21 +233,14 @@ docker compose restart grafana
 
 Histogram panels use `_bucket` because Step 4 confirmed `dashnote_api_http_request_duration_seconds_bucket` on `/metrics`.
 
-### Validate Grafana + panels
+### Validate without Grafana
 
 ```powershell
-docker compose up -d api prometheus grafana
-docker compose restart grafana
-
-# Generate traffic
-1..10 | ForEach-Object { curl.exe -sS http://localhost:8000/health | Out-Null }
-
-# Open UI: DashNote → API Overview; panels should show non-empty series within ~1–2 scrape intervals
+docker compose up -d api prometheus
+curl.exe -sS http://localhost:9090/targets
 ```
 
-Explore → Prometheus → run the same expressions if a panel looks empty.
-
-### Troubleshooting: empty dashboard panels
+### Troubleshooting: empty dashboard panels (if Grafana is running)
 
 | Symptom | Cause | Fix |
 |---------|--------|-----|
@@ -264,14 +249,11 @@ Explore → Prometheus → run the same expressions if a panel looks empty.
 | Datasource error | Prometheus down | `docker compose ps prometheus`; check http://localhost:9090/targets |
 | P95/P99 flat or no data | No histogram observations yet | Generate API traffic; confirm `_bucket` in `/metrics` |
 
----
-
 ## Full stack validation (checklist)
 
 ```powershell
-cd g:\projects\dashnotesystemv1
-docker compose up -d api prometheus grafana
-docker compose restart grafana
+cd g:\projects\notesystem\dashnotesystemv1
+docker compose up -d api prometheus
 ```
 
 | Layer | Command / URL | Pass criteria |
@@ -279,8 +261,7 @@ docker compose restart grafana
 | Logs | `docker compose logs --tail 5 api` | JSON lines |
 | Metrics | `curl http://localhost:8000/metrics` | `dashnote_api_http_requests_total` present |
 | Prometheus | http://localhost:9090/targets | `dashnote_api` UP |
-| Grafana | http://localhost:3001 | Login works |
-| Dashboard | DashNote → API Overview | Four panels show data after traffic |
+| Grafana | optional / Cloud | Not required for local Compose pass |
 | Langfuse | `/ai/chat` + UI | `rag.answer` trace (when keys set) |
 
 ---
@@ -295,5 +276,5 @@ docker compose restart grafana
 | `src/main.py` | `setup_logging()`, Prometheus instrumentator |
 | `monitoring/prometheus.yml` | Scrape config |
 | `monitoring/grafana/provisioning/` | Grafana datasource + dashboards |
-| `docker-compose.yml` | `api`, `prometheus`, `grafana` services |
+| `docker-compose.yml` | `api`, `prometheus` services (Grafana not default) |
 | `.env.example` | `GRAFANA_ADMIN_PASSWORD`, Langfuse vars |

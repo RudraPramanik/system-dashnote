@@ -20,7 +20,7 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 |-------------|---------------------|
 
-| api, worker, migrate, nginx (TLS via Caddy in 7P.5), optional slim prometheus | Supabase, Upstash, Redis Cloud, Qdrant Cloud, R2, Grafana Cloud |
+| api, worker, migrate, nginx (HTTP :80 first-boot; TLS later). Prometheus **off** on 2 GB first-boot | Supabase, Redis (one or two hosts), Qdrant Cloud, R2, Grafana Cloud |
 
 
 
@@ -58,7 +58,7 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 
 
-**Gate:** Resume feature slices (**8** GraphRAG, **9** multi-agent, new domains) only after **7P.8** passes on Oracle VPS.
+**Gate:** HTTP first-boot on the t3.small does **not** authorize GraphRAG / multi-agent. Claim production-live only after HTTPS A4/A7 smoke. GitHub CD HTTPS is not required to close first-boot.
 
 **Exception (Slice 8X, chosen / deploy-first):** **7P.7 CI** may run **before** 7P.8; eval harness and HITL are deferred until **after** 7P.8 — see [`blueprint/slice8_X.md`](blueprint/slice8_X.md). (Alternate AI-depth-first path may still run evals/HITL before 7P.8.)
 
@@ -100,7 +100,7 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 |------|----------|---------------|
 
-| **Hard** | Postgres (Supabase), Redis (Upstash + Redis Cloud) | `/health` must be 200 |
+| **Hard** | Postgres (Supabase), Redis (`REDIS_URL`; `ARQ_REDIS_URL` MAY share the same host if BLPOP works) | `/health` must be 200 |
 
 | **Soft** | Qdrant Cloud, LLM keys | Boot OK; AI/indexing degrades |
 
@@ -130,9 +130,9 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 | Files | **Cloudflare R2** | `STORAGE_BACKEND=r2`, `R2_*` |
 
-| VPS | **Oracle Ampere A1** (~2 vCPU, 8 GB for compose) | — |
+| VPS | **AWS t3.small** (~2 vCPU, **2 GB RAM**, 30 GiB disk) — thin compute only | — |
 
-| TLS | **Cloudflare** (Full Strict) → **Caddy** → api `:8000` | `api.yourdomain.com` |
+| TLS | First-boot: nginx **HTTP :80** on public IPv4 (no domain). Later: Cloudflare Full Strict / Caddy / Certbot → `api.<domain>` (A7) | — |
 
 | Embeddings | Gemini `gemini/gemini-embedding-2` | `GEMINI_API_KEY` |
 
@@ -140,7 +140,7 @@ Ship production on **hosted data plane + thin VPS compute** without breaking loc
 
 | Metrics | Slim prometheus → **Grafana Cloud** remote_write | `GRAFANA_CLOUD_REMOTE_WRITE_URL`, `GRAFANA_CLOUD_USER`, `GRAFANA_CLOUD_TOKEN` |
 
-| CORS | No `*` in prod | `CORS_ORIGINS=["http://localhost:3000","https://app.yourdomain.com"]` |
+| CORS | No `*` in prod (including HTTP-IP first-boot) | `CORS_ORIGINS` = local FE origins until `https://app.<domain>` exists |
 
 
 

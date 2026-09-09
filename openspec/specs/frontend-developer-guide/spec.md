@@ -59,6 +59,28 @@ The guide SHALL document AI surfaces as coexisting features with explicit stream
 #### Scenario: Agent tool events for UI
 - **WHEN** a frontend implements the agent view
 - **THEN** the guide MUST describe how to surface tool progress (e.g. tool start/end style events) for a multi-step demo without treating the agent as a replacement for RAG chat
+- **AND** MUST describe `approval_required` plus in-thread Approve/Reject for `create_note` / `update_note` so the demo path "agent creates/updates note" can complete
+
+### Requirement: Agent client handles approval_required then resume or reject
+The frontend guide MUST document that `POST /ai/agent/stream` may emit `type: "approval_required"` with `tool`, `args`, `thread_id`, and `interrupt_id`, then close the stream. The agent UI MUST then show Approve and Reject. Approve maps to `POST /ai/agent/resume`; reject maps to `POST /ai/agent/reject`. Bodies MUST be limited to `thread_id` and optional `interrupt_id` per OpenAPI. The client MUST NOT send `workspace_id` to override JWT tenancy. The client MUST NOT auto-approve mutations. Chat (`/ai/chat*`) MUST remain a separate mode without this gate.
+
+#### Scenario: Guide describes the approval event
+- **WHEN** a frontend implements the agent view
+- **THEN** the guide MUST list `approval_required` alongside `token`, `tool_start`, `tool_end`, `done`, and `error`
+- **AND** MUST document ending the stream after `approval_required` and reconnecting via resume or reject
+
+#### Scenario: Guide forbids tenant override on resume
+- **WHEN** the client calls `/ai/agent/resume` or `/ai/agent/reject`
+- **THEN** the guide MUST state that workspace comes from the JWT only
+- **AND** MUST forbid a client-chosen `workspace_id` on those bodies
+
+### Requirement: Quiet or empty agent streams fail visibly
+The frontend guide MUST require that if an agent (or chat) stream closes with no `token` content, no `done`, no `approval_required`, and no `error` frame, the UI MUST show a user-visible failure (calm copy consistent with LLM unavailability) instead of an empty assistant bubble. A hung wait with no Cancel path MUST NOT be documented as success.
+
+#### Scenario: Empty stream is an error
+- **WHEN** `POST /ai/agent/stream` returns HTTP 200 then the body ends without a parsed `token`, `done`, `approval_required`, or `error` event
+- **THEN** the documented UI MUST show a visible error
+- **AND** MUST NOT leave the user with only a blank reply
 
 ### Requirement: Operational UX — async work, errors, and CORS
 The guide SHALL document client-visible operational behavior required for a production-quality Next.js integration.
@@ -111,3 +133,32 @@ Until OpenAPI lists `indexing_status` on notes/files, the guide MUST tell client
 - **WHEN** a user asks Chat about an uploaded file after background embedding has finished
 - **THEN** the guide MUST state that Fast RAG and the agent search indexed files as well as notes
 - **AND** MUST NOT tell the client to send `workspace_id` or `file_id` on `/ai/*` bodies
+
+### Requirement: Integrations surfaces for the client
+The frontend guide MUST document inbound/integrations routes a Next.js client may call: authenticated WhatsApp link start/confirm/unlink under `/integrations/whatsapp/link*`, and a pointer to inbound email as a provider/n8n webhook (`POST /integrations/inbound/email`) that uses the inbound API key (and optional HMAC), not the user JWT. The guide MUST NOT instruct the browser to send a client-chosen `workspace_id` to override tenancy on those JWT-scoped link routes. Deep provider setup MAY be linked to `docs/inbound-channels.md` instead of copied in full.
+
+#### Scenario: WhatsApp link appears in the domain map
+- **WHEN** a frontend adds a “link WhatsApp” setting
+- **THEN** the guide MUST list `POST /integrations/whatsapp/link/start`, `POST /integrations/whatsapp/link/confirm`, and `DELETE /integrations/whatsapp/link`
+- **AND** MUST state those calls use `Authorization: Bearer <access_token>`
+
+#### Scenario: Inbound email is not a user-session upload
+- **WHEN** a frontend author looks for “email ingest”
+- **THEN** the guide MUST state inbound email is a signed provider webhook, not a logged-in user multipart upload
+- **AND** MUST NOT tell the Next.js app to call it with only the user JWT as the inbound secret
+
+### Requirement: Operational health includes the soft AI probe
+The frontend guide MUST document `GET /health` as the hard API/DB/Redis check and `GET /health/ai` as an optional soft Qdrant/LLM probe. UI MAY use `/health/ai` to explain degraded AI; it MUST NOT treat `/health/ai` failure as equivalent to the whole API being down.
+
+#### Scenario: Health table lists both probes
+- **WHEN** a frontend implements a status or “AI unavailable” banner
+- **THEN** the guide MUST mention `GET /health` and `GET /health/ai`
+- **AND** MUST distinguish hard unavailability from soft AI degradation
+
+### Requirement: Diagnostic search uses the mounted GET contract
+The frontend guide MUST document engineering/diagnostic search as `GET /ai/test-search` with query parameters `q` and optional `limit`. It MUST NOT present `POST /ai/test-search` as the live product or diagnostic contract. Workspace isolation MUST remain JWT-only (`wid`); clients MUST NOT send `workspace_id` on this route.
+
+#### Scenario: Guide agrees with itself on test-search
+- **WHEN** a frontend or agent follows the AI domain map and the quick-reference section
+- **THEN** both MUST describe `GET /ai/test-search`
+- **AND** MUST NOT leave a contradictory `POST /ai/test-search` as the primary documented method

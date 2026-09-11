@@ -4,6 +4,8 @@
 
 > **AI:** Read this before any platform/deploy work. Detailed prompts live in `docs/documentation/blueprint/slice-platform.md`. Architecture laws in `docs/documentation/deploy-low.md`. App behavior in `system.md` + `ai.md`.
 >
+> **DevOps progress (done / next / skills):** [`../devops-progress.md`](../devops-progress.md) — learner checklist; this file remains the 7P engineering tracker.
+>
 > **Locked path:** [`blueprint8.md`](blueprint8.md) (Alive + Tier 0/1/2). **Slice 8X detail (deploy-first):** After **7P.0–7P.3**, follow [`blueprint/slice8_X.md`](blueprint/slice8_X.md). Chosen: [`slice8_ci.md`](blueprint/slice8_ci.md) (7P.7) → **7P.4–7P.6 + 7P.8** → frontend → [`slice8_eval.md`](blueprint/slice8_eval.md) → [`slice8_hitl.md`](blueprint/slice8_hitl.md). Do not start evals/HITL before 7P.8 on the chosen path.
 
 

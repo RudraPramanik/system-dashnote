@@ -109,3 +109,6 @@ honest `PASS: X/Y` even when below 100%.
 
 Langfuse-native datasets/experiments preferred for judges; optional recall@k /
 faithfulness are Tier 2 / nightly. Do not replace this golden CLI.
+
+**Before/after record:** [`docs/EXPERIMENTS.md`](../docs/EXPERIMENTS.md) — measure→improve
+loops tied to this harness (e.g. empty-retrieval / `ret-08`).

@@ -47,3 +47,17 @@ def test_extract_text_utf8_sig():
     content = "\ufeffHello".encode("utf-8-sig")
     result = FileParsingEngine.extract_text(content, "text/plain")
     assert "Hello" in result
+
+
+def test_messy_unsupported_fixture():
+    fixture = Path(__file__).resolve().parent / "fixtures" / "messy_unsupported.bin"
+    raw = fixture.read_bytes()
+    assert FileParsingEngine.extract_text(raw, "application/octet-stream") == ""
+
+
+def test_messy_empty_pdf_fixture_does_not_raise():
+    fixture = Path(__file__).resolve().parent / "fixtures" / "messy_empty_pdf.pdf"
+    raw = fixture.read_bytes()
+    # Degenerate PDF: empty string or short text — must not raise into the worker.
+    result = FileParsingEngine.extract_text(raw, "application/pdf")
+    assert isinstance(result, str)

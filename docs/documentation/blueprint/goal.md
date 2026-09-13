@@ -111,7 +111,7 @@ python evals/run_eval.py --base-url https://api.<domain> --token <token>
 | D1 | README: pitch, live links, stack, architecture diagram link | ✅ | `readme.md` — prod URLs explicit pending |
 | D2 | Screenshots or GIF on README | ⬜ | Chat + citations visible |
 | D3 | **3-minute demo video** (Loom / YouTube unlisted) | ⬜ | Link in README |
-| D4 | Cost + latency table (even rough) | ⬜ | Placeholder in README — fill from Langfuse / sample |
+| D4 | Cost + latency table (even rough) | ✅ | README local/sample 2026-09-13 + EXP-002; re-run `scripts/sample_cost_latency.py` with Langfuse when Compose up |
 | D5 | GitHub topics: `rag`, `langgraph`, `fastapi`, `qdrant` | ⬜ | Set on remote when `gh`/UI available |
 | D6 | `docs/interview-talk-track.md` — 2-min pitch + 3 tradeoffs | ✅ | Interview prep |
 
@@ -161,7 +161,7 @@ PORTFOLIO
 [x] D1 README with live links / pending honesty
 [ ] D2 Screenshots/GIF
 [ ] D3 Demo video
-[ ] D4 Cost/latency table
+[x] D4 Cost/latency table
 [ ] D5 GitHub topics
 [x] D6 Interview talk track
 

@@ -2,7 +2,7 @@
 
 Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (`notes_chunks` + `files_chunks`, dim **3072**). API enqueues ARQ jobs; worker indexes vectors. Fast RAG and the agent search **both** collections via `WorkspaceVectorSearch`.
 
-**Related:** platform [system.md](./system.md) · import laws [rules.md](./rules.md) · validation [observe.md](./observe.md) · runbook [observability.md](../observability.md) · soft AI probe `GET /health/ai`
+**Related:** platform [system.md](./system.md) · import laws [rules.md](./rules.md) · validation [observe.md](./observe.md) · runbook [observability.md](../observability.md) · soft AI probe `GET /health/ai` · **interview evidence** [interview-evidence-guide.md](./interview-evidence-guide.md)
 
 ### Architecture laws (enforce in all AI code)
 
@@ -104,6 +104,31 @@ Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM →
 | `generate_note_tags` | LLM tags → `notes.tags` | **None** — additive metadata |
 
 **File upload pipeline:** upload → `FileUploadedEvent` → worker downloads via `get_storage()` → `FileParsingEngine.extract_text()` (executor) → persist `files.extracted_text` → fan-out `index_file_chunks` + `generate_file_metadata`.
+
+### Messy-data pipeline
+
+Enterprise uploads are messy (wrong MIME, empty/corrupt bytes, unsupported types). DashNote does **not** ship OCR or full enterprise ETL — unsupported or failed extract yields empty `extracted_text` (no poisoned vectors from binary garbage), then indexing/metadata fan-out only when text exists.
+
+```
+Upload (bytes + MIME sniff)
+        │
+        ▼
+Object storage  +  Postgres file row
+        │
+        ▼
+ARQ worker: FileParsingEngine.extract_text()
+   unsupported / empty / corrupt ──► extracted_text = "" (safe)
+   PDF / DOCX / HTML / text/*   ──► extracted_text
+        │
+        ▼
+index_file_chunks → files_chunks (Qdrant)
+generate_file_metadata (capped tokens)
+        │
+        ▼
+WorkspaceVectorSearch merges notes_chunks + files_chunks → RAG citations
+```
+
+**Edge fixture (interview demo):** `tests/shared/fixtures/messy_unsupported.bin` — `application/octet-stream` → empty extract (`test_extract_text_unsupported_mime` / `test_messy_unsupported_fixture`). Corrupt/empty PDF path: `tests/shared/fixtures/messy_empty_pdf.pdf`.
 
 **Note create pipeline:** commit → `embed_note_task` (Slice 1) + `NoteCreatedEvent` → `handle_note_created` → fan-out `generate_note_tags`.
 
@@ -325,6 +350,7 @@ RAG instrumentation via `observability.tracing` (`rag_trace` → spans `retrieva
 | [rules.md](./rules.md) | Import direction, Slice 6 modification laws |
 | [lld.md](./lld.md) | §4.12–4.18 (flows, retrieval, RAG, agent, automation, shared LLM) |
 | [observe.md](./observe.md) | Validation commands, observability steps |
+| [interview-evidence-guide.md](./interview-evidence-guide.md) | How to visualize cost/evals/messy-data/Eval Paradox for interviews |
 | [frontendguide.md](./frontendguide.md) | Client SSE + HITL Approve/Reject |
 | [blueprint/](./blueprint/) | Per-slice build history and sign-off gates |
 | [blueprint/slice7-llm-hardening.md](./blueprint/slice7-llm-hardening.md) | Slice 7.5 recovery blueprint and gate criteria |

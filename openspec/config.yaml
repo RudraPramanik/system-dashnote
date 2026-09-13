@@ -34,7 +34,8 @@ context: |
   - `/workspaces`, `/workspaces/members`
   - `/notebooks`, `/notes`, `/files`
   - `/integrations` — inbound email; WhatsApp webhook + JWT link
-  - `/ai` — `GET /ai/test-search`; `POST /ai/chat`, `/ai/chat/stream`; threads; `POST /ai/agent`, `/ai/agent/stream`, `/ai/agent/resume`, `/ai/agent/reject`
+  - `/ai` — `GET /ai/test-search`; `POST /ai/chat`, `/ai/chat/stream`; threads (`GET/PATCH/DELETE /ai/threads*`); `POST /ai/agent`, `/ai/agent/stream`, `/ai/agent/resume`, `/ai/agent/reject`
+  - Threads: one-shot auto-title after first turn (`ai/memory/titles.py`); no historical backfill; SSE may include `title`
   - Fast RAG (`/ai/chat*`) and agent (`/ai/agent*`) MUST coexist — never replace one with the other
 
   ## Tenancy & request context
@@ -66,6 +67,7 @@ context: |
   - `docs/documentation/rules.md` — import/worker/storage/governance laws
   - `docs/documentation/observe.md` / `docs/observability.md` — observability
   - `docs/inbound-channels.md` — email / WhatsApp inbound operators
+  - `docs/devops-progress.md` — VPS / first-boot phase tracker (links runbook + production.md)
   - Blueprint slices under `docs/documentation/blueprint/`
 
   ## Testing

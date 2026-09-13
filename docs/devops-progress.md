@@ -22,9 +22,9 @@ Status glyphs: `✅` done · `⬜` todo · `🚧` in progress · `⛔` blocked (
 
 ## Current level (one-line status)
 
-**Phase 1 — HTTP first-boot (A4) open.** Platform code/docs (7P.1–7P.8) exist; live `http://<vps-ipv4>/health` + prod smoke not yet proven. No domain → A7 / production-live not claimed. Bedrock deferred.
+**Phase 1 — HTTP first-boot (A4) ✅ PASS (2026-09-12).** Live `http://<vps-ipv4>/health` + prod smoke exit 0 proven. **Not** production-live — no domain / **A7 HTTPS still open**. Next: Phase 2 CD proof and/or Phase 3 TLS. Bedrock deferred.
 
-_Last reviewed: 2026-09-09_
+_Last reviewed: 2026-09-13_
 
 ---
 
@@ -66,12 +66,12 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | 7P.3 Soft Qdrant boot | ✅ | API/worker start without hard AI gate |
 | 7P.4 R2 / storage contract | ✅ | [storage.md](deployment/storage.md) |
 | 7P.5 Deploy scripts + runbook | ✅ | [`scripts/deploy/`](../scripts/deploy/) · [runbook](deployment/runbook.md) |
-| 7P.6 `smoke_prod.py` + `/health` / `/health/ai` | ✅ | [`scripts/smoke_prod.py`](../scripts/smoke_prod.py) (local smoke PASS; **prod URL still open**) |
+| 7P.6 `smoke_prod.py` + `/health` / `/health/ai` | ✅ | [`scripts/smoke_prod.py`](../scripts/smoke_prod.py) (local + **HTTP-IP prod PASS 2026-09-12**; HTTPS A7 still open) |
 | 7P.7 CI (`pytest` + docker build) | ✅ | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) |
 | 7P.8 CD workflow (tag `v*` / `workflow_dispatch`) | ✅ | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (**live VPS success still required**) |
 | Hosted data plane provisioned (A1) | ✅ | Operator-confirmed; credentials on VPS `.env` only |
 
-**Do next:** leave Phase 0; start Phase 1.
+**Do next:** Phase 0 artifacts are in place; Phase 1 HTTP first-boot is proven — move to Phase 2 (CD) and/or Phase 3 (HTTPS / A7).
 
 **Skills this phase teaches:** env contracts, thin vs fat compose, soft vs hard health, CI without prod secrets.
 
@@ -83,23 +83,21 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 | Item | Status | Proof |
 |------|--------|-------|
-| EC2 reachable (SSH); Docker + Compose plugin OK | ⬜ | SSH session + `docker compose version` |
-| Security group: 22 + 80; **not** 8000 | ⬜ | SG rules reviewed |
-| Swap (~2G) if needed on t3.small | ⬜ | `swapon --show` |
-| `.env` on VPS from `.env.production.example` | ⬜ | File on box; **not** in git |
-| Hosted PG / Redis / Qdrant reachable from VPS | ⬜ | `nc` / curl probes from runbook |
-| Image pulled or built; migrate + `up` | ⬜ | Containers healthy |
-| `GET http://<vps-ipv4>/health` → 200 | ⬜ | curl / browser |
-| `SMOKE_BASE_URL=http://<vps-ipv4>` smoke exit 0 | ⬜ | A4 HTTP proof |
-| Sync A4 in [goal.md](documentation/blueprint/goal.md) when green | ⬜ | A-gate row |
+| EC2 reachable (SSH); Docker + Compose plugin OK | ✅ | First-boot window 2026-09-12 |
+| Security group: 22 + 80; **not** 8000 | ✅ | HTTP :80 health reachable; api unpublished |
+| Swap (~2G) if needed on t3.small | ✅ | Operator first-boot (t3.small) |
+| `.env` on VPS from `.env.production.example` | ✅ | File on box; **not** in git |
+| Hosted PG / Redis / Qdrant reachable from VPS | ✅ | Health + smoke against hosted plane |
+| Image pulled or built; migrate + `up` | ✅ | Containers healthy; smoke exit 0 |
+| `GET http://<vps-ipv4>/health` → 200 | ✅ | HTTP-IP first-boot 2026-09-12 |
+| `SMOKE_BASE_URL=http://<vps-ipv4>` smoke exit 0 | ✅ | A4 HTTP proof (goal.md) |
+| Sync A4 in [goal.md](documentation/blueprint/goal.md) when green | ✅ | A4 ✅ PASS 2026-09-12 |
 
 **Do next:**
 
-1. Fill gitignored `.env.production` → `scp` to VPS as `.env` ([runbook §2.3](deployment/runbook.md)).
-2. Probe hosted plane from the VPS; fix allowlists/SSL before blaming the app.
-3. Prefer `IMAGE=ghcr.io/...` pull over building on 2 GB RAM.
-4. `migrate` → `up` → health → `python scripts/smoke_prod.py`.
-5. Prefer **manual first-boot** before relying on Actions (safer on small instance).
+1. Prefer Phase 2 secrets + one green CD run, or Phase 3 TLS when a domain is ready.
+2. Keep **HTTPS / A7** open until TLS smoke passes — HTTP-IP ≠ production-live.
+3. Prefer `IMAGE=ghcr.io/...` pull over building on 2 GB RAM for later rolls.
 
 **Skills this phase teaches:** EC2, security groups, SSH, Docker Compose on thin RAM, hosted dependency reachability, health as a gate.
 

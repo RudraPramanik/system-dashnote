@@ -28,7 +28,7 @@ Registers routers and global dependencies:
 | `integrations/router.py` | `/integrations` | Inbound email (API key); WhatsApp webhook + JWT link; see [inbound-channels.md](../inbound-channels.md) |
 | `ai_gateway/search.py` | `/ai` | **Live** diagnostic: `GET /ai/test-search?q=&limit=` |
 | `ai_routes/chat.py` | `/ai` | `POST /ai/chat`, `POST /ai/chat/stream` |
-| `ai_routes/threads.py` | `/ai` | Thread list, messages, delete |
+| `ai_routes/threads.py` | `/ai` | Thread list, messages, `PATCH /ai/threads/{thread_id}` rename, delete |
 | `ai_routes/agent.py` | `/ai` | `POST /ai/agent`, `/ai/agent/stream`, `/ai/agent/resume`, `/ai/agent/reject` (HITL) |
 
 **Not mounted:** `ai_search/router.py` (`POST /ai/test-search`) — present in tree but **not** the live contract. Use `GET /ai/test-search` via `ai_gateway/search.py`.
@@ -115,6 +115,8 @@ All AI module layout, RBAC filters, HTTP contracts, and agent laws: **[ai.md](./
 
 Surface summary: embeddings → Qdrant (`notes_chunks`, `files_chunks`); file upload → text extraction → `extracted_text` (7.2) → fan-out indexing + metadata (7.3); note create → auto-tagging (7.3); destructive AI automation gated by `AutomationDecisionEngine` (7.4); shared LLM retry/structured/fallback layer (7.5+); RAG at `/ai/chat*`; threads at `/ai/threads*`; LangGraph agent at `/ai/agent*` with HITL resume/reject. Fast RAG and agent paths coexist. Soft readiness: `GET /health/ai`.
 
+**Conversation auto-titles:** After the first successful chat or agent turn, threads get a one-shot title (`ai/memory/titles.py` — deterministic truncate + optional LLM polish). No historical backfill. Streaming clients may receive a `title` field on chat SSE `metadata` and agent `done` / `approval_required` events. Manual rename: `PATCH /ai/threads/{thread_id}`. Details: [ai.md](./ai.md). Smoke: [smoke-conversation-titles.md](./smoke-conversation-titles.md).
+
 **Shared LLM layer (7.5+):** `shared/llm/` — `acompletion_structured` for automation + governance; `acompletion_with_retry` / `acompletion_with_fallback` for chat/agent (wall-clock candidate walk). Transient LLM failures in worker tasks re-raise for ARQ retry; agent maps exhaustion to **503**.
 
 **Automation governance (7.4):** `worker/automation/decision.py` evaluates ambiguous/destructive AI-initiated actions only. Additive tasks (`generate_note_tags`, `generate_file_metadata`, `index_file_chunks`) skip governance. Blocked actions log `[AUTOMATION_GOVERNANCE_BLOCK]` for monitoring.
@@ -143,14 +145,19 @@ python -m pytest tests/files -q          # files module (mocked storage)
 python -m pytest tests/shared/test_parsers.py tests/shared/test_llm_structured.py -q
 python -m pytest tests/worker/test_automation_decision.py tests/worker/test_automation_llm_tasks.py -q
 python -m pytest tests/ai/test_agent_retry.py tests/ai/test_agent_hitl.py -q
+python -m pytest tests/ai/test_thread_titles.py tests/ai/test_thread_rename_api.py -q
 python -m pytest tests/core/test_rate_limit.py -q
 ```
+
+Inbound email smoke (when integrations configured): `python scripts/smoke_inbound_email.py`. Conversation title UI smoke: [smoke-conversation-titles.md](./smoke-conversation-titles.md).
 
 `pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`. Windows dev: conftest stubs `magic` if libmagic missing; Docker uses `libmagic1`.
 
 ### Docker Compose
 
 Two compose files — dev stack vs VPS profile. See `.env.production.example` for hosted URLs.
+
+**Ops runbooks (production / first-boot):** [devops-progress.md](../devops-progress.md) (phase tracker) · [deployment/runbook.md](../deployment/runbook.md) (commands) · [production.md](./production.md) (7P / topology). HTTP-on-IP first-boot is evidence for A4; **HTTPS is still required** for production-live (A7) — do not treat HTTP-IP smoke as the hire gate.
 
 **Local (full stack)** — `docker-compose.yml`:
 
@@ -167,15 +174,16 @@ docker compose run --rm migrate # migrations only
 **Production (VPS — hosted db/redis/qdrant in `.env`)** — `docker-compose.prod.yml`:
 
 ```powershell
+# Prefer IMAGE=ghcr.io/<owner>/<repo>:<tag> pull on thin VPS (avoids on-box build)
 docker compose -f docker-compose.prod.yml run --rm migrate
 docker compose -f docker-compose.prod.yml up -d
 # Optional metrics → Grafana Cloud:
 docker compose -f docker-compose.prod.yml --profile observability up -d
 ```
 
-**Dev services:** `nginx` (:80), `api` (:8000 direct), `db` (postgres:16), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `migrate` (one-shot Alembic). **No** local Grafana container.
+**Dev services:** `nginx` (:80), `api` (:8000 direct), `db` (`postgres:16-alpine`), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `migrate` (one-shot Alembic). **No** local Grafana container.
 
-**Prod services:** `nginx` (:80), `api` (expose 8000 only — nginx fronts traffic), `worker`, `migrate` (run separately), optional `prometheus` (`--profile observability`). No local `db`, `redis`, or `qdrant` containers.
+**Prod services:** `nginx` (:80), `api` (expose 8000 only — nginx fronts traffic; internal `/health` healthcheck), `worker` (`depends_on` api `service_healthy`), `migrate` (run separately), optional `prometheus` (`--profile observability`, off on first boot). No local `db`, `redis`, or `qdrant` containers. Set `IMAGE=` for registry pull; unset `IMAGE` builds from local Dockerfile.
 
 **Local dev overrides (Compose):** `api` and `worker` get explicit `DATABASE_URL` (local Postgres, not `.env` remote). Both mount `local_storage` for `STORAGE_BACKEND=local`. Worker imports all ORM models at startup (same pattern as `alembic/env.py`). Production compose uses `env_file: .env` only (plus `DEBUG=false`); no shared storage volume — use `STORAGE_BACKEND=r2`.
 

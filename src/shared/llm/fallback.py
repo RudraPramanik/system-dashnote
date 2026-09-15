@@ -2,7 +2,7 @@
 Walk LLM_MODEL then LLM_MODEL_FALLBACKS when a hosted id is gone (HTTP 410)
 or exceeds the per-candidate wall clock.
 
-Import law: config, litellm, shared.llm.retry, stdlib only.
+Import law: config, litellm, shared.llm.retry, observability.metrics, stdlib only.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import Any
 import litellm
 
 from config import get_settings
+from observability.metrics import inc_llm_fallback
 from shared.llm.retry import acompletion_with_retry
 
 logger = logging.getLogger(__name__)
@@ -173,6 +174,7 @@ async def acompletion_with_fallback(**kwargs: Any) -> Any:
             return result
         except asyncio.TimeoutError as exc:
             last_exc = exc
+            inc_llm_fallback()
             logger.warning(
                 "LLM candidate timed out; trying next",
                 extra={"model": model, "timeout_s": wall},
@@ -181,6 +183,7 @@ async def acompletion_with_fallback(**kwargs: Any) -> Any:
         except Exception as exc:
             last_exc = exc
             if is_model_gone(exc):
+                inc_llm_fallback()
                 logger.warning(
                     "LLM model gone; trying next candidate",
                     extra={"model": model, "error": str(exc)[:240]},

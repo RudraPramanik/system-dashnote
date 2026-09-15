@@ -2,7 +2,7 @@
 
 Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM → **Qdrant** (`notes_chunks` + `files_chunks`, dim **3072**). API enqueues ARQ jobs; worker indexes vectors. Fast RAG and the agent search **both** collections via `WorkspaceVectorSearch`.
 
-**Related:** platform [system.md](./system.md) · import laws [rules.md](./rules.md) · validation [observe.md](./observe.md) · runbook [observability.md](../observability.md) · soft AI probe `GET /health/ai`
+**Related:** platform [system.md](./system.md) · import laws [rules.md](./rules.md) · validation [observe.md](./observe.md) · runbook [observability.md](../observability.md) · soft AI probe `GET /health/ai` · **interview evidence** [interview-evidence-guide.md](./interview-evidence-guide.md)
 
 ### Architecture laws (enforce in all AI code)
 
@@ -17,7 +17,7 @@ Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM →
 | RBAC filter | `build_rbac_filter()` in `ai/retrieval/filters.py` — mirrors `notes/permissions.py` exactly |
 | Routers | Test: **`GET /ai/test-search`**; chat: **`POST /ai/chat`**, **`POST /ai/chat/stream`**; agent: **`POST /ai/agent`**, **`POST /ai/agent/stream`**, **`POST /ai/agent/resume`**, **`POST /ai/agent/reject`** |
 | Services | **`RagService.answer()`** / **`stream_answer()`** — plain `workspace_id` / `user_id` / `role` strings only |
-| Streaming | SSE citations in final `metadata` event only — never parsed from token stream; quiet streams emit SSE comment heartbeats (`ai_routes/sse_heartbeat.py`) |
+| Streaming | SSE citations in final `metadata` event only — never parsed from token stream; quiet streams emit SSE comment heartbeats (`ai_routes/sse_heartbeat.py`); optional `title` on chat `metadata` / agent `done` |
 | HITL | Mutation tools (`create_note`, `update_note`) interrupt → `approval_required` then stream ends; client reconnects via resume/reject |
 | Memory ORM | **`src/ai_memory/`** — `AIThread`, `AIMessage`; never import SQLAlchemy from `src/ai/*` |
 | Memory service | **`ThreadService`**, **`ContextBuilder`** |
@@ -104,6 +104,31 @@ Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM →
 | `generate_note_tags` | LLM tags → `notes.tags` | **None** — additive metadata |
 
 **File upload pipeline:** upload → `FileUploadedEvent` → worker downloads via `get_storage()` → `FileParsingEngine.extract_text()` (executor) → persist `files.extracted_text` → fan-out `index_file_chunks` + `generate_file_metadata`.
+
+### Messy-data pipeline
+
+Enterprise uploads are messy (wrong MIME, empty/corrupt bytes, unsupported types). DashNote does **not** ship OCR or full enterprise ETL — unsupported or failed extract yields empty `extracted_text` (no poisoned vectors from binary garbage), then indexing/metadata fan-out only when text exists.
+
+```
+Upload (bytes + MIME sniff)
+        │
+        ▼
+Object storage  +  Postgres file row
+        │
+        ▼
+ARQ worker: FileParsingEngine.extract_text()
+   unsupported / empty / corrupt ──► extracted_text = "" (safe)
+   PDF / DOCX / HTML / text/*   ──► extracted_text
+        │
+        ▼
+index_file_chunks → files_chunks (Qdrant)
+generate_file_metadata (capped tokens)
+        │
+        ▼
+WorkspaceVectorSearch merges notes_chunks + files_chunks → RAG citations
+```
+
+**Edge fixture (interview demo):** `tests/shared/fixtures/messy_unsupported.bin` — `application/octet-stream` → empty extract (`test_extract_text_unsupported_mime` / `test_messy_unsupported_fixture`). Corrupt/empty PDF path: `tests/shared/fixtures/messy_empty_pdf.pdf`.
 
 **Note create pipeline:** commit → `embed_note_task` (Slice 1) + `NoteCreatedEvent` → `handle_note_created` → fan-out `generate_note_tags`.
 
@@ -240,8 +265,8 @@ Auth: Bearer JWT → `RequestContext`. **503** when `ai_enabled` or `qdrant_enab
 
 | Route | Body | Response |
 |-------|------|----------|
-| `POST /ai/chat` | `message` (1–2000 chars); optional `thread_id` | `answer`, `citations[]`, `chunks_retrieved`, `chunks_used`, `latency_ms`, `thread_id` |
-| `POST /ai/chat/stream` | Same | SSE: `token` events → `metadata` (citations, `thread_id`) → `[DONE]` |
+| `POST /ai/chat` | `message` (1–2000 chars); optional `thread_id` | `answer`, `citations[]`, `chunks_retrieved`, `chunks_used`, `latency_ms`, `thread_id`, optional `title` (one-shot auto-title) |
+| `POST /ai/chat/stream` | Same | SSE: `token` events → `metadata` (citations, `thread_id`, optional `title`) → `[DONE]` |
 
 Stream headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Quiet streams also emit SSE comment heartbeats via `iter_with_heartbeat`. Citations from **top retrieved chunks** (not the token stream). Shape: `{ note_id, chunk_id, title, relevance_score, source_type, file_id }` with `source_type` `note` | `file`. Empty retrieval: *I could not find relevant information in your notes and files for this query.*
 
@@ -253,11 +278,12 @@ Stream headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Quiet stream
 |------|------|
 | `ai_memory/models.py` | `AIThread`, `AIMessage` (product ORM layer) |
 | `ai_memory/repository.py` | `ThreadRepository` — workspace filter on every query |
-| `ai/memory/service.py` | `ThreadService` — get/create thread, load history, persist turn |
+| `ai/memory/service.py` | `ThreadService` — get/create thread, load history, persist turn, set title |
+| `ai/memory/titles.py` | Deterministic truncate + optional LLM polish for one-shot auto-titles |
 | `ai/memory/context_builder.py` | `ContextBuilder.build()` — history + retrieval char budget |
 | `ai_routes/threads.py` | Thread CRUD routes |
 
-**RagService:** accepts `thread_id` and `db: AsyncSession | None` (injected from route via `Depends(get_session)`; TYPE_CHECKING only in service).
+**RagService:** accepts `thread_id` and `db: AsyncSession | None` (injected from route via `Depends(get_session)`; TYPE_CHECKING only in service). After the first successful turn on a newly created thread, `_maybe_auto_title` may set a title (null-only guard — never overwrites a user rename or existing title). **No historical backfill** for older placeholder threads.
 
 | Route | Purpose |
 |-------|---------|
@@ -266,7 +292,7 @@ Stream headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Quiet stream
 | `PATCH /ai/threads/{thread_id}` | Rename thread (`{ "title": "..." }`) |
 | `DELETE /ai/threads/{thread_id}` | Soft delete (`is_active=false`) |
 
-Cross-workspace access: **404** on thread routes, **400** on chat reuse. `workspace_id` always from JWT, never query/body/path.
+Cross-workspace access: **404** on thread routes, **400** on chat reuse. `workspace_id` always from JWT, never query/body/path. Manual UI smoke: [smoke-conversation-titles.md](./smoke-conversation-titles.md).
 
 ---
 
@@ -299,8 +325,8 @@ Adds **`POST /ai/agent`**, **`POST /ai/agent/stream`**, **`POST /ai/agent/resume
 
 | Route | Behavior |
 |-------|----------|
-| `POST /ai/agent` | JSON: completed turn **or** `approval_required` (`tool`, `args`, `thread_id`, `interrupt_id`) |
-| `POST /ai/agent/stream` | SSE: `token`, `tool_start`, `tool_end`, `approval_required`, `done`/`error`, `[DONE]`. After `approval_required`, stream **ends** |
+| `POST /ai/agent` | JSON: completed turn **or** `approval_required` (`tool`, `args`, `thread_id`, `interrupt_id`); optional `title` when one-shot auto-title ran |
+| `POST /ai/agent/stream` | SSE: `token`, `tool_start`, `tool_end`, `approval_required`, `done`/`error`, `[DONE]`. After `approval_required`, stream **ends**. `done` / `approval_required` MAY include `title` |
 | `POST /ai/agent/resume` | Body `{ thread_id, interrupt_id? }` — JWT workspace only; continues pending mutation |
 | `POST /ai/agent/reject` | Same body — ends turn without applying create/update |
 
@@ -324,6 +350,7 @@ RAG instrumentation via `observability.tracing` (`rag_trace` → spans `retrieva
 | [rules.md](./rules.md) | Import direction, Slice 6 modification laws |
 | [lld.md](./lld.md) | §4.12–4.18 (flows, retrieval, RAG, agent, automation, shared LLM) |
 | [observe.md](./observe.md) | Validation commands, observability steps |
+| [interview-evidence-guide.md](./interview-evidence-guide.md) | How to visualize cost/evals/messy-data/Eval Paradox for interviews |
 | [frontendguide.md](./frontendguide.md) | Client SSE + HITL Approve/Reject |
 | [blueprint/](./blueprint/) | Per-slice build history and sign-off gates |
 | [blueprint/slice7-llm-hardening.md](./blueprint/slice7-llm-hardening.md) | Slice 7.5 recovery blueprint and gate criteria |

@@ -290,6 +290,8 @@ GET /ai/threads | GET /ai/threads/{id}/messages | PATCH /ai/threads/{id} | DELET
     └─► ThreadRepository (workspace_id on every query) → 404 cross-tenant
 ```
 
+**Auto-title (one-shot):** after first successful chat/agent turn on a newly created thread → `generate_thread_title` (deterministic truncate → optional LLM polish) → `ThreadService.set_title_for_new_thread` (null-only; no overwrite, **no backfill**). Clients may see `title` on chat SSE `metadata` and agent `done` / `approval_required`.
+
 `ContextBuilder`: char budget ~70% history / 30% retrieval context.
 
 ### 4.15 LangGraph agent (Slice 6)

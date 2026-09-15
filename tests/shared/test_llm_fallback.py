@@ -8,12 +8,21 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+from prometheus_client import REGISTRY
+
 from shared.llm.fallback import (
     LLMUnavailableError,
     acompletion_with_fallback,
     is_model_gone,
     reset_fallback_state,
 )
+
+
+def _counter_value(name: str) -> float:
+    for metric in REGISTRY.collect():
+        if metric.name == name:
+            return sum(sample.value for sample in metric.samples if sample.name.endswith("_total"))
+    return 0.0
 
 
 @pytest.fixture(autouse=True)
@@ -47,9 +56,11 @@ async def test_fallback_skips_gone_primary():
             side_effect=fake_retry,
         ),
     ):
+        before = _counter_value("dashnote_ai_llm_fallback")
         result = await acompletion_with_fallback(messages=[{"role": "user", "content": "hi"}])
 
     assert result == {"ok": True}
+    assert _counter_value("dashnote_ai_llm_fallback") > before
 
 
 @pytest.mark.asyncio

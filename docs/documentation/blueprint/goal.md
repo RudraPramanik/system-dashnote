@@ -51,7 +51,7 @@ Copy this section into your tracker. Check each item. **All must be ✅ before j
 | A1 | Hosted services provisioned (Postgres, Redis, Qdrant Cloud, R2 or equiv.) | ✅ | Operator-confirmed 2026-09-08 — credentials in VPS `.env` only |
 | A2 | **7P.4** R2/storage — worker reads uploads without local volume | ✅ | Documented in `.env.production.example` + `docs/deployment/storage.md` |
 | A3 | **7P.5** Deploy scripts + runbook | ✅ | `scripts/deploy/*`, `docs/deployment/runbook.md` |
-| A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ⬜ | Local `http://127.0.0.1` smoke PASS (2026-09-06); **next:** HTTP-on-IP first-boot; **HTTPS prod still required** |
+| A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ✅ | HTTP-on-IP first-boot PASS 2026-09-12 (`http://16.192.166.178` health + smoke exit 0). **Not** production-live — **HTTPS still required** for A7 |
 | A5 | **7P.7** CI green on PR (`pytest` + docker build) | ✅ | `.github/workflows/ci.yml` |
 | A6 | **7P.8** CD workflow + gate docs | ✅ | `.github/workflows/deploy.yml` (CD HTTPS not required for first-boot; live TLS proof still needed for A7) |
 | A7 | TLS live API | ⬜ | `https://api.<domain>/health` → 200 — **no domain yet** |
@@ -111,7 +111,7 @@ python evals/run_eval.py --base-url https://api.<domain> --token <token>
 | D1 | README: pitch, live links, stack, architecture diagram link | ✅ | `readme.md` — prod URLs explicit pending |
 | D2 | Screenshots or GIF on README | ⬜ | Chat + citations visible |
 | D3 | **3-minute demo video** (Loom / YouTube unlisted) | ⬜ | Link in README |
-| D4 | Cost + latency table (even rough) | ⬜ | Placeholder in README — fill from Langfuse / sample |
+| D4 | Cost + latency table (even rough) | ✅ | README local/sample 2026-09-13 + EXP-002; re-run `scripts/sample_cost_latency.py` with Langfuse when Compose up |
 | D5 | GitHub topics: `rag`, `langgraph`, `fastapi`, `qdrant` | ⬜ | Set on remote when `gh`/UI available |
 | D6 | `docs/interview-talk-track.md` — 2-min pitch + 3 tradeoffs | ✅ | Interview prep |
 
@@ -137,7 +137,7 @@ PRODUCTION
 [x] A1 Hosted services live (operator-confirmed 2026-09-08)
 [x] A2 Storage contract (R2)
 [x] A3 Deploy scripts + runbook
-[ ] A4 smoke_prod.py PASS on prod (local PASS 2026-09-06; HTTP-IP first-boot pending; HTTPS still required)
+[x] A4 smoke_prod.py HTTP-IP first-boot PASS 2026-09-12 (HTTPS still required for production-live)
 [x] A5 CI green on PR
 [x] A6 CD workflow + gate docs (live TLS proof still open)
 [ ] A7 https://api.<domain>/health → 200
@@ -161,7 +161,7 @@ PORTFOLIO
 [x] D1 README with live links / pending honesty
 [ ] D2 Screenshots/GIF
 [ ] D3 Demo video
-[ ] D4 Cost/latency table
+[x] D4 Cost/latency table
 [ ] D5 GitHub topics
 [x] D6 Interview talk track
 
@@ -294,6 +294,7 @@ Attach **Phase 2 upgrade quote** on every Lite delivery.
 
 | Date | Change |
 |------|--------|
+| 2026-09-12 | A4 HTTP-on-IP first-boot PASS (`http://16.192.166.178` health + smoke); A7/HTTPS still open |
 | 2026-09-08 | A1 operator-confirmed; VPS HTTP first-boot window (no domain); A7/HTTPS still open |
 | 2026-08-03 | Added preferred **Slice 8X** order; kept alternate “fastest live URL” short-order |
 | 2026-06-30 | Initial extended roadmap (7R, 7A, 6+, …) |

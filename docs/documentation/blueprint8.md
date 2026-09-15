@@ -101,7 +101,7 @@ Do these to stand out **without** breaking Alive. Prefer shipping on the real pr
 |---|----------|-------|--------|
 | 1 | **HITL** before agent `create_note` / `update_note` | API-first interrupt + resume; FE polish later | [`slice8_hitl.md`](blueprint/slice8_hitl.md) |
 | 2 | **Langfuse depth** | Log retrieved chunk/note ids + scores (not counts only); scores on traces | `observe.md` / tracing |
-| 3 | **Langfuse-native experiments** | Preferred thickener after C-gate: datasets + judges — **do not replace** golden JSONL harness | — |
+| 3 | **Langfuse-native experiments** | Preferred thickener after C-gate: datasets + judges — **do not replace** golden JSONL harness | `evals/run_langfuse_faithfulness.py` + `evals/README.md` (operator/nightly; not CI) |
 | 4 | **Cost / latency table** | From Langfuse export or fixed sample; README field | goal §D4 |
 | 5 | **Fixture evals in CI** | Deterministic only; never require live LLM keys for green PR | slice8_eval §8X.2.4 |
 | 6 | **Agent trajectory goldens** | ≥5 cases incl. forbid surprise create (`required_tools` / `forbidden_tools` / `sequence_mode`) | slice8_eval §8X.2.3 |

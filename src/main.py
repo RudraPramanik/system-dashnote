@@ -55,6 +55,8 @@ def register_routes(app: FastAPI) -> None:
     # --- AI Slice 6: Agent routes ---
     from ai_routes.agent import router as ai_agent_router
     app.include_router(ai_agent_router)
+    from ai_routes.feedback import router as ai_feedback_router
+    app.include_router(ai_feedback_router)
 
 
 # Middleware

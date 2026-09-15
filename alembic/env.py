@@ -45,6 +45,13 @@ else:
     # Try to convert other async formats
     database_url = database_url.replace("+asyncpg", "")
 
+# Runtime (asyncpg) uses ssl=require; psycopg2 wants sslmode=require.
+if "sslmode=" not in database_url:
+    if "ssl=require" in database_url:
+        database_url = database_url.replace("ssl=require", "sslmode=require")
+    elif "ssl=true" in database_url:
+        database_url = database_url.replace("ssl=true", "sslmode=require")
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""

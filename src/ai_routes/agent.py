@@ -46,6 +46,8 @@ from ai_memory.repository import ThreadRepository
 from core.database.session import get_session
 from core.security.context import RequestContext
 from core.security.dependency import get_current_context
+from observability.metrics import inc_agent_interrupt
+from observability.tracing import current_trace_id, start_trace
 from shared.llm.fallback import (
     LLM_UNAVAILABLE_MESSAGE,
     LLMUnavailableError,
@@ -77,6 +79,7 @@ class AgentResponse(BaseModel):
     thread_id: str
     steps_taken: int
     tool_calls_made: int
+    trace_id: str | None = None
 
 
 class ApprovalRequiredResponse(BaseModel):
@@ -88,6 +91,7 @@ class ApprovalRequiredResponse(BaseModel):
     args: dict[str, Any]
     thread_id: str
     interrupt_id: str
+    trace_id: str | None = None
 
 
 class AgentResumeRequest(BaseModel):
@@ -106,9 +110,30 @@ class AgentRejectResponse(BaseModel):
     thread_id: str
     steps_taken: int = 0
     tool_calls_made: int = 0
+    trace_id: str | None = None
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────
+
+def _agent_trace_meta(
+    *,
+    workspace_id: str,
+    user_id: str,
+    role: str,
+    thread_id: str,
+) -> dict[str, str]:
+    return {
+        "workspace_id": workspace_id,
+        "user_id": user_id,
+        "role": role,
+        "thread_id": thread_id,
+        "surface": "agent",
+    }
+
+
+def _mark_approval_required() -> None:
+    inc_agent_interrupt()
+
 
 async def _resolve_thread_id(
     thread_id: str | None,
@@ -316,85 +341,97 @@ async def agent_chat(
     token = db_session_var.set(db)
 
     try:
-        graph = get_workspace_assistant()
-        initial_state = {
-            "messages": [{"role": "user", "content": body.message}],
-            "workspace_id": workspace_id,
-            "user_id": user_id,
-            "role": role,
-            "steps_taken": 0,
-            "thread_id": resolved_thread_id,
-        }
-        config = {"configurable": {"thread_id": resolved_thread_id}}
+        async with start_trace(
+            "agent.turn",
+            _agent_trace_meta(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                role=role,
+                thread_id=resolved_thread_id,
+            ),
+        ) as trace:
+            try:
+                graph = get_workspace_assistant()
+                initial_state = {
+                    "messages": [{"role": "user", "content": body.message}],
+                    "workspace_id": workspace_id,
+                    "user_id": user_id,
+                    "role": role,
+                    "steps_taken": 0,
+                    "thread_id": resolved_thread_id,
+                }
+                config = {"configurable": {"thread_id": resolved_thread_id}}
 
-        final_state = await graph.ainvoke(initial_state, config=config)
+                final_state = await graph.ainvoke(initial_state, config=config)
+            except LLMUnavailableError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=str(e),
+                ) from e
+            except RuntimeError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"Agent unavailable: {str(e)}",
+                ) from e
+            except RETRYABLE_EXCEPTIONS as e:
+                logger.error(
+                    "Agent LLM temporarily unavailable",
+                    extra={"workspace_id": workspace_id, "error": str(e)},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="LLM temporarily unavailable; retry shortly",
+                ) from e
+            except Exception as e:
+                logger.error(
+                    "Agent invocation failed",
+                    extra={"workspace_id": workspace_id, "error": str(e)},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Agent encountered an error. Try /ai/chat for direct RAG.",
+                ) from e
 
-    except LLMUnavailableError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e),
-        ) from e
-    except RuntimeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Agent unavailable: {str(e)}",
-        ) from e
-    except RETRYABLE_EXCEPTIONS as e:
-        logger.error(
-            "Agent LLM temporarily unavailable",
-            extra={"workspace_id": workspace_id, "error": str(e)},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="LLM temporarily unavailable; retry shortly",
-        ) from e
-    except Exception as e:
-        logger.error(
-            "Agent invocation failed",
-            extra={"workspace_id": workspace_id, "error": str(e)},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Agent encountered an error. Try /ai/chat for direct RAG.",
-        ) from e
+            interrupts = extract_interrupts(final_state)
+            if interrupts:
+                _mark_approval_required()
+                await _maybe_auto_title_agent(
+                    db=db,
+                    thread_id=resolved_thread_id,
+                    workspace_id=workspace_id,
+                    user_message=body.message,
+                    assistant_text=None,
+                    created_this_request=created_this_request,
+                )
+                event = approval_event_from_interrupt(
+                    interrupts[0], thread_id=resolved_thread_id
+                )
+                return ApprovalRequiredResponse(
+                    tool=event["tool"],
+                    args=event.get("args") or {},
+                    thread_id=resolved_thread_id,
+                    interrupt_id=str(event.get("interrupt_id") or ""),
+                    trace_id=current_trace_id(trace),
+                )
+
+            answer, tool_calls_made = _final_answer_from_state(final_state)
+            await _maybe_auto_title_agent(
+                db=db,
+                thread_id=resolved_thread_id,
+                workspace_id=workspace_id,
+                user_message=body.message,
+                assistant_text=answer,
+                created_this_request=created_this_request,
+            )
+            return AgentResponse(
+                answer=answer,
+                thread_id=resolved_thread_id,
+                steps_taken=int(final_state.get("steps_taken", 0)),
+                tool_calls_made=tool_calls_made,
+                trace_id=current_trace_id(trace),
+            )
     finally:
         db_session_var.reset(token)
-
-    interrupts = extract_interrupts(final_state)
-    if interrupts:
-        await _maybe_auto_title_agent(
-            db=db,
-            thread_id=resolved_thread_id,
-            workspace_id=workspace_id,
-            user_message=body.message,
-            assistant_text=None,
-            created_this_request=created_this_request,
-        )
-        event = approval_event_from_interrupt(
-            interrupts[0], thread_id=resolved_thread_id
-        )
-        return ApprovalRequiredResponse(
-            tool=event["tool"],
-            args=event.get("args") or {},
-            thread_id=resolved_thread_id,
-            interrupt_id=str(event.get("interrupt_id") or ""),
-        )
-
-    answer, tool_calls_made = _final_answer_from_state(final_state)
-    await _maybe_auto_title_agent(
-        db=db,
-        thread_id=resolved_thread_id,
-        workspace_id=workspace_id,
-        user_message=body.message,
-        assistant_text=answer,
-        created_this_request=created_this_request,
-    )
-    return AgentResponse(
-        answer=answer,
-        thread_id=resolved_thread_id,
-        steps_taken=int(final_state.get("steps_taken", 0)),
-        tool_calls_made=tool_calls_made,
-    )
 
 
 @router.post("/agent/stream", response_class=StreamingResponse)
@@ -433,94 +470,109 @@ async def agent_chat_stream(
     async def generate():
         token = db_session_var.set(db)
         try:
-            graph = get_workspace_assistant()
-            initial_state = {
-                "messages": [{"role": "user", "content": message}],
-                "workspace_id": workspace_id,
-                "user_id": user_id,
-                "role": role,
-                "steps_taken": 0,
-                "thread_id": resolved_thread_id,
-            }
-            config = {
-                "configurable": {"thread_id": resolved_thread_id},
-            }
-
-            steps = 0
-            streamed_parts: list[str] = []
-
-            async def _sse_frames():
-                nonlocal steps
-                async for event in graph.astream_events(
-                    initial_state, config=config, version="v2"
-                ):
-                    kind = event.get("event", "")
-                    data = event.get("data", {})
-
-                    if kind == "on_chat_model_stream":
-                        chunk = data.get("chunk", {})
-                        content = _extract_stream_chunk_content(chunk)
-                        if content:
-                            streamed_parts.append(content)
-                            yield (
-                                f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
-                            )
-
-                    elif kind == "on_tool_start":
-                        payload = {
-                            "type": "tool_start",
-                            "tool": event.get("name", ""),
-                            "args": data.get("input", {}),
-                        }
-                        yield f"data: {json.dumps(payload)}\n\n"
-
-                    elif kind == "on_tool_end":
-                        result = data.get("output", "")
-                        payload = {
-                            "type": "tool_end",
-                            "tool": event.get("name", ""),
-                            "result": str(result)[:200],
-                        }
-                        yield f"data: {json.dumps(payload)}\n\n"
-
-                    elif kind == "on_chain_end" and event.get("name") == "LangGraph":
-                        output = data.get("output", {})
-                        if isinstance(output, dict):
-                            steps = int(output.get("steps_taken", 0))
-
-                snap = await graph.aget_state(config)
-                pending = extract_interrupts(snap)
-                assistant_text = "".join(streamed_parts) or None
-                title = await _maybe_auto_title_agent(
-                    db=db,
-                    thread_id=resolved_thread_id,
+            async with start_trace(
+                "agent.turn",
+                _agent_trace_meta(
                     workspace_id=workspace_id,
-                    user_message=message,
-                    assistant_text=assistant_text,
-                    created_this_request=created_this_request,
-                )
-                if pending:
-                    event_payload = approval_event_from_interrupt(
-                        pending[0], thread_id=resolved_thread_id
-                    )
-                    if title:
-                        event_payload["title"] = title
-                    yield f"data: {json.dumps(event_payload)}\n\n"
-                    yield "data: [DONE]\n\n"
-                    return
-
-                done_payload: dict[str, Any] = {
-                    "type": "done",
+                    user_id=user_id,
+                    role=role,
+                    thread_id=resolved_thread_id,
+                ),
+            ) as trace:
+                graph = get_workspace_assistant()
+                initial_state = {
+                    "messages": [{"role": "user", "content": message}],
+                    "workspace_id": workspace_id,
+                    "user_id": user_id,
+                    "role": role,
+                    "steps_taken": 0,
                     "thread_id": resolved_thread_id,
-                    "steps_taken": steps,
                 }
-                if title:
-                    done_payload["title"] = title
-                yield f"data: {json.dumps(done_payload)}\n\n"
-                yield "data: [DONE]\n\n"
+                config = {
+                    "configurable": {"thread_id": resolved_thread_id},
+                }
 
-            async for frame in iter_with_heartbeat(_sse_frames()):
-                yield frame
+                steps = 0
+                streamed_parts: list[str] = []
+
+                async def _sse_frames():
+                    nonlocal steps
+                    async for event in graph.astream_events(
+                        initial_state, config=config, version="v2"
+                    ):
+                        kind = event.get("event", "")
+                        data = event.get("data", {})
+
+                        if kind == "on_chat_model_stream":
+                            chunk = data.get("chunk", {})
+                            content = _extract_stream_chunk_content(chunk)
+                            if content:
+                                streamed_parts.append(content)
+                                yield (
+                                    f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
+                                )
+
+                        elif kind == "on_tool_start":
+                            payload = {
+                                "type": "tool_start",
+                                "tool": event.get("name", ""),
+                                "args": data.get("input", {}),
+                            }
+                            yield f"data: {json.dumps(payload)}\n\n"
+
+                        elif kind == "on_tool_end":
+                            result = data.get("output", "")
+                            payload = {
+                                "type": "tool_end",
+                                "tool": event.get("name", ""),
+                                "result": str(result)[:200],
+                            }
+                            yield f"data: {json.dumps(payload)}\n\n"
+
+                        elif kind == "on_chain_end" and event.get("name") == "LangGraph":
+                            output = data.get("output", {})
+                            if isinstance(output, dict):
+                                steps = int(output.get("steps_taken", 0))
+
+                    snap = await graph.aget_state(config)
+                    pending = extract_interrupts(snap)
+                    assistant_text = "".join(streamed_parts) or None
+                    title = await _maybe_auto_title_agent(
+                        db=db,
+                        thread_id=resolved_thread_id,
+                        workspace_id=workspace_id,
+                        user_message=message,
+                        assistant_text=assistant_text,
+                        created_this_request=created_this_request,
+                    )
+                    tid = current_trace_id(trace)
+                    if pending:
+                        _mark_approval_required()
+                        event_payload = approval_event_from_interrupt(
+                            pending[0], thread_id=resolved_thread_id
+                        )
+                        if title:
+                            event_payload["title"] = title
+                        if tid:
+                            event_payload["trace_id"] = tid
+                        yield f"data: {json.dumps(event_payload)}\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+
+                    done_payload: dict[str, Any] = {
+                        "type": "done",
+                        "thread_id": resolved_thread_id,
+                        "steps_taken": steps,
+                    }
+                    if title:
+                        done_payload["title"] = title
+                    if tid:
+                        done_payload["trace_id"] = tid
+                    yield f"data: {json.dumps(done_payload)}\n\n"
+                    yield "data: [DONE]\n\n"
+
+                async for frame in iter_with_heartbeat(_sse_frames()):
+                    yield frame
 
         except Exception as e:
             logger.exception("Agent stream failed")
@@ -558,6 +610,7 @@ async def agent_resume(
     """Approve a pending mutation interrupt and continue the agent graph."""
     workspace_id = str(ctx.workspace_id)
     user_id = str(ctx.user_id)
+    role = ctx.role
 
     await _assert_thread_workspace(
         thread_id=body.thread_id,
@@ -568,55 +621,68 @@ async def agent_resume(
 
     token = db_session_var.set(db)
     try:
-        graph = get_workspace_assistant()
-        pending = await _pending_interrupt_for_thread(
-            graph, thread_id=body.thread_id, workspace_id=workspace_id
-        )
-        pending_id = getattr(pending, "id", None)
-        if body.interrupt_id and pending_id and body.interrupt_id != str(pending_id):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="interrupt_id does not match pending interrupt",
-            )
+        async with start_trace(
+            "agent.turn",
+            _agent_trace_meta(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                role=role,
+                thread_id=body.thread_id,
+            ),
+        ) as trace:
+            try:
+                graph = get_workspace_assistant()
+                pending = await _pending_interrupt_for_thread(
+                    graph, thread_id=body.thread_id, workspace_id=workspace_id
+                )
+                pending_id = getattr(pending, "id", None)
+                if body.interrupt_id and pending_id and body.interrupt_id != str(pending_id):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="interrupt_id does not match pending interrupt",
+                    )
 
-        config = {"configurable": {"thread_id": body.thread_id}}
-        final_state = await graph.ainvoke(
-            Command(resume={"action": "approve"}),
-            config=config,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            "Agent resume failed",
-            extra={"workspace_id": workspace_id, "error": str(e)},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to resume agent turn",
-        ) from e
+                config = {"configurable": {"thread_id": body.thread_id}}
+                final_state = await graph.ainvoke(
+                    Command(resume={"action": "approve"}),
+                    config=config,
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    "Agent resume failed",
+                    extra={"workspace_id": workspace_id, "error": str(e)},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to resume agent turn",
+                ) from e
+
+            interrupts = extract_interrupts(final_state)
+            if interrupts:
+                _mark_approval_required()
+                event = approval_event_from_interrupt(
+                    interrupts[0], thread_id=body.thread_id
+                )
+                return ApprovalRequiredResponse(
+                    tool=event["tool"],
+                    args=event.get("args") or {},
+                    thread_id=body.thread_id,
+                    interrupt_id=str(event.get("interrupt_id") or ""),
+                    trace_id=current_trace_id(trace),
+                )
+
+            answer, tool_calls_made = _final_answer_from_state(final_state)
+            return AgentResponse(
+                answer=answer,
+                thread_id=body.thread_id,
+                steps_taken=int(final_state.get("steps_taken", 0)),
+                tool_calls_made=tool_calls_made,
+                trace_id=current_trace_id(trace),
+            )
     finally:
         db_session_var.reset(token)
-
-    interrupts = extract_interrupts(final_state)
-    if interrupts:
-        event = approval_event_from_interrupt(
-            interrupts[0], thread_id=body.thread_id
-        )
-        return ApprovalRequiredResponse(
-            tool=event["tool"],
-            args=event.get("args") or {},
-            thread_id=body.thread_id,
-            interrupt_id=str(event.get("interrupt_id") or ""),
-        )
-
-    answer, tool_calls_made = _final_answer_from_state(final_state)
-    return AgentResponse(
-        answer=answer,
-        thread_id=body.thread_id,
-        steps_taken=int(final_state.get("steps_taken", 0)),
-        tool_calls_made=tool_calls_made,
-    )
 
 
 @router.post("/agent/reject", response_model=AgentRejectResponse)
@@ -628,6 +694,7 @@ async def agent_reject(
     """Reject a pending mutation interrupt; no note create/update side effect."""
     workspace_id = str(ctx.workspace_id)
     user_id = str(ctx.user_id)
+    role = ctx.role
 
     await _assert_thread_workspace(
         thread_id=body.thread_id,
@@ -638,47 +705,60 @@ async def agent_reject(
 
     token = db_session_var.set(db)
     try:
-        graph = get_workspace_assistant()
-        pending = await _pending_interrupt_for_thread(
-            graph, thread_id=body.thread_id, workspace_id=workspace_id
-        )
-        pending_id = getattr(pending, "id", None)
-        if body.interrupt_id and pending_id and body.interrupt_id != str(pending_id):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="interrupt_id does not match pending interrupt",
-            )
+        async with start_trace(
+            "agent.turn",
+            _agent_trace_meta(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                role=role,
+                thread_id=body.thread_id,
+            ),
+        ) as trace:
+            try:
+                graph = get_workspace_assistant()
+                pending = await _pending_interrupt_for_thread(
+                    graph, thread_id=body.thread_id, workspace_id=workspace_id
+                )
+                pending_id = getattr(pending, "id", None)
+                if body.interrupt_id and pending_id and body.interrupt_id != str(pending_id):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="interrupt_id does not match pending interrupt",
+                    )
 
-        config = {"configurable": {"thread_id": body.thread_id}}
-        final_state = await graph.ainvoke(
-            Command(resume={"action": "reject"}),
-            config=config,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            "Agent reject failed",
-            extra={"workspace_id": workspace_id, "error": str(e)},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to reject agent turn",
-        ) from e
+                config = {"configurable": {"thread_id": body.thread_id}}
+                final_state = await graph.ainvoke(
+                    Command(resume={"action": "reject"}),
+                    config=config,
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    "Agent reject failed",
+                    extra={"workspace_id": workspace_id, "error": str(e)},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to reject agent turn",
+                ) from e
+
+            # Another interrupt should be rare; treat as completed rejection message.
+            if extract_interrupts(final_state):
+                _mark_approval_required()
+                return AgentRejectResponse(
+                    answer="Mutation rejected; another approval is still pending.",
+                    thread_id=body.thread_id,
+                    trace_id=current_trace_id(trace),
+                )
+
+            answer, tool_calls_made = _final_answer_from_state(final_state)
+            return AgentRejectResponse(
+                answer=answer,
+                thread_id=body.thread_id,
+                steps_taken=int(final_state.get("steps_taken", 0)),
+                tool_calls_made=tool_calls_made,
+                trace_id=current_trace_id(trace),
+            )
     finally:
         db_session_var.reset(token)
-
-    # Another interrupt should be rare; treat as completed rejection message.
-    if extract_interrupts(final_state):
-        return AgentRejectResponse(
-            answer="Mutation rejected; another approval is still pending.",
-            thread_id=body.thread_id,
-        )
-
-    answer, tool_calls_made = _final_answer_from_state(final_state)
-    return AgentRejectResponse(
-        answer=answer,
-        thread_id=body.thread_id,
-        steps_taken=int(final_state.get("steps_taken", 0)),
-        tool_calls_made=tool_calls_made,
-    )

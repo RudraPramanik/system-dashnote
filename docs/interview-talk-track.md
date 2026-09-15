@@ -10,6 +10,14 @@ I built a **multi-tenant notes backend** with RBAC-aware RAG and a LangGraph age
 2. **Fixture vs live evals** — PR CI never requires paid live LLM keys. Fixture goldens gate determinism; live `--base-url` runs are operator/nightly. Honest pass rates beat flaky green CI.
 3. **Hosted data plane + thin VPS** — Postgres/Redis/Qdrant/R2 stay off the 1–2GB box; the VPS runs api/worker/nginx. Ops complexity moves to managed services so demos stay deployable without melting RAM on local rerankers or Neo4j.
 
+## Eval Paradox (30–45 seconds)
+
+**The paradox:** You need evals to ship safely, but lab goldens are not production mess — and if you only optimize the golden set you get green CI with bad users. If you only watch prod HTTP error rates, quality failures stay invisible (200 OK + wrong answer).
+
+**How we resolve it here:** Fixture goldens gate regressions in PR CI (no paid live LLM keys). Live `evals/run_eval.py --mode live` is operator/nightly against a real API. Measure→improve loops live in [`docs/EXPERIMENTS.md`](EXPERIMENTS.md) (e.g. empty-retrieval honesty). HTTP 5xx is not the quality metric — Langfuse traces + evals are.
+
+**Full demo playbook (screens to share):** [`docs/documentation/interview-evidence-guide.md`](documentation/interview-evidence-guide.md) — Compose health, Langfuse, `PASS: X/Y`, cost sample script, messy fixtures, 4-minute script.
+
 ## Optional fourth (if asked about GraphRAG / HITL)
 
 GraphRAG and multi-agent supervisors stay deferred. **HITL is live on the API:** agent `create_note` / `update_note` emit `approval_required` then resume/reject (`POST /ai/agent/resume|reject`). Langfuse retrieval spans log chunk/note ids + scores. Failure modes (empty retrieval, LLM 503, embed lag) are in the deploy runbook.

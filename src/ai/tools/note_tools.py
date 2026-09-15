@@ -16,7 +16,7 @@ DB session for mutation tools:
   by the graph node before calling the tool. Tool retrieves it from context.
 
 IMPORT LAW: langchain_core.tools, ai.services.*, notes.service,
-            ai.tools.schemas, config, stdlib, contextvars.
+            ai.tools.schemas, config, observability.tracing, stdlib, contextvars.
 No FastAPI. No RequestContext. No SQLAlchemy raw imports.
 """
 from __future__ import annotations
@@ -32,6 +32,7 @@ from ai.tools.schemas import (
     SummarizeWorkspaceArgs,
     UpdateNoteArgs,
 )
+from observability.tracing import current_parent, score_trace, span
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,13 @@ db_session_var: contextvars.ContextVar = contextvars.ContextVar(
 
 
 # ── Tool implementations ─────────────────────────────────────────────────────
+
+async def _record_hitl_interrupt(tool: str, args: dict) -> None:
+    """Close a HITL span/score before LangGraph interrupt() pauses the turn."""
+    parent = current_parent()
+    async with span(parent, "hitl.interrupt", {"tool": tool, "args": args}):
+        score_trace(parent, name="hitl_interrupt", value=1, comment=tool)
+
 
 async def _search_notes(
     question: str,
@@ -118,16 +126,18 @@ async def _create_note(
 
     from ai.hitl import build_approval_payload, is_approved
 
+    approval_args = {
+        "title": title,
+        "content": content,
+        "workspace_id": workspace_id,
+        "user_id": user_id,
+        "role": role,
+    }
+    await _record_hitl_interrupt("create_note", approval_args)
     decision = interrupt(
         build_approval_payload(
             tool="create_note",
-            args={
-                "title": title,
-                "content": content,
-                "workspace_id": workspace_id,
-                "user_id": user_id,
-                "role": role,
-            },
+            args=approval_args,
         )
     )
     if not is_approved(decision):
@@ -141,14 +151,19 @@ async def _create_note(
         from notes.service import NoteService
 
         svc = NoteService()
-        result = await svc.create_note(
-            db,
-            title=title,
-            content=content,
-            workspace_id=workspace_id,
-            created_by=user_id,
-            is_private=False,
-        )
+        async with span(
+            current_parent(),
+            "create_note",
+            {"title": title, "workspace_id": workspace_id},
+        ):
+            result = await svc.create_note(
+                db,
+                title=title,
+                content=content,
+                workspace_id=workspace_id,
+                created_by=user_id,
+                is_private=False,
+            )
         return (
             f"Note created successfully. ID: {result['note_id']}, "
             f"Title: {result['title']}"
@@ -180,16 +195,18 @@ async def _update_note(
 
     from ai.hitl import build_approval_payload, is_approved
 
+    approval_args = {
+        "note_id": note_id,
+        "content": content,
+        "workspace_id": workspace_id,
+        "user_id": user_id,
+        "role": role,
+    }
+    await _record_hitl_interrupt("update_note", approval_args)
     decision = interrupt(
         build_approval_payload(
             tool="update_note",
-            args={
-                "note_id": note_id,
-                "content": content,
-                "workspace_id": workspace_id,
-                "user_id": user_id,
-                "role": role,
-            },
+            args=approval_args,
         )
     )
     if not is_approved(decision):
@@ -203,13 +220,18 @@ async def _update_note(
         from notes.service import NoteService
 
         svc = NoteService()
-        result = await svc.update_note(
-            db,
-            note_id=note_id,
-            content=content,
-            workspace_id=workspace_id,
-            updated_by=user_id,
-        )
+        async with span(
+            current_parent(),
+            "update_note",
+            {"note_id": note_id, "workspace_id": workspace_id},
+        ):
+            result = await svc.update_note(
+                db,
+                note_id=note_id,
+                content=content,
+                workspace_id=workspace_id,
+                updated_by=user_id,
+            )
         return f"Note updated successfully. ID: {result['note_id']}"
     except Exception as e:
         logger.error("update_note_tool failed", extra={"error": str(e)})

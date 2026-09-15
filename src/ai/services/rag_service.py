@@ -37,7 +37,9 @@ from pydantic import BaseModel, ConfigDict
 from config import get_settings
 from ai.retrieval.wrapper import WorkspaceVectorSearch, SearchResult, get_workspace_vector_search
 from ai.prompts.rag import RAGAnswer
+from observability.metrics import inc_empty_retrieval
 from observability.tracing import (
+    current_trace_id,
     rag_span,
     rag_trace,
     retrieval_depth_payload,
@@ -132,6 +134,7 @@ class ChatResult(BaseModel):
     chunks_used: int
     latency_ms: float
     thread_id: str | None = None
+    trace_id: str | None = None
 
 
 # ── Slice 4: Streaming event models ─────────────────────────────────────────
@@ -162,6 +165,7 @@ class StreamMetadata(BaseModel):
     latency_ms: float
     thread_id: str | None = None
     title: str | None = None
+    trace_id: str | None = None
 
 
 # Union type for the generator yield type
@@ -300,12 +304,14 @@ class RagService:
             db=db,
         )
 
+        answer_trace_id: str | None = None
         async with rag_trace(
             "rag.answer",
             {
                 "workspace_id": workspace_id,
                 "user_id": user_id,
                 "role": role,
+                "thread_id": resolved_thread_id,
             },
         ) as trace:
             async with rag_span(trace, "retrieval", {"question": question}) as span:
@@ -326,6 +332,7 @@ class RagService:
                         "question_length": len(question),
                     },
                 )
+                inc_empty_retrieval()
                 score_trace(
                     trace,
                     name="empty_retrieval",
@@ -357,6 +364,7 @@ class RagService:
                     chunks_used=0,
                     latency_ms=round((time.monotonic() - start) * 1000, 2),
                     thread_id=resolved_thread_id or None,
+                    trace_id=current_trace_id(trace),
                 )
 
             context_chunks: list[dict] = [_chunk_dict(result) for result in retrieved]
@@ -400,6 +408,7 @@ class RagService:
                 usage_out = _litellm_usage_output(response)
                 if usage_out:
                     span.update(output=usage_out)
+            answer_trace_id = current_trace_id(trace)
 
         # Parse the structured response
         raw_content = response.choices[0].message.content
@@ -470,6 +479,7 @@ class RagService:
             chunks_used=len(built.context_chunks),
             latency_ms=latency_ms,
             thread_id=resolved_thread_id or None,
+            trace_id=answer_trace_id,
         )
 
     async def stream_answer(
@@ -523,6 +533,7 @@ class RagService:
                 "workspace_id": workspace_id,
                 "user_id": user_id,
                 "role": role,
+                "thread_id": resolved_thread_id,
             },
         ) as trace:
             async with rag_span(trace, "retrieval", {"question": question}) as span:
@@ -540,6 +551,7 @@ class RagService:
                     "stream_answer: no relevant chunks found",
                     extra={"workspace_id": workspace_id},
                 )
+                inc_empty_retrieval()
                 score_trace(
                     trace,
                     name="empty_retrieval",
@@ -572,6 +584,7 @@ class RagService:
                     latency_ms=round((time.monotonic() - start) * 1000, 2),
                     thread_id=resolved_thread_id or None,
                     title=title,
+                    trace_id=current_trace_id(trace),
                 )
                 return
 
@@ -674,6 +687,7 @@ class RagService:
                 latency_ms=latency_ms,
                 thread_id=resolved_thread_id or None,
                 title=title,
+                trace_id=current_trace_id(trace),
             )
 
 

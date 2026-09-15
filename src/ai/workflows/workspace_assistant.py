@@ -157,18 +157,24 @@ async def call_model(state: AgentState) -> dict[str, Any]:
         state["messages"]
     )
 
+    from observability.tracing import current_parent, span
     from shared.llm.fallback import acompletion_with_fallback
 
     try:
-        response = await acompletion_with_fallback(
-            model=settings.LLM_MODEL,
-            messages=messages,
-            tools=openai_tools,
-            tool_choice="auto",
-            temperature=settings.LLM_TEMPERATURE,
-            max_tokens=settings.LLM_MAX_TOKENS,
-            timeout=settings.AGENT_TOOL_TIMEOUT,
-        )
+        async with span(
+            current_parent(),
+            "call_model",
+            {"model": settings.LLM_MODEL},
+        ):
+            response = await acompletion_with_fallback(
+                model=settings.LLM_MODEL,
+                messages=messages,
+                tools=openai_tools,
+                tool_choice="auto",
+                temperature=settings.LLM_TEMPERATURE,
+                max_tokens=settings.LLM_MAX_TOKENS,
+                timeout=settings.AGENT_TOOL_TIMEOUT,
+            )
     except Exception as e:
         logger.error(
             "call_model failed",

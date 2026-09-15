@@ -1,11 +1,12 @@
 """
-Reusable async tracing for RAG and future AI services.
+Reusable async tracing for RAG, agent, and future AI services.
 
 Import law: stdlib, observability.langfuse_client only.
 No FastAPI, SQLAlchemy, or domain modules.
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -14,6 +15,14 @@ from typing import Any, AsyncIterator, Protocol
 from observability.langfuse_client import get_langfuse_client
 
 logger = logging.getLogger(__name__)
+
+_GENERATION_NAMES = frozenset({"llm_generation", "call_model"})
+
+_current_parent: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "observability_trace_parent",
+    default=None,
+)
+_thread_traces: dict[str, str] = {}
 
 
 class _TraceLike(Protocol):
@@ -36,12 +45,23 @@ class _NoOpTrace:
     """Stand-in trace when Langfuse is disabled or tracing fails."""
 
     _noop = True
+    observation_id: str | None = None
+    trace_id: str | None = None
 
     def span(self, name: str, input: dict | None = None) -> _NoOpSpan:
         return _NoOpSpan()
 
     def update(self, *, output: dict | None = None, **kwargs: Any) -> None:
         return None
+
+
+def _obs_ids(observation: Any, *, fallback_trace_id: str | None = None) -> tuple[str | None, str | None]:
+    obs_id = getattr(observation, "id", None)
+    trace_id = getattr(observation, "trace_id", None) or fallback_trace_id or obs_id
+    return (
+        str(obs_id) if obs_id is not None else None,
+        str(trace_id) if trace_id is not None else None,
+    )
 
 
 class _LangfuseSpanHandle:
@@ -70,8 +90,11 @@ class _LangfuseSpanHandle:
 class _LangfuseTraceHandle:
     _noop = False
 
-    def __init__(self, observation: Any) -> None:
+    def __init__(self, observation: Any, *, trace_id: str | None = None) -> None:
         self._obs = observation
+        obs_id, resolved_tid = _obs_ids(observation, fallback_trace_id=trace_id)
+        self.observation_id = obs_id
+        self.trace_id = resolved_tid
 
     def span(self, name: str, input: dict | None = None) -> _SpanLike:
         try:
@@ -100,7 +123,7 @@ def _start_child_observation(parent: Any, name: str, input_data: dict) -> Any | 
     if obs is None:
         return None
     kwargs: dict[str, Any] = {"name": name, "input": input_data}
-    if name == "llm_generation":
+    if name in _GENERATION_NAMES:
         kwargs["as_type"] = "generation"
         model = input_data.get("model")
         if model:
@@ -108,42 +131,107 @@ def _start_child_observation(parent: Any, name: str, input_data: dict) -> Any | 
     return obs.start_observation(**kwargs)
 
 
+def current_parent() -> Any:
+    """Active trace handle for this task, or None."""
+    return _current_parent.get()
+
+
+def current_trace_id(parent: Any | None = None) -> str | None:
+    """Langfuse trace id for the active (or given) handle."""
+    handle = parent if parent is not None else _current_parent.get()
+    if _is_noop_parent(handle):
+        return None
+    return getattr(handle, "trace_id", None)
+
+
+def remember_thread_trace(workspace_id: str, thread_id: str, trace_id: str) -> None:
+    if workspace_id and thread_id and trace_id:
+        _thread_traces[f"{workspace_id}:{thread_id}"] = trace_id
+
+
+def lookup_thread_trace(workspace_id: str, thread_id: str) -> str | None:
+    return _thread_traces.get(f"{workspace_id}:{thread_id}")
+
+
+def clear_thread_traces() -> None:
+    """Test helper."""
+    _thread_traces.clear()
+
+
+def _maybe_remember(metadata: dict, handle: Any) -> None:
+    if _is_noop_parent(handle):
+        return
+    tid = getattr(handle, "trace_id", None)
+    workspace_id = str(metadata.get("workspace_id") or "")
+    thread_id = str(metadata.get("thread_id") or "")
+    if tid and workspace_id and thread_id:
+        remember_thread_trace(workspace_id, thread_id, str(tid))
+
+
 @asynccontextmanager
-async def rag_trace(name: str, metadata: dict) -> AsyncIterator[_TraceLike]:
+async def start_trace(name: str, metadata: dict) -> AsyncIterator[_TraceLike]:
     """
-    Open a Langfuse trace (root observation). Flushes the client on exit.
+    Open a named observation. Nested calls attach as children of the active parent.
     Never raises — yields a no-op trace when Langfuse is unavailable.
     """
+    parent = _current_parent.get()
+    nested = parent is not None and not _is_noop_parent(parent)
     client = None
     trace_obs = None
     handle: _TraceLike = _NoOpTrace()
+    is_root = False
 
     try:
-        client = get_langfuse_client()
-        if client is not None:
-            trace_obs = client.start_observation(
-                name=name,
-                input=metadata,
-                metadata=metadata,
-            )
-            handle = _LangfuseTraceHandle(trace_obs)
+        if nested:
+            trace_obs = _start_child_observation(parent, name, metadata)
+            if trace_obs is not None:
+                handle = _LangfuseTraceHandle(
+                    trace_obs,
+                    trace_id=getattr(parent, "trace_id", None),
+                )
+        else:
+            client = get_langfuse_client()
+            if client is not None:
+                start_kwargs: dict[str, Any] = {
+                    "name": name,
+                    "input": metadata,
+                    "metadata": metadata,
+                }
+                if name in _GENERATION_NAMES:
+                    start_kwargs["as_type"] = "generation"
+                    model = metadata.get("model")
+                    if model:
+                        start_kwargs["model"] = model
+                trace_obs = client.start_observation(**start_kwargs)
+                handle = _LangfuseTraceHandle(trace_obs)
+                is_root = True
     except Exception:
-        logger.debug("rag_trace setup failed", exc_info=True)
+        logger.debug("start_trace setup failed", exc_info=True)
         handle = _NoOpTrace()
+        trace_obs = None
+        is_root = False
 
+    token = _current_parent.set(handle)
     try:
         yield handle
     finally:
+        _current_parent.reset(token)
+        _maybe_remember(metadata, handle)
         try:
             if trace_obs is not None:
                 trace_obs.end()
         except Exception:
-            logger.debug("rag_trace end failed", exc_info=True)
-        try:
-            if client is not None:
-                client.flush()
-        except Exception:
-            logger.debug("rag_trace flush failed", exc_info=True)
+            logger.debug("start_trace end failed", exc_info=True)
+        if is_root:
+            try:
+                if client is not None:
+                    client.flush()
+            except Exception:
+                logger.debug("start_trace flush failed", exc_info=True)
+
+
+# Existing RAG callers keep `async with rag_trace("rag.answer", meta)`.
+rag_trace = start_trace
 
 
 @asynccontextmanager
@@ -153,7 +241,7 @@ async def rag_span(
     input_data: dict,
 ) -> AsyncIterator[_SpanLike]:
     """
-    Open a child span under a rag_trace parent. Records latency_ms on exit.
+    Open a child span under a parent handle. Records latency_ms on exit.
     Never raises — yields a no-op span when parent is a no-op or setup fails.
     """
     started = time.monotonic()
@@ -181,6 +269,9 @@ async def rag_span(
                 span_obs.end()
             except Exception:
                 logger.debug("rag_span finalize failed", exc_info=True)
+
+
+span = rag_span
 
 
 def score_trace(
@@ -216,6 +307,38 @@ def score_trace(
         client.score(trace_id=str(obs_id), **kwargs)
     except Exception:
         logger.debug("Langfuse score_trace failed", exc_info=True)
+
+
+def score_by_trace_id(
+    trace_id: str,
+    *,
+    name: str,
+    value: float | int | str,
+    comment: str | None = None,
+) -> bool:
+    """Attach a score to a known trace id. Returns False when tracing is off."""
+    if not trace_id:
+        return False
+    try:
+        client = get_langfuse_client()
+        if client is None:
+            return False
+        kwargs: dict[str, Any] = {
+            "trace_id": trace_id,
+            "name": name,
+            "value": value,
+        }
+        if comment:
+            kwargs["comment"] = comment
+        client.score(**kwargs)
+        try:
+            client.flush()
+        except Exception:
+            logger.debug("Langfuse score flush failed", exc_info=True)
+        return True
+    except Exception:
+        logger.debug("Langfuse score_by_trace_id failed", exc_info=True)
+        return False
 
 
 def retrieval_depth_payload(results: list[Any]) -> dict[str, Any]:

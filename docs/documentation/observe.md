@@ -7,6 +7,20 @@ Short reference for humans and AI agents working on observability in this repo.
 
 ---
 
+## Three planes (do not mix)
+
+| Plane | What it answers | Where |
+|-------|-----------------|--------|
+| **Prometheus health** | Is the API up? HTTP rate/latency/5xx; rare quality *events* (empty retrieval, HITL interrupt, LLM fallback) | `GET /metrics`, Prometheus `:9090`. Series `dashnote_api_*` and `dashnote_ai_*`. No per-user or per-trace judge scores. |
+| **Langfuse traces / judges** | What did this turn retrieve, generate, and cost? Agent tree? Operator faithfulness | Cloud UI. Facades in `observability.tracing` only (`rag.answer`, `agent.turn`). Sampled judge is operator/nightly (`evals/run_langfuse_faithfulness.py`), **never** on the request path or PR CI. |
+| **Fixture CI** | Did known goldens regress? | `python evals/run_eval.py --mode fixture` → `PASS: X/Y`. Wired in `.github/workflows/ci.yml`. No Langfuse keys. |
+
+Grafana is optional and **not** in default Compose. There is no second eval dashboard in the API.
+
+**Interview evidence:** [interview-evidence-guide.md](./interview-evidence-guide.md) · [EXPERIMENTS.md](../EXPERIMENTS.md)
+
+---
+
 ## Progress
 
 | Step | What | Status |
@@ -17,6 +31,7 @@ Short reference for humans and AI agents working on observability in this repo.
 | 4 | Prometheus `/metrics` | Done |
 | 5 | Prometheus Compose (`:9090`) | Done (Grafana optional / not default Compose) |
 | 6 | Grafana provisioning files (optional UI) | Done (files may exist; not required locally) |
+| 7 | Agent `agent.turn` + nested RAG + quality counters + `/ai/feedback` | Done |
 
 ---
 
@@ -24,7 +39,7 @@ Short reference for humans and AI agents working on observability in this repo.
 
 1. **`setup_logging()`** — only called in `src/main.py` lifespan (first line).
 2. **`get_langfuse_client()`** — lazy only; **never** call from `main.py` lifespan (Step 3 tracing layer calls it).
-3. **Langfuse SDK** — only imported in `src/observability/langfuse_client.py` and `tracing.py`. `RagService` uses `observability.tracing` only (no direct SDK).
+3. **Langfuse SDK** — only imported in `src/observability/langfuse_client.py` and `tracing.py`. AI modules use `observability.tracing` only (no direct SDK).
 4. **Imports:** `from config import get_settings` — never `from src.config`.
 5. **LangSmith** — config exists; inactive. Langfuse is the active LLM trace path.
 
@@ -132,23 +147,28 @@ API must start without calling `get_langfuse_client()` at boot.
 
 ---
 
-## Step 3 — RAG tracing (`tracing.py` + `RagService`)
+## Step 3 — Tracing facade (`tracing.py` + RAG + agent)
 
 ### Code
 
 | File | Role |
 |------|------|
-| `src/observability/tracing.py` | `rag_trace`, `rag_span` — async context managers, no-op when Langfuse disabled |
-| `src/observability/__init__.py` | exports `rag_trace`, `rag_span` |
-| `src/ai/services/rag_service.py` | `answer()` and `stream_answer()` only |
+| `src/observability/tracing.py` | `start_trace` / `span`; aliases `rag_trace` / `rag_span`; contextvar parent |
+| `src/observability/__init__.py` | exports facade + quality counter helpers |
+| `src/ai/services/rag_service.py` | `answer()` and `stream_answer()` open `rag.answer` (root, or child if an agent parent is active) |
+| `src/ai_routes/agent.py` | `/ai/agent*` wrap `agent.turn` |
+| `src/ai/workflows/workspace_assistant.py` | `call_model` generation span via facade |
+| `src/ai/tools/note_tools.py` | HITL interrupt span/score; mutation spans |
 
 **Behaviour:**
 
-- Root observation name: `rag.answer` (metadata: `workspace_id`, `user_id`, `role`).
-- Child spans: `retrieval` → `context_building` → `llm_generation` (generation type for LLM).
-- Each span records `latency_ms` in output on exit; callers add domain fields via `span.update(output={...})`.
-- `rag_trace` flushes the Langfuse client in `finally`; never raises.
-- Langfuse Python SDK v4 uses `start_observation` under the hood (no direct `client.trace()`).
+- Direct chat: root observation name `rag.answer` (metadata: `workspace_id`, `user_id`, `role`, `thread_id`).
+- Agent: parent `agent.turn`; nested `rag.answer` when search/summarize tools call RagService.
+- Child spans: `retrieval` → `context_building` → `llm_generation` (RAG); `call_model` generation (agent).
+- Empty retrieval: `empty_retrieval` score + `dashnote_ai_empty_retrieval_total`.
+- HITL: `hitl.interrupt` span/score + `dashnote_ai_agent_interrupt_total` on `approval_required`.
+- Optional `trace_id` on chat/agent JSON (and stream `done` / `approval_required`).
+- `start_trace` flushes the Langfuse client on root exit; never raises.
 
 **`RagService` span outputs:**
 
@@ -192,15 +212,13 @@ Replace `<TOKEN>` with a valid workspace JWT.
 
 ### Langfuse UI checklist
 
-After one `/ai/chat` and one `/ai/chat/stream` call:
+After one `/ai/chat` and one `/ai/agent` call (with keys set):
 
-1. Trace named **`rag.answer`** visible (Traces / Observations).
-2. Three child spans: **`retrieval`**, **`context_building`**, **`llm_generation`**.
-3. Each span output includes **`latency_ms`** (milliseconds).
-4. **`retrieval`** output includes **`chunks_retrieved`** (integer).
-5. **`context_building`** output includes **`chunks_used`** and **`char_budget`**.
-6. **`llm_generation`** shows token fields when LiteLLM populates `response.usage` (and **`cost`** when `_hidden_params.response_cost` is set).
-7. Trace input/metadata includes **`workspace_id`**, **`user_id`**, **`role`** (no raw JWT).
+1. Chat: trace named **`rag.answer`**. Agent: parent **`agent.turn`** with nested **`rag.answer`** when search tools run.
+2. RAG child spans: **`retrieval`**, **`context_building`**, **`llm_generation`** (when chunks exist).
+3. Agent: generation-typed **`call_model`**; HITL shows **`hitl.interrupt`** (span and/or score).
+4. Optional JSON field **`trace_id`**. `POST /ai/feedback` with JWT + `thread_id` + thumbs/score attaches `user_feedback` when tracing is on (2xx `tracing=unavailable` when off).
+5. Trace metadata includes **`workspace_id`**, **`user_id`**, **`role`** (no raw JWT).
 
 If keys are missing, the app runs normally; no traces are sent (no-op path).
 
@@ -280,8 +298,8 @@ Expect `# TYPE dashnote_api_http_requests_total counter` and histogram types for
 
 ### Rules
 
-- No custom metrics in this step.
-- Do not instrument in routers, services, or `src/observability/`.
+- HTTP instrumentator stays in `src/main.py` (`dashnote_api_*`).
+- Low-cardinality quality counters live in `src/observability/metrics.py` (`dashnote_ai_empty_retrieval_total`, `dashnote_ai_agent_interrupt_total`, `dashnote_ai_llm_fallback_total`). No user id / question labels. No per-trace judge scores on Prometheus.
 
 ---
 
@@ -399,5 +417,7 @@ When Langfuse keys are set (`LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`), RAG 
 2. `POST /ai/chat` with a real question that hits notes
 3. Open Langfuse UI → latest `rag.answer` trace → `retrieval` span → confirm `retrieved` / scores
 4. Ask a nonsense query → confirm `empty_retrieval` score when no chunks return
+5. `POST /ai/agent` → `agent.turn` parent; search tool should nest `rag.answer`
+6. Optional: `python evals/run_langfuse_faithfulness.py --ui-only` (not CI)
 
 AI modules must not import the Langfuse SDK — only `observability.tracing` helpers.

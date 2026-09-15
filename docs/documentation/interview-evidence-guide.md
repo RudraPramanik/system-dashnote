@@ -16,13 +16,14 @@ How to **see** cost, evals, messy-data, and the Eval Paradox on a local Compose 
 ```
                     SHOW IN INTERVIEW
   ┌─────────────┐   ┌──────────────┐   ┌─────────────┐
-  │ Terminal    │   │ Langfuse UI  │   │ README /    │
-  │ PASS: 20/20 │   │ rag.answer   │   │ EXPERIMENTS │
+  │ Terminal    │   │ Langfuse UI  │   │ Prometheus  │
+  │ PASS: 20/20 │   │ rag.answer / │   │ /metrics    │
+  │ fixture CI  │   │ agent.turn   │   │ health      │
   └──────┬──────┘   └──────┬───────┘   └──────┬──────┘
          │                 │                   │
          └────────────┬────┴───────────────────┘
                       ▼
-              One coherent story
+         Three planes: fixture CI · traces/judges · Prom health
 ```
 
 ---
@@ -71,7 +72,7 @@ Optional UIs while demoing:
    $env:SAMPLE_TOKEN = "<access_token>"
    python scripts/sample_cost_latency.py
    ```
-4. Open Langfuse → Traces → **`rag.answer`**:
+4. Open Langfuse → Traces → **`rag.answer`** (chat) or **`agent.turn`** (agent):
    - `retrieval` → chunk ids + scores + `latency_ms`
    - `context_building` → `chunks_used`, `char_budget`
    - `llm_generation` → `prompt_tokens`, `completion_tokens`, `cost`, `latency_ms`

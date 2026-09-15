@@ -109,6 +109,23 @@ honest `PASS: X/Y` even when below 100%.
 
 Langfuse-native datasets/experiments preferred for judges; optional recall@k /
 faithfulness are Tier 2 / nightly. Do not replace this golden CLI.
+**PR CI does not run the judge path.**
+
+### Operator / nightly faithfulness judge
+
+Off the `/ai/chat` and `/ai/agent` hot path. Chat/agent never await a judge.
+
+```powershell
+$env:PYTHONPATH = "src"
+python evals/run_langfuse_faithfulness.py --ui-only
+# With Langfuse keys set:
+python evals/run_langfuse_faithfulness.py --seed-dataset
+```
+
+The script seeds (or documents) dataset `dashnote-retrieval-goldens` from
+`evals/golden/retrieval.jsonl` and prints Langfuse UI steps for a sampled
+faithfulness evaluator (5–10% or nightly batch). Do **not** add it to
+`.github/workflows/ci.yml`.
 
 **Before/after record:** [`docs/EXPERIMENTS.md`](../docs/EXPERIMENTS.md) — measure→improve
-loops tied to this harness (e.g. empty-retrieval / `ret-08`).
+loops tied to this harness (e.g. empty-retrieval / `ret-08`) and lab judge/trace loops.

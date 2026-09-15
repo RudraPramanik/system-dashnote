@@ -51,6 +51,27 @@ python evals/run_eval.py --mode fixture
 
 ---
 
+## EXP-003 — Agent traces + operator faithfulness (lab)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-15 |
+| Environment | lab (Langfuse Cloud + local Compose; **not** PR CI) |
+| Baseline | RAG `rag.answer` traces existed; agent planner/tools were not first-class parents; search-tool RAG opened a sibling root; no documented sampled faithfulness procedure. Fixture harness already **PASS: 20/20**. |
+| Change | `agent.turn` parent via `observability.tracing` contextvars; nested `rag.answer` under agent; Prom counters for empty retrieval / HITL / LLM fallback; `POST /ai/feedback`; operator script `evals/run_langfuse_faithfulness.py`. |
+| After | Fixture gate still `python evals/run_eval.py --mode fixture`. Operator path: seed dataset + Langfuse UI faithfulness (sampled/nightly). HTTP contracts unchanged. |
+| Notes | **Not a production SLO.** Judge scores live in Langfuse, not Prometheus. Do not require this loop to green PRs. |
+
+### How to re-verify
+
+```powershell
+$env:PYTHONPATH = "src"
+python evals/run_eval.py --mode fixture
+python evals/run_langfuse_faithfulness.py --ui-only
+```
+
+---
+
 ## Adding the next experiment
 
 1. Capture baseline `PASS: X/Y` or a named failure mode.

@@ -68,6 +68,7 @@ class ChatResponse(BaseModel):
     chunks_used: int
     latency_ms: float
     thread_id: str | None = None
+    trace_id: str | None = None
 
 
 # ── Route ────────────────────────────────────────────────────────────────────
@@ -126,6 +127,7 @@ async def chat(
         chunks_used=result.chunks_used,
         latency_ms=result.latency_ms,
         thread_id=result.thread_id,
+        trace_id=result.trace_id,
     )
 
 

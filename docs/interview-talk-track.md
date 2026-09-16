@@ -14,7 +14,7 @@ I built a **multi-tenant notes backend** with RBAC-aware RAG and a LangGraph age
 
 **The paradox:** You need evals to ship safely, but lab goldens are not production mess — and if you only optimize the golden set you get green CI with bad users. If you only watch prod HTTP error rates, quality failures stay invisible (200 OK + wrong answer).
 
-**How we resolve it here:** Fixture goldens gate regressions in PR CI (no paid live LLM keys). Live `evals/run_eval.py --mode live` is operator/nightly against a real API. Measure→improve loops live in [`docs/EXPERIMENTS.md`](EXPERIMENTS.md) (e.g. empty-retrieval honesty). HTTP 5xx is not the quality metric — Langfuse traces + evals are.
+**How we resolve it here:** Fixture goldens gate regressions in PR CI (no paid live LLM keys). Live `evals/run_eval.py --mode live` is operator/nightly against a real API. Measure→improve loops live in [`docs/EXPERIMENTS.md`](EXPERIMENTS.md) (e.g. empty-retrieval honesty). Optional laptop RAGAS lab (faithfulness / context precision with dedicated `GEMINI_API_KEY_2`) is documented in [`docs/ragas-lab-report.md`](ragas-lab-report.md) and EXP-004 — labeled **lab**, not an SLO or CI gate. HTTP 5xx is not the quality metric — Langfuse traces + evals are.
 
 **Full demo playbook (screens to share):** [`docs/documentation/interview-evidence-guide.md`](documentation/interview-evidence-guide.md) — Compose health, Langfuse, `PASS: X/Y`, cost sample script, messy fixtures, 4-minute script.
 

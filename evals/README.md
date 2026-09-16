@@ -144,10 +144,21 @@ python evals/run_ragas.py --setup
 python evals/run_ragas.py --live --token "<access_token>"
 ```
 
+**Live preflight (collection ≠ judge):**
+
+1. `GET /health` and `GET /health/ai` ok.
+2. JWT valid for a workspace that already has seeded retrieval notes (marker goldens), or seed them first.
+3. Spot-check `POST /ai/chat` for a golden query — expect HTTP 200 with `chunks_retrieved > 0`.
+4. If every case SKIPs with chat HTTP 500, read API logs: often Gemini free-tier **429** on the chat fallback model, or a stuck in-process LLM fallback cache (restart API after quota clears). That is **not** a `requirements-ragas.txt` pin failure.
+5. Zero collected rows → CLI exits non-zero with a collection-failure hint (no fabricated scores).
+6. Judge 429/503 can yield `NaN` for a metric even when collection succeeded — re-run with `--judge-model` or after quota reset; do not invent scores.
+
 `--setup` prints the checklist with no network. `--live` calls `POST /ai/chat`
 (`message` only) and `GET /ai/test-search` (`q` only) — workspace stays on the JWT.
 Skips `ret-08` / empty retrieval, tenant, and trajectory goldens. Record scores in
 EXPERIMENTS as **lab**, not a production SLO. Do **not** add this to CI or the VPS.
+
+**Interview / hire evidence pack:** [`docs/ragas-lab-report.md`](../docs/ragas-lab-report.md)
 
 **Before/after record:** [`docs/EXPERIMENTS.md`](../docs/EXPERIMENTS.md) — measure→improve
 loops tied to this harness (e.g. empty-retrieval / `ret-08`) and lab judge/RAGAS loops.

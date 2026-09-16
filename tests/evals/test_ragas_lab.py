@@ -56,7 +56,13 @@ def test_select_retrieval_skips_empty_and_non_retrieval() -> None:
     assert [c["id"] for c in selected] == ["ret-01-marker-alpha"]
 
 
-def test_requirements_ragas_pin_allows_google_factory() -> None:
+def test_collection_failure_hint_distinguishes_api_from_pin() -> None:
+    hint = ragas_lab.COLLECTION_FAILURE_HINT
+    assert "zero scored rows" in hint.lower() or "zero scored rows" in hint
+    assert "not a RAGAS pin" in hint or "not a ragas pin" in hint.lower()
+    assert "/health" in hint
+    assert "429" in hint or "quota" in hint.lower()
+
     text = ragas_lab.REQUIREMENTS_RAGAS.read_text(encoding="utf-8")
     assert ragas_lab.requirements_ragas_allows_google_factory(text) is True
 

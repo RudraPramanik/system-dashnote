@@ -79,9 +79,9 @@ python evals/run_langfuse_faithfulness.py --ui-only
 | Date | 2026-09-16 |
 | Environment | lab (operator laptop; **not** VPS, **not** PR CI) |
 | Baseline | C-gate fixture **PASS: 20/20** is binary markers only. Langfuse traces exist; RAGAS was documented as optional nightly but had no runnable extra or dedicated judge key. Using `GEMINI_API_KEY` for a judge would share embed/chat-fallback quota. First `--live` attempt crashed on `llm_factory(..., provider=)` under `ragas==0.3.2` (pin forced by `datasets<4`). |
-| Change | `evals/run_ragas.py` + `evals/requirements-ragas.txt` bumped to **ragas ≥ 0.4** (+ `instructor[google-genai]`). Judge = `GEMINI_API_KEY_2` only (fail-closed). Default judge model `gemini-3.6-flash` (2.5-flash 404 for new keys). `--live` maps to RAGAS 0.4 columns (`user_input` / `response` / `retrieved_contexts` / `reference`). |
-| After | **2026-09-16 lab run:** collected 2/5 rows (SKIP chat 500 on some goldens); evaluate `n=2` judge=`gemini-3.6-flash` → **faithfulness=1.0000**, **context_precision=1.0000**. Not a production SLO. |
-| Notes | **Not a production SLO.** Do not add ragas to the API image or CI. Do not copy `GEMINI_API_KEY_2` to the VPS. Intermittent `/ai/chat` 500s reduce sample size; judge 503s can yield NaNs — re-run with `--judge-model` if needed. |
+| Change | `evals/run_ragas.py` + `evals/requirements-ragas.txt` bumped to **ragas ≥ 0.4** (+ `instructor[google-genai]`). Judge = `GEMINI_API_KEY_2` only (fail-closed). Default judge model `gemini-3.6-flash`. Collection-failure CLI hint distinguishes API/chat quota from pin failures. Interview pack: `docs/ragas-lab-report.md`. |
+| After | **2026-09-16 lab (apply re-run):** seeded retrieval markers; cleared stuck Gemini fallback cache via API restart; `--live --limit 3` → collected **n=3** (ret-01..03); judge=`gemini-3.6-flash` → **faithfulness=1.0000**, **context_precision=NaN** (judge 503/429 mid-batch). Earlier same-day blocked collection: 5/5 chat 500 from Gemini free-tier 429 on chat fallback (empty retrieval still 200). Prior smoke: n=2 with both metrics 1.0000. Not a production SLO. |
+| Notes | **Not a production SLO.** Do not add ragas to the API image or CI. Do not copy `GEMINI_API_KEY_2` to the VPS. Chat 500 with hits often = provider quota / fallback cache, not a RAGAS pin bug. Judge NaNs → re-run with `--judge-model` or after quota reset; never invent scores. See `docs/ragas-lab-report.md`. |
 
 ### How to re-verify
 

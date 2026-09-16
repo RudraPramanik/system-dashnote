@@ -38,6 +38,17 @@ JUDGE_STACK_HINT = (
     "  pip install -r evals/requirements-ragas.txt"
 )
 
+COLLECTION_FAILURE_HINT = (
+    "ERROR: RAGAS collection failed — zero scored rows.\n"
+    "This is a collection / API failure, not a RAGAS pin or judge-stack failure.\n"
+    "Preflight before re-running --live:\n"
+    "  1) GET /health and GET /health/ai are ok\n"
+    "  2) JWT is valid; workspace has seeded retrieval notes (or run live seed)\n"
+    "  3) POST /ai/chat returns 200 with chunks_retrieved > 0 for a golden query\n"
+    "  4) If chat is HTTP 500, check API logs (often LLM 429 quota or stuck fallback cache)\n"
+    "  5) Empty retrieval skips the row — seed markers before scoring"
+)
+
 
 def requirements_ragas_allows_google_factory(text: str | None = None) -> bool:
     """

@@ -25,6 +25,7 @@ if str(EVALS_DIR) not in sys.path:
     sys.path.insert(0, str(EVALS_DIR))
 
 from ragas_lab import (  # noqa: E402
+    COLLECTION_FAILURE_HINT,
     DEFAULT_BASE_URL,
     DEFAULT_JUDGE_MODEL,
     DEFAULT_LIMIT,
@@ -52,15 +53,21 @@ DashNote RAGAS lab — local / nightly only (not VPS, not PR CI)
 2. Set {JUDGE_ENV} in local .env (dedicated Google AI Studio project).
    Do NOT reuse {PRODUCT_GEMINI_ENV} (embeddings / chat fallback).
    Do NOT copy {JUDGE_ENV} to Compose, VPS, or src/config.py.
-3. Bring local Compose up. Get a JWT (register/login).
-4. Run:
+3. Bring local Compose up. Confirm GET /health and GET /health/ai.
+4. Get a JWT (register/login). Seed retrieval goldens into that workspace
+   (notes with marker content) or chat will SKIP empty retrieval.
+5. Spot-check POST /ai/chat for a golden query (must be 200 with chunks).
+   Chat HTTP 500 is often LLM quota (429) or a stuck fallback model cache —
+   restart API after quota clears; do not confuse with a ragas pin failure.
+6. Run:
      python evals/run_ragas.py --live --token "<jwt>"
    Defaults: --base-url {DEFAULT_BASE_URL} --limit {DEFAULT_LIMIT}
    --judge-model {DEFAULT_JUDGE_MODEL}
-5. Record faithfulness + context_precision in docs/EXPERIMENTS.md
-   with environment=lab (or live-local). Not a production SLO.
-6. Do NOT add this script to .github/workflows/ci.yml.
-7. Do NOT point --base-url at production HTTPS as a merge gate.
+7. Record faithfulness + context_precision (and n / SKIPs) in
+   docs/EXPERIMENTS.md and docs/ragas-lab-report.md with environment=lab.
+   Not a production SLO. Zero collected rows is a failed collection run.
+8. Do NOT add this script to .github/workflows/ci.yml.
+9. Do NOT point --base-url at production HTTPS as a merge gate.
 """.strip()
 
 
@@ -159,6 +166,22 @@ def _run_metrics(rows: list[dict[str, Any]], judge_key: str, judge_model: str) -
         metrics=[Faithfulness(llm=llm), ContextPrecision(llm=llm)],
     )
     print(result)
+    scores = getattr(result, "_repr_dict", None)
+    if isinstance(scores, dict):
+        for key in ("faithfulness", "context_precision"):
+            val = scores.get(key)
+            try:
+                import math
+
+                if val is not None and math.isnan(float(val)):
+                    print(
+                        f"WARNING: {key}=NaN (judge 429/503 or parse failure). "
+                        "Re-run with --judge-model or after quota resets; "
+                        "do not invent a score.",
+                        file=sys.stderr,
+                    )
+            except (TypeError, ValueError):
+                pass
     if not numeric_metric_aggregates(result):
         print(
             "ERROR: RAGAS returned no numeric scores.\n"
@@ -203,7 +226,7 @@ def _run_live(args: argparse.Namespace) -> int:
                 rows.append(row)
 
     if not rows:
-        print("No rows collected (empty retrieval or chat errors).", file=sys.stderr)
+        print(COLLECTION_FAILURE_HINT, file=sys.stderr)
         return 1
     return _run_metrics(rows, judge_key, str(args.judge_model))
 

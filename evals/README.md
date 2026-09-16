@@ -107,9 +107,9 @@ honest `PASS: X/Y` even when below 100%.
 
 ## Post-C-gate (not replacing this harness)
 
-Langfuse-native datasets/experiments preferred for judges; optional recall@k /
-faithfulness are Tier 2 / nightly. Do not replace this golden CLI.
-**PR CI does not run the judge path.**
+Langfuse-native datasets/experiments preferred for in-product judges; optional recall@k
+and the local RAGAS lab are Tier 2 / nightly. Do not replace this golden CLI.
+**PR CI does not run the judge path or RAGAS.** Neither is deployed on the VPS.
 
 ### Operator / nightly faithfulness judge
 
@@ -127,5 +127,27 @@ The script seeds (or documents) dataset `dashnote-retrieval-goldens` from
 faithfulness evaluator (5–10% or nightly batch). Do **not** add it to
 `.github/workflows/ci.yml`.
 
+### Operator / nightly RAGAS lab (laptop)
+
+Scores question + answer + retrieved context with a **dedicated** judge key
+(`GEMINI_API_KEY_2`). Never uses `GEMINI_API_KEY` (embeddings / chat fallback).
+Install the extra on the laptop only — not in `requirements/base.txt` / the API image.
+Requires **ragas ≥ 0.4** (`llm_factory(..., provider="google", client=...)`)
+and `instructor[google-genai]` (jsonref for Gemini structured output).
+Default `--judge-model` is `gemini-3.6-flash` (override if your AI Studio project
+lists a different Flash id). If you previously installed an older pin, reinstall:
+
+```powershell
+pip install -r evals/requirements-ragas.txt
+python evals/run_ragas.py --setup
+# Local Compose + JWT (default http://127.0.0.1, --limit 5):
+python evals/run_ragas.py --live --token "<access_token>"
+```
+
+`--setup` prints the checklist with no network. `--live` calls `POST /ai/chat`
+(`message` only) and `GET /ai/test-search` (`q` only) — workspace stays on the JWT.
+Skips `ret-08` / empty retrieval, tenant, and trajectory goldens. Record scores in
+EXPERIMENTS as **lab**, not a production SLO. Do **not** add this to CI or the VPS.
+
 **Before/after record:** [`docs/EXPERIMENTS.md`](../docs/EXPERIMENTS.md) — measure→improve
-loops tied to this harness (e.g. empty-retrieval / `ret-08`) and lab judge/trace loops.
+loops tied to this harness (e.g. empty-retrieval / `ret-08`) and lab judge/RAGAS loops.

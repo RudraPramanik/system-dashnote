@@ -5,9 +5,11 @@ Canonical eval program for DashNoteSystem. All eval code and datasets live under
 **This is not a production SLO.** Judge scores are `lab` or `pre-deploy` records.  
 **This is not** [`docs/documentation/blueprint/slice8_eval.md`](../docs/documentation/blueprint/slice8_eval.md) — that file is Slice 8X.2 Cursor prompts for the C-gate harness. Do not rewrite it.
 
-**Phase 0 (this file) is done.** L0 fixture close-out is the first implementation. DeepEval, answer goldens, and `run_quality.py` remain **planned**. They do not exist yet.
+**Phase 0 (this file) is done.** L0 fixture-gate close-out is done. **L1 live contract** is the next implementation. DeepEval, answer goldens, and `run_quality.py` remain **planned** (after L1).
 
 How to run what exists today: [`README.md`](README.md).
+
+**L0/L1 alignment:** Both modes share the same `evals/golden/` corpus and the same marker / isolation / trajectory scorers. Fixtures under `evals/fixtures/` are the **recorded** form of that contract for PR CI. Live mode proves eligible (`mode_hint` `either` / `live`) cases against a real API. Fixture-only cases and unwired live trajectories SKIP in L1 — they are not a second corpus.
 
 ---
 
@@ -34,11 +36,11 @@ Enterprise/startup practice is this split — not “GEval on every user request
 ┌─────────────────────────────────────────────────────────────────┐
 │ L0  Fixture / golden contract     run_eval.py --mode fixture    │
 │     markers · tenant · trajectories                             │
-│     EXISTS  · PR CI  · deterministic  · no judge                │
+│     DONE  · PR CI  · deterministic  · no judge                  │
 ├─────────────────────────────────────────────────────────────────┤
 │ L1  Live API contract             run_eval.py --mode live       │
-│     same goldens vs local Compose / staging                     │
-│     EXISTS  · operator / nightly  · still PASS: X/Y, not GEval  │
+│     same goldens + scorers vs Compose / staging                 │
+│     THIS PHASE  · operator / nightly  · PASS: X/Y, not GEval    │
 ├─────────────────────────────────────────────────────────────────┤
 │ L2  LLM-as-judge quality          run_quality.py                │
 │     DeepEval GEval: correctness · completeness · style          │
@@ -54,14 +56,14 @@ Enterprise/startup practice is this split — not “GEval on every user request
 
 | Layer | Command | Status |
 |-------|---------|--------|
-| L0 | `python evals/run_eval.py --mode fixture` | Exists — PR blocking |
-| L1 | `python evals/run_eval.py --mode live --base-url … --token …` | Exists — operator |
+| L0 | `python evals/run_eval.py --mode fixture` | Done — PR blocking |
+| L1 | `python evals/run_eval.py --mode live --base-url … --token …` | This phase — operator / nightly |
 | L2 | `python evals/run_quality.py` | **Planned** — do not run; file is not in the tree yet |
 | L3 | Langfuse UI + `POST /ai/feedback`; Prometheus `/metrics` | Exists — serving path has no judge |
 
-**PR CI MUST stay L0 only.** L2 MUST stay off the hot path. Production serving MUST NOT require the judge suite to return an answer.
+**PR CI MUST stay L0 only.** L1 MUST NOT be a merge gate. L2 MUST stay off the hot path. Production serving MUST NOT require the judge suite to return an answer.
 
-Optional later (phase 5): a scheduled nightly/pre-deploy job with secrets. Still not a PR merge gate.
+Optional later: a scheduled nightly/pre-deploy job with secrets. Still not a PR merge gate.
 
 ---
 
@@ -258,14 +260,15 @@ Each phase is a **separate OpenSpec change** unless an operator explicitly expan
 | Phase | Ships | Status |
 |-------|--------|--------|
 | **0** | This blueprint + README / doc pointers | Done |
-| **1** | L0 fixture-gate close-out: scoring tests, honest recorded `PASS: X/Y`, NVIDIA NIM as Gemini 429 hatch | **This change** |
-| **2** | `rag_answers.jsonl` (AI-drafted), `run_quality.py`, `requirements-quality.txt`, CI-safe helper tests only | Later |
-| **3** | Thresholds, baseline comparison, dated EXPERIMENTS row from a real local run | Later |
-| **4** | Generator / prompt / citation work driven by style scores (product code; still measured by L2) | Later |
-| **5** | `agent_answers.jsonl` + same CLI theme; trajectories stay L0 | Later |
-| **6** | Optional nightly/pre-deploy workflow with secrets — still not PR-blocking | Later |
+| **1** | L0 fixture-gate close-out: scoring tests, honest recorded `PASS: X/Y`, NVIDIA NIM as Gemini 429 hatch | Done |
+| **2** | L1 live contract: same goldens/scorers vs Compose/staging, L0/L1 alignment docs, honest live `PASS: X/Y`, NIM hatch when Gemini 429 blocks live | **This change** |
+| **3** | `rag_answers.jsonl` (AI-drafted), `run_quality.py`, `requirements-quality.txt`, CI-safe helper tests only | Later |
+| **4** | Thresholds, baseline comparison, dated EXPERIMENTS row from a real local run | Later |
+| **5** | Generator / prompt / citation work driven by style scores (product code; still measured by L2) | Later |
+| **6** | `agent_answers.jsonl` + same CLI theme; trajectories stay L0/L1 fixture-primary | Later |
+| **7** | Optional nightly/pre-deploy workflow with secrets — still not PR-blocking | Later |
 
-Do not implement L2–L3 (DeepEval, answer goldens, nightly judge workflow) in the same change as L0.
+Do not implement L2–L3 (DeepEval, answer goldens, nightly judge workflow) in the same change as L0 or L1.
 
 ---
 
@@ -292,7 +295,7 @@ Keep these until a later change **explicitly** folds or retires them. C-gate is 
 | Piece | Role |
 |-------|------|
 | `run_eval.py --mode fixture` | Hire / PR C-gate. Last recorded **PASS: 20/20** (see README). |
-| `run_eval.py --mode live` | Operator contract vs real API |
+| `run_eval.py --mode live` | L1 operator/nightly contract vs real API (same goldens/scorers as L0) |
 | `run_langfuse_faithfulness.py` | Operator sampled faithfulness (Langfuse UI) |
 | `run_ragas.py` | Laptop RAGAS lab (faithfulness / context precision, `GEMINI_API_KEY_2`) |
 | Langfuse traces + `POST /ai/feedback` | L3 — not a merge gate |

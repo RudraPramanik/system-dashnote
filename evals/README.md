@@ -21,8 +21,10 @@ evals/
 
 | Mode | Flag | Behavior |
 |------|------|----------|
-| **fixture** | `--mode fixture` | Loads recorded JSON under `evals/fixtures/`. No live LLM keys. |
-| **live** | `--mode live` | Calls HTTP API (`--base-url` + `--token`). Prefer local Compose or prod. |
+| **L0 fixture** | `--mode fixture` | Loads recorded JSON under `evals/fixtures/`. No live LLM keys. **PR CI.** |
+| **L1 live** | `--mode live` | Calls HTTP API (`--base-url` + `--token`). Same goldens + scorers as L0. Operator / nightly — **not** a merge gate. |
+
+**L0/L1 alignment.** One corpus under `evals/golden/`, one scorer in `run_eval.py`. Fixtures are the recorded L1 contract for CI. Live proves eligible cases (`mode_hint` `either` / `live`) against Compose or staging. Fixture-only cases and live trajectories SKIP with an explicit reason — they are not a second golden set.
 
 PR CI must not require `--mode live` or paid LLM keys. Fixture evals (including
 agent trajectory goldens) are wired as a blocking step in `.github/workflows/ci.yml`.
@@ -31,12 +33,13 @@ agent trajectory goldens) are wired as a blocking step in `.github/workflows/ci.
 `GEMINI_API_KEY`, `GEMINI_API_KEY_2`, or `NVIDIA_NIM_API_KEY`. It never calls a
 live LLM.
 
-**Gemini 429 hatch (later live layers, not L0):** if product chat or live
-collection hits Gemini rate-limit / 429, use NVIDIA NIM with a **different free
-catalog model** via `LLM_MODEL` / `LLM_MODEL_FALLBACKS` (default extra hop:
-`nvidia_nim/openai/gpt-oss-20b` before `gemini/gemini-2.5-flash`) and recreate
-`api` + `worker`. Do not wait on Gemini quota to green L0. Do not put an
-LLM-as-judge on `/ai/chat` or `/ai/agent`.
+**Gemini 429 hatch (L1 / product live stack, not L0):** if live seed/embed, product
+chat, or live collection hits Gemini rate-limit / 429, use NVIDIA NIM with a
+**different free catalog model** via `LLM_MODEL` / `LLM_MODEL_FALLBACKS` (default
+extra hop: `nvidia_nim/openai/gpt-oss-20b` before `gemini/gemini-2.5-flash`) and
+recreate `api` + `worker`. Do not wait on Gemini quota to green L0 or to close L1.
+Do not put an LLM-as-judge on `/ai/chat` or `/ai/agent`. The eval CLI does not
+switch models itself — configure the product stack, then re-run live.
 
 ## PYTHONPATH / how to run
 
@@ -46,28 +49,35 @@ LLM-as-judge on `/ai/chat` or `/ai/agent`.
 $env:PYTHONPATH = "src"
 python evals/run_eval.py --mode fixture
 
-# Live against local nginx edge (docker compose up):
+# L1 live against local nginx edge (docker compose up):
 $env:PYTHONPATH = "src"
-python evals/run_eval.py --mode live --base-url http://127.0.0.1 --token "<access_token>"
+python evals/run_eval.py --mode live --base-url http://127.0.0.1 `
+  --token "<access_token>" --seed-live
 ```
 
 ```bash
 PYTHONPATH=src python evals/run_eval.py --mode fixture
-PYTHONPATH=src python evals/run_eval.py --mode live --base-url http://127.0.0.1 --token "$TOKEN"
+PYTHONPATH=src python evals/run_eval.py --mode live --base-url http://127.0.0.1 \
+  --token "$TOKEN" --seed-live
 ```
 
-Exit code `0` only when all selected cases pass. Summary line: `PASS: X/Y`.
+**L1 preflight:** `GET /health` and `GET /health/ai` ok; JWT valid for the eval
+workspace; prefer `--seed-live` so marker notes exist before search. Record runs as
+environment `live-local` (or staging). Exit `0` only when every **scored** case
+passes. Summary: `PASS: X/Y` plus `SKIP: N` with reasons. Live with **zero scored
+cases** (all SKIP) exits non-zero — that is not a successful L1 close-out.
 
 ### Dual tokens (tenant live)
 
 ```powershell
 python evals/run_eval.py --mode live --base-url http://127.0.0.1 `
-  --token "<owner_or_user_a_jwt>" --token-b "<member_user_b_jwt>"
+  --token "<owner_or_user_a_jwt>" --token-b "<member_user_b_jwt>" --seed-live
 ```
 
 Both JWTs MUST share the same `wid` (workspace). There is no workspace-switch
 API yet — prepare membership offline or use fixture mode for isolation cases.
-
+Cases with `actor=b` **SKIP** (never PASS) when `--token-b` is missing — the
+runner MUST NOT treat `--token` as the member.
 ## Golden schema
 
 Common fields:
@@ -112,16 +122,17 @@ Common fields:
 
 | When | Mode | Target | Result |
 |------|------|--------|--------|
-| 2026-09-18 | fixture | n/a | **PASS: 20/20** (15 retrieval/tenant + 5 trajectory; no Gemini/NIM keys) |
+| 2026-09-18 | live + `--seed-live` | `http://127.0.0.1` (`live-local`) | **PASS: 8/8** (12 SKIP: 11 fixture-only / L0 recorded form; 1 `actor=b` needs `--token-b`). Stack LLM already NIM Lightning; no Gemini 429. |
+| 2026-09-18 | fixture | n/a | **PASS: 20/20** (15 retrieval/tenant + 5 trajectory; no Gemini/NIM keys) — L0 alignment check during L1 apply |
 | 2026-09-07 | fixture | n/a | PASS: 20/20 (15 retrieval/tenant + 5 trajectory) |
-| 2026-09-06 | live + `--seed-live` | `http://127.0.0.1` | **PASS: 8/8** (7 skipped: fixture-only / need `--token-b`) |
+| 2026-09-06 | live + `--seed-live` | `http://127.0.0.1` | PASS: 8/8 (7 skipped: fixture-only / need `--token-b`) — historical; superseded by 2026-09-18 live row |
 
 Target C-gate: ≥80% on the retrieval + tenant set used for hire docs. Record the
 honest `PASS: X/Y` even when below 100%.
 
 ## Post-C-gate (not replacing this harness)
 
-**Eval lifecycle (canonical map):** [`BLUEPRINT.md`](BLUEPRINT.md) — four layers (fixture CI, live contract, planned DeepEval quality suite, production observability). Fixture `run_eval.py --mode fixture` remains the PR C-gate. The LLM-as-judge quality CLI (`run_quality.py`) is **planned** in that blueprint and is **not** a merge gate.
+**Eval lifecycle (canonical map):** [`BLUEPRINT.md`](BLUEPRINT.md) — four layers (L0 fixture CI, L1 live contract, planned DeepEval quality suite, production observability). Fixture `run_eval.py --mode fixture` remains the PR C-gate. L1 live is operator/nightly. The LLM-as-judge quality CLI (`run_quality.py`) is **planned** and is **not** a merge gate.
 
 Langfuse-native datasets/experiments preferred for in-product judges; optional recall@k
 and the local RAGAS lab are Tier 2 / nightly. Do not replace this golden CLI.

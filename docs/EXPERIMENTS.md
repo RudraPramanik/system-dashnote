@@ -2,7 +2,7 @@
 
 Canonical before/after record for DashNoteSystem quality and cost experiments.
 Does **not** replace the golden harness (`evals/run_eval.py`). Fixture CI stays
-deterministic; live judges stay operator/nightly.
+deterministic; live judges stay operator/nightly. Eval program map: [`evals/BLUEPRINT.md`](../evals/BLUEPRINT.md).
 
 **Template (copy for new rows):**
 

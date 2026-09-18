@@ -1,6 +1,6 @@
 """
-Walk LLM_MODEL then LLM_MODEL_FALLBACKS when a hosted id is gone (HTTP 410)
-or exceeds the per-candidate wall clock.
+Walk LLM_MODEL then LLM_MODEL_FALLBACKS when a hosted id is gone (HTTP 410),
+rate-limited (HTTP 429), or exceeds the per-candidate wall clock.
 
 Import law: config, litellm, shared.llm.retry, observability.metrics, stdlib only.
 """
@@ -66,6 +66,25 @@ def is_model_gone(exc: BaseException) -> bool:
         or "error code: 410" in msg
         or "end of life" in msg
         or "no longer available" in msg
+    )
+
+
+def is_rate_limited(exc: BaseException) -> bool:
+    """True when the provider rejected the candidate for quota / HTTP 429."""
+    if isinstance(exc, litellm.exceptions.RateLimitError):
+        return True
+    status = getattr(exc, "status_code", None)
+    if status == 429:
+        return True
+    msg = str(exc).lower()
+    return (
+        " 429" in msg
+        or "error code: 429" in msg
+        or "rate limit" in msg
+        or "rate-limit" in msg
+        or "ratelimit" in msg
+        or "quota exceeded" in msg
+        or "resource exhausted" in msg
     )
 
 
@@ -151,11 +170,12 @@ async def _invoke_candidate(
 
 async def acompletion_with_fallback(**kwargs: Any) -> Any:
     """
-    litellm.acompletion with model-gone and wall-clock fallback.
+    litellm.acompletion with model-gone, rate-limit, and wall-clock fallback.
 
     Non-stream calls use acompletion_with_retry (transient errors) inside
     asyncio.wait_for(AGENT_TOOL_TIMEOUT). Stream calls use litellm.acompletion
-    and wait for the first chunk under the same budget.
+    and wait for the first chunk under the same budget. Exhausted 429s walk
+    to the next candidate; they are not logged as model-gone.
     """
     stream = bool(kwargs.get("stream", False))
     models = _candidates(kwargs.get("model") if isinstance(kwargs.get("model"), str) else None)
@@ -186,6 +206,14 @@ async def acompletion_with_fallback(**kwargs: Any) -> Any:
                 inc_llm_fallback()
                 logger.warning(
                     "LLM model gone; trying next candidate",
+                    extra={"model": model, "error": str(exc)[:240]},
+                )
+                _mark_gone(model)
+                continue
+            if is_rate_limited(exc):
+                inc_llm_fallback()
+                logger.warning(
+                    "LLM candidate rate-limited; trying next",
                     extra={"model": model, "error": str(exc)[:240]},
                 )
                 _mark_gone(model)

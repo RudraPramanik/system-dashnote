@@ -74,9 +74,11 @@ class Settings(BaseSettings):
     # ── AI Slice 3: LLM ────────────────────────────────────────────
     # Provider prefix selects backend. Hosted NIM ids are retired often (HTTP 410);
     # LLM_MODEL_FALLBACKS walks additional LiteLLM ids after the primary
-    # on HTTP 410 / model gone and on AGENT_TOOL_TIMEOUT wall-clock.
+    # on HTTP 410 / model gone, HTTP 429 / rate-limit, and AGENT_TOOL_TIMEOUT.
     LLM_MODEL: str = "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"
-    LLM_MODEL_FALLBACKS: str = "gemini/gemini-2.5-flash"
+    LLM_MODEL_FALLBACKS: str = (
+        "nvidia_nim/openai/gpt-oss-20b,gemini/gemini-2.5-flash"
+    )
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2048
     LLM_MAX_RETRIES: int = 4

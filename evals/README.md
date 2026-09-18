@@ -7,12 +7,14 @@ Golden corpus + CLI for retrieval quality and tenant isolation. Aligns with
 
 ```
 evals/
+  BLUEPRINT.md                 # eval lifecycle map (L0–L3)
   README.md
   golden/
     retrieval.jsonl
     tenant_isolation.jsonl
+    agent_trajectory.jsonl
   fixtures/          # recorded responses for --mode fixture
-  run_eval.py
+  run_eval.py        # L0 fixture / L1 live
 ```
 
 ## Runner modes
@@ -24,6 +26,17 @@ evals/
 
 PR CI must not require `--mode live` or paid LLM keys. Fixture evals (including
 agent trajectory goldens) are wired as a blocking step in `.github/workflows/ci.yml`.
+
+**L0 is keyless.** `python evals/run_eval.py --mode fixture` MUST complete with no
+`GEMINI_API_KEY`, `GEMINI_API_KEY_2`, or `NVIDIA_NIM_API_KEY`. It never calls a
+live LLM.
+
+**Gemini 429 hatch (later live layers, not L0):** if product chat or live
+collection hits Gemini rate-limit / 429, use NVIDIA NIM with a **different free
+catalog model** via `LLM_MODEL` / `LLM_MODEL_FALLBACKS` (default extra hop:
+`nvidia_nim/openai/gpt-oss-20b` before `gemini/gemini-2.5-flash`) and recreate
+`api` + `worker`. Do not wait on Gemini quota to green L0. Do not put an
+LLM-as-judge on `/ai/chat` or `/ai/agent`.
 
 ## PYTHONPATH / how to run
 
@@ -99,7 +112,8 @@ Common fields:
 
 | When | Mode | Target | Result |
 |------|------|--------|--------|
-| 2026-09-07 | fixture | n/a | **PASS: 20/20** (15 retrieval/tenant + 5 trajectory) |
+| 2026-09-18 | fixture | n/a | **PASS: 20/20** (15 retrieval/tenant + 5 trajectory; no Gemini/NIM keys) |
+| 2026-09-07 | fixture | n/a | PASS: 20/20 (15 retrieval/tenant + 5 trajectory) |
 | 2026-09-06 | live + `--seed-live` | `http://127.0.0.1` | **PASS: 8/8** (7 skipped: fixture-only / need `--token-b`) |
 
 Target C-gate: ≥80% on the retrieval + tenant set used for hire docs. Record the
@@ -107,9 +121,11 @@ honest `PASS: X/Y` even when below 100%.
 
 ## Post-C-gate (not replacing this harness)
 
+**Eval lifecycle (canonical map):** [`BLUEPRINT.md`](BLUEPRINT.md) — four layers (fixture CI, live contract, planned DeepEval quality suite, production observability). Fixture `run_eval.py --mode fixture` remains the PR C-gate. The LLM-as-judge quality CLI (`run_quality.py`) is **planned** in that blueprint and is **not** a merge gate.
+
 Langfuse-native datasets/experiments preferred for in-product judges; optional recall@k
 and the local RAGAS lab are Tier 2 / nightly. Do not replace this golden CLI.
-**PR CI does not run the judge path or RAGAS.** Neither is deployed on the VPS.
+**PR CI does not run the judge path, RAGAS, or the planned DeepEval quality suite.** None of those are deployed on the VPS.
 
 ### Operator / nightly faithfulness judge
 

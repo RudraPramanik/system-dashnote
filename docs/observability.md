@@ -88,7 +88,8 @@ Each line should parse as JSON (starts with `{`).
 |----------|----------|---------|---------|
 | `LANGFUSE_PUBLIC_KEY` | Yes (with secret) | `""` | `pk-lf-...` |
 | `LANGFUSE_SECRET_KEY` | Yes (with public) | `""` | `sk-lf-...` |
-| `LANGFUSE_HOST` | No | `https://cloud.langfuse.com` | EU cloud; US: `https://us.cloud.langfuse.com` |
+| `LANGFUSE_HOST` | No | effective `https://cloud.langfuse.com` | Canonical host; EU cloud; US: `https://us.cloud.langfuse.com` |
+| `LANGFUSE_BASE_URL` | No | `""` | Alias when `LANGFUSE_HOST` is blank |
 
 Tracing is **enabled** when both keys are non-empty (`settings.langfuse_enabled`).
 

@@ -44,19 +44,20 @@ def get_langfuse_client() -> Optional["Langfuse"]:
     try:
         from langfuse import Langfuse
 
+        host = settings.effective_langfuse_host
         _client = Langfuse(
             public_key=settings.LANGFUSE_PUBLIC_KEY,
             secret_key=settings.LANGFUSE_SECRET_KEY,
-            host=settings.LANGFUSE_HOST,
+            host=host,
         )
         logger.info(
             "Langfuse client initialized",
-            extra={"host": settings.LANGFUSE_HOST},
+            extra={"host": host},
         )
     except Exception as exc:
         logger.warning(
             "Langfuse client init failed; tracing unavailable",
-            extra={"error": str(exc), "host": settings.LANGFUSE_HOST},
+            extra={"error": str(exc), "host": settings.effective_langfuse_host},
         )
         _client = None
 

@@ -62,9 +62,10 @@ Grafana is optional and **not** in default Compose. There is no second eval dash
 |---------|---------|---------|
 | `LANGFUSE_PUBLIC_KEY` | `""` | Project public key (`pk-lf-...`) |
 | `LANGFUSE_SECRET_KEY` | `""` | Secret key (`sk-lf-...`) |
-| `LANGFUSE_HOST` | `https://cloud.langfuse.com` | EU cloud; US: `https://us.cloud.langfuse.com` |
+| `LANGFUSE_HOST` | `""` (effective: `https://cloud.langfuse.com`) | Canonical host; EU cloud or `https://us.cloud.langfuse.com` |
+| `LANGFUSE_BASE_URL` | `""` | Alias used when `LANGFUSE_HOST` is blank (production-shaped env) |
 
-**Enabled when:** both keys are non-empty → `settings.langfuse_enabled` is `True`.
+**Enabled when:** both keys are non-empty → `settings.langfuse_enabled` is `True`. Host is `settings.effective_langfuse_host` (`LANGFUSE_HOST`, else `LANGFUSE_BASE_URL`, else EU cloud). Soft: missing keys do **not** fail `/health`.
 
 Copy keys from Langfuse UI → Settings → API Keys. Put them in `.env` (not committed).
 

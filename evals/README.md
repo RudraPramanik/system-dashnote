@@ -27,12 +27,15 @@ evals/
 | **L0 fixture** | `run_eval.py --mode fixture` | Loads recorded JSON under `evals/fixtures/`. No live LLM keys. **PR CI.** |
 | **L1 live** | `run_eval.py --mode live` | Calls HTTP API (`--base-url` + `--token`). Same goldens + scorers as L0. Operator / nightly — **not** a merge gate. |
 | **L2 quality** | `run_quality.py` | Collects `POST /ai/chat` answers from `rag_answers.jsonl`, scores with DeepEval GEval. Local / pre-deploy — **not** a merge gate. |
+| **L3 observability** | Langfuse UI + `POST /ai/feedback` + `GET /metrics` | Serving traces, thumbs, and low-cardinality quality counters. **Not** a merge gate. **Not** a production SLO. |
 
-**L0/L1 alignment.** One corpus under `evals/golden/`, one scorer in `run_eval.py`. Fixtures are the recorded L1 contract for CI. Live proves eligible cases (`mode_hint` `either` / `live`) against Compose or staging. Fixture-only cases and live trajectories SKIP with an explicit reason — they are not a second golden set.
+**L0/L1 alignment.** One corpus under `evals/golden/`, one scorer in `run_eval.py`. Fixtures are the recorded L1 contract for CI. Live proves eligible cases (`mode_hint` `either` / `live`) against Compose or staging. Fixture-only cases and live trajectories SKIP with an explicit reason — they are not a second golden set. L3 does **not** replace this contract.
 
 **L1/L2 alignment.** L2 uses the same JWT `wid` tenancy, seed/marker ID law (answer seeds reuse retrieval-marker note content), and Compose/staging target class as L1. Prefer a stack already proven by L1. L2 does **not** replace marker PASS/FAIL scoring — it adds answer-quality GEval.
 
-PR CI must not require `--mode live`, `run_quality.py`, or paid LLM keys. Fixture evals (including
+**L2/L3 alignment.** L3 traces and `POST /ai/feedback` use the same JWT `wid` as L1/L2. L2 GEval stays local/pre-deploy and off `/ai/chat` and `/ai/agent`. Traces and thumbs do **not** replace L0/L1 `PASS: X/Y` or L2 aggregates.
+
+PR CI must not require `--mode live`, `run_quality.py`, Langfuse keys, or paid LLM keys. Fixture evals (including
 agent trajectory goldens) are wired as a blocking step in `.github/workflows/ci.yml`.
 
 **L0 is keyless.** `python evals/run_eval.py --mode fixture` MUST complete with no
@@ -125,6 +128,39 @@ Product chat stays on NIM Lightning. Judge default is a different NIM id
 (`gpt-oss-20b`). Gemini judge is opt-in. Do not use the product Gemini key.
 Mint a fresh access token; do not paste JWTs into docs or chat.
 
+## L3 observability (Langfuse + feedback + Prom)
+
+Production-serving traces and health. Prefer a stack already proven by L1. Chat and agent **never** await a judge. L3 is **not** a PR merge gate and **not** a production SLO.
+
+**Enable (API process env — placeholders only):**
+
+| Var | Role |
+|-----|------|
+| `LANGFUSE_PUBLIC_KEY` | Project public key (`pk-lf-…`) |
+| `LANGFUSE_SECRET_KEY` | Project secret key (`sk-lf-…`) |
+| `LANGFUSE_HOST` | Canonical host (EU `https://cloud.langfuse.com`; US `https://us.cloud.langfuse.com`) |
+| `LANGFUSE_BASE_URL` | Alias used when `LANGFUSE_HOST` is blank (production-shaped env) |
+
+Both keys must be non-empty. Recreate `api` after env changes. Soft: missing keys do not fail `/health` or `/ai/chat`. Do **not** paste live keys or JWTs here.
+
+**Prove a turn (Compose / staging):**
+
+1. `GET /health` and `GET /health/ai` ok. JWT for the eval workspace.
+2. `POST /ai/chat` with `{"message": "<query>"}` (message only; `wid` from token). Capture `thread_id` (and optional `trace_id`).
+3. Langfuse UI: parent **`rag.answer`** (chat) or **`agent.turn`** (agent). Flush/wait if the SDK buffers.
+4. `POST /ai/feedback` with JWT + `thread_id` + `thumbs` (`up`/`down`) or `score` (1–5). Expect 2xx. When Langfuse is off: 2xx `tracing=unavailable`.
+5. `GET /metrics` still includes `dashnote_ai_empty_retrieval_total`, `dashnote_ai_agent_interrupt_total`, `dashnote_ai_llm_fallback_total` (no per-user judge labels).
+
+```powershell
+# After a chat turn — placeholders only
+curl.exe -sS -X POST http://127.0.0.1/ai/feedback `
+  -H "Authorization: Bearer <access_token>" `
+  -H "Content-Type: application/json" `
+  -d "{\"thread_id\": \"<thread_uuid>\", \"thumbs\": \"up\"}"
+```
+
+Sampled faithfulness stays `evals/run_langfuse_faithfulness.py` (operator/nightly). Do **not** add it to CI.
+
 ## Golden schema
 
 Common fields:
@@ -169,6 +205,9 @@ Common fields:
 
 | When | Mode | Target | Result |
 |------|------|--------|--------|
+| 2026-09-19 | L3 traces + `POST /ai/feedback` + `/metrics` | `http://127.0.0.1` (`lab`) | **Proven.** Chat returned `thread_id` + `trace_id` (`chunks_retrieved=7`). Langfuse list showed parent **`rag.answer`**. Feedback HTTP 200 `tracing=recorded`. `/metrics` includes `dashnote_ai_empty_retrieval_total`, `dashnote_ai_agent_interrupt_total`, `dashnote_ai_llm_fallback_total` (no per-user judge labels). Langfuse SDK v3: scores via `create_score`. Product chat used NIM hatch `nvidia_nim/openai/gpt-oss-20b` after Lightning resolve/timeout. **Not a production SLO.** Not a merge gate. |
+| 2026-09-19 | live + `--seed-live` | `http://127.0.0.1` (`live-local`) | **PASS: 8/8** (SKIP: 12 — 11 fixture-only / L0 recorded form; 1 `actor=b` needs `--token-b`). Same `evals/golden/` corpus and scorers as L0. L0/L1 alignment re-check during L3 apply. |
+| 2026-09-19 | fixture | n/a | **PASS: 20/20** — L0 alignment check during L3 apply (15 retrieval/tenant + 5 trajectory; no Langfuse/judge keys) |
 | 2026-09-19 | L2 `run_quality.py` `--limit 2 --seed-live` NIM judge | `http://127.0.0.1` (`lab`) | **exit 1** (hard floors missed, not a hang). Product chat = NIM Lightning. Judge = `nvidia_nim/openai/gpt-oss-20b` (`--judge-backend nim`). n=2 · SKIP=0 · correctness=0.075 · completeness=0.050 · style=0.075. Per-case: rag-ans-01 0.1/0.0/0.1; rag-ans-02 0.05/0.1/0.05. ~5 min. Numeric scores (not NaN). Not a production SLO. |
 | 2026-09-19 | L2 `run_quality.py` `--seed-live` (full 12, timeout 300s) | `http://127.0.0.1` (`lab`) | **collection crash gone** — no uncaught `httpx.ReadTimeout`. Collected n=9 · SKIP=3 (`rag-ans-10` empty retrieval; `rag-ans-11`/`rag-ans-12` chat HTTP 401). Remaining cases still ran after SKIPs. Judge=`gemini-3.6-flash`: rag-ans-01 1.0/1.0/0.4; then **429 RESOURCE_EXHAUSTED** (NaNs on later GEval). Process ended mid-judge before aggregates. Fail-closed / incomplete GEval — not a scored close-out. Product stack NIM Lightning. Not a production SLO. |
 | 2026-09-19 | L2 `run_quality.py` `--limit 2 --seed-live` | `http://127.0.0.1` (`lab`) | **exit 0** · judge=`gemini-3.6-flash` · n=2 · SKIP=0 · correctness=0.75 · completeness=0.75 · style=0.10 · floor 0.7 met. Per-case: rag-ans-01 1.0/1.0/0.2; rag-ans-02 0.5/0.5/0.0. Product stack NIM Lightning. Not a production SLO. |
@@ -184,7 +223,7 @@ honest `PASS: X/Y` even when below 100%.
 
 ## Post-C-gate (not replacing this harness)
 
-**Eval lifecycle (canonical map):** [`BLUEPRINT.md`](BLUEPRINT.md) — four layers (L0 fixture CI, L1 live contract, L2 DeepEval quality suite, production observability). Fixture `run_eval.py --mode fixture` remains the PR C-gate. L1 live is operator/nightly. L2 `run_quality.py` is local/pre-deploy and is **not** a merge gate.
+**Eval lifecycle (canonical map):** [`BLUEPRINT.md`](BLUEPRINT.md) — four layers (L0 fixture CI, L1 live contract, L2 DeepEval quality suite, L3 production observability). Fixture `run_eval.py --mode fixture` remains the PR C-gate. L1 live is operator/nightly. L2 `run_quality.py` is local/pre-deploy and is **not** a merge gate. L3 traces/feedback/Prom are serving observability and are **not** a merge gate.
 
 Langfuse-native datasets/experiments preferred for in-product judges; optional recall@k
 and the local RAGAS lab are Tier 2 / nightly. Do not replace this golden CLI.

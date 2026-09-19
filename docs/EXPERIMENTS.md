@@ -114,6 +114,19 @@ python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1
 
 ---
 
+## EXP-005 — L3 production observability close-out (lab)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-19 |
+| Environment | lab (local Compose + Langfuse Cloud; **not** PR CI) |
+| Baseline | L0 **PASS: 20/20** and L1 **PASS: 8/8** (honest SKIPs) already recorded; serving traces/feedback existed but eval-lifecycle still labeled L3 as an unlabeled “exists” box; production-shaped `LANGFUSE_BASE_URL` was not read as `LANGFUSE_HOST`. |
+| Change | `effective_langfuse_host` (`LANGFUSE_HOST`, else `LANGFUSE_BASE_URL` alias); Langfuse v3 `create_score` for `POST /ai/feedback`; BLUEPRINT/README L3 phase + L0/L1 and L2/L3 alignment. |
+| After | Fresh L0 **PASS: 20/20**; L1 **PASS: 8/8** (12 SKIP, same shared corpus); chat emitted `rag.answer`; feedback `tracing=recorded`; Prom `dashnote_ai_*` present. |
+| Notes | **Not a production SLO.** Lightning product chat timed out; apply used NIM hatch `nvidia_nim/openai/gpt-oss-20b`. Judge still off the request path. |
+
+---
+
 ## Adding the next experiment
 
 1. Capture baseline `PASS: X/Y` or a named failure mode.

@@ -93,6 +93,27 @@ python evals/run_ragas.py --live --token "<access_token>"
 
 ---
 
+## EXP-005 — L2 DeepEval GEval (correctness / completeness / style)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-19 |
+| Environment | lab (`http://127.0.0.1`; **not** VPS, **not** PR CI) |
+| Baseline | L0 fixture **PASS: 20/20**; L1 live **PASS: 8/8**. Answer quality unmeasured (no `run_quality.py`). 2026-09-18 apply collected `n=1` but GEval means were **NaN** (Gemini judge 503/429; NIM `gpt-oss-20b` timeout). |
+| Change | `evals/run_quality.py` + `evals/golden/rag_answers.jsonl` (12 AI-drafted cases) + laptop `requirements-quality.txt`. Judge = `GEMINI_API_KEY_2` (`gemini-3.6-flash`); product answers on NIM Lightning. `--judge-backend nim` hatch for Gemini judge 429/503. |
+| After | **2026-09-19 lab:** `--limit 2 --seed-live` → collected **n=2**, SKIP=0, judge=`gemini-3.6-flash` → **correctness=0.75**, **completeness=0.75**, **style=0.10** (exit 0; floor 0.7 met). Per-case: rag-ans-01 1.0/1.0/0.2; rag-ans-02 0.5/0.5/0.0. Style low is an honest generator signal, not omitted. |
+| Notes | **Not a production SLO.** Do not add DeepEval to the API image or CI. Style work is a later phase. Re-run without `--limit` when judge quota allows. |
+
+### How to re-verify
+
+```powershell
+pip install -r evals/requirements-quality.txt
+$env:PYTHONPATH = "src"
+python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1 --seed-live --environment lab
+```
+
+---
+
 ## Adding the next experiment
 
 1. Capture baseline `PASS: X/Y` or a named failure mode.

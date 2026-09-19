@@ -35,7 +35,7 @@ The product must stay **alive**: API + AI surfaces + frontend demo path remain d
 | Runs on small VPS / prod path | Local, fixture, or nightly only |
 |------------------------------|----------------------------------|
 | API, worker, nginx, hosted data plane | LLM-as-judge faithfulness suites |
-| Langfuse tracing (SaaS) | Optional RAGAS batch jobs |
+| Langfuse tracing (SaaS) | RAGAS lab (`evals/run_ragas.py` on the operator laptop) |
 | Golden `run_eval.py` against live `--base-url` (operator) | Local reranker / heavy hybrid experiments |
 | Fixture evals in PR CI | Anything that requires GPU or large local models |
 
@@ -107,7 +107,7 @@ Do these to stand out **without** breaking Alive. Prefer shipping on the real pr
 | 6 | **Agent trajectory goldens** | ≥5 cases incl. forbid surprise create (`required_tools` / `forbidden_tools` / `sequence_mode`) | slice8_eval §8X.2.3 |
 | 7 | **Failure-mode notes** | Empty retrieval, LLM 503, embed lag — runbook / talk track | runbook |
 
-**Eval stack preference (locked):** Langfuse-native (datasets / experiments / judges) primary after C-gate. Custom `evals/` remains the C-gate harness. RAGAS = optional nightly later. **DeepEval is not required** on this path.
+**Eval stack preference (locked):** Langfuse-native (datasets / experiments / judges) primary after C-gate. Custom `evals/` remains the C-gate harness. RAGAS = runnable **local/nightly lab** (`evals/run_ragas.py`, dedicated `GEMINI_API_KEY_2`, off VPS and off PR CI). **DeepEval is not required** on this path.
 
 ---
 
@@ -118,7 +118,7 @@ Top ~3–5% depth. Keep off the critical path to Tier 0.
 | Item | Where it runs | Rule |
 |------|---------------|------|
 | recall@k / MRR on goldens | Local or nightly | Document in `evals/EXPERIMENTS.md` when implemented |
-| Faithfulness / answer relevancy | Langfuse judges or optional RAGAS nightly | **Never** PR-blocking |
+| RAGAS faithfulness / context precision | Laptop / nightly (`evals/run_ragas.py`) | **Never** PR-blocking; not on the VPS |
 | EXPERIMENTS.md (before → change → after) | Repo docs | Shows measure→improve |
 | Hybrid search / rerank lab | Local or slim API; promote only if VPS-safe | Only after baseline evals exist to beat |
 | Synthetic query expansion | Local | Optional corpus growth |

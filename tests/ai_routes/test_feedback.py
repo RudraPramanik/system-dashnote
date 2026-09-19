@@ -85,6 +85,29 @@ async def test_feedback_ok_when_langfuse_off() -> None:
 
 
 @pytest.mark.asyncio
+async def test_feedback_accepts_numeric_score() -> None:
+    app = _app_with_ctx()
+    with (
+        patch(
+            "ai_routes.feedback._repo.get_thread",
+            new_callable=AsyncMock,
+            return_value=_thread(),
+        ),
+        patch("ai_routes.feedback.lookup_thread_trace", return_value=None),
+        patch("ai_routes.feedback.score_by_trace_id", return_value=False),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.post(
+                "/ai/feedback",
+                json={"thread_id": THREAD_ID, "score": 4},
+            )
+    assert res.status_code == 200
+    assert res.json()["tracing"] == "unavailable"
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_chat_and_agent_schemas_do_not_require_feedback() -> None:
     from ai_routes.agent import AgentResponse, ApprovalRequiredResponse
     from ai_routes.chat import ChatResponse

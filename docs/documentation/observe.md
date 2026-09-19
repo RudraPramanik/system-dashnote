@@ -7,13 +7,14 @@ Short reference for humans and AI agents working on observability in this repo.
 
 ---
 
-## Three planes (do not mix)
+## Three planes (+ laptop lab)
 
 | Plane | What it answers | Where |
 |-------|-----------------|--------|
 | **Prometheus health** | Is the API up? HTTP rate/latency/5xx; rare quality *events* (empty retrieval, HITL interrupt, LLM fallback) | `GET /metrics`, Prometheus `:9090`. Series `dashnote_api_*` and `dashnote_ai_*`. No per-user or per-trace judge scores. |
 | **Langfuse traces / judges** | What did this turn retrieve, generate, and cost? Agent tree? Operator faithfulness | Cloud UI. Facades in `observability.tracing` only (`rag.answer`, `agent.turn`). Sampled judge is operator/nightly (`evals/run_langfuse_faithfulness.py`), **never** on the request path or PR CI. |
 | **Fixture CI** | Did known goldens regress? | `python evals/run_eval.py --mode fixture` → `PASS: X/Y`. Wired in `.github/workflows/ci.yml`. No Langfuse keys. |
+| **RAGAS lab (laptop)** | Faithfulness + context precision on a small golden subset | `evals/run_ragas.py --setup` / `--live`. Dedicated `GEMINI_API_KEY_2`. **Not** VPS, **not** PR CI, **not** a production SLO. |
 
 Grafana is optional and **not** in default Compose. There is no second eval dashboard in the API.
 
@@ -61,9 +62,10 @@ Grafana is optional and **not** in default Compose. There is no second eval dash
 |---------|---------|---------|
 | `LANGFUSE_PUBLIC_KEY` | `""` | Project public key (`pk-lf-...`) |
 | `LANGFUSE_SECRET_KEY` | `""` | Secret key (`sk-lf-...`) |
-| `LANGFUSE_HOST` | `https://cloud.langfuse.com` | EU cloud; US: `https://us.cloud.langfuse.com` |
+| `LANGFUSE_HOST` | `""` (effective: `https://cloud.langfuse.com`) | Canonical host; EU cloud or `https://us.cloud.langfuse.com` |
+| `LANGFUSE_BASE_URL` | `""` | Alias used when `LANGFUSE_HOST` is blank (production-shaped env) |
 
-**Enabled when:** both keys are non-empty → `settings.langfuse_enabled` is `True`.
+**Enabled when:** both keys are non-empty → `settings.langfuse_enabled` is `True`. Host is `settings.effective_langfuse_host` (`LANGFUSE_HOST`, else `LANGFUSE_BASE_URL`, else EU cloud). Soft: missing keys do **not** fail `/health`.
 
 Copy keys from Langfuse UI → Settings → API Keys. Put them in `.env` (not committed).
 
@@ -419,5 +421,6 @@ When Langfuse keys are set (`LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`), RAG 
 4. Ask a nonsense query → confirm `empty_retrieval` score when no chunks return
 5. `POST /ai/agent` → `agent.turn` parent; search tool should nest `rag.answer`
 6. Optional: `python evals/run_langfuse_faithfulness.py --ui-only` (not CI)
+7. Optional: `python evals/run_ragas.py --setup` then `--live` on the laptop (not VPS, not CI)
 
 AI modules must not import the Langfuse SDK — only `observability.tracing` helpers.

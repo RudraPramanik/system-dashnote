@@ -274,6 +274,33 @@ async def rag_span(
 span = rag_span
 
 
+def _emit_langfuse_score(
+    client: Any,
+    *,
+    trace_id: str,
+    name: str,
+    value: float | int | str,
+    comment: str | None = None,
+) -> None:
+    """Langfuse v2 uses client.score; v3 uses client.create_score."""
+    kwargs: dict[str, Any] = {"name": name, "trace_id": trace_id}
+    if comment:
+        kwargs["comment"] = comment
+    if isinstance(value, str):
+        kwargs["value"] = value
+    else:
+        kwargs["value"] = float(value)
+    create_score = getattr(client, "create_score", None)
+    if callable(create_score):
+        create_score(**kwargs)
+        return
+    score_fn = getattr(client, "score", None)
+    if callable(score_fn):
+        score_fn(**kwargs)
+        return
+    raise AttributeError("Langfuse client has neither create_score nor score")
+
+
 def score_trace(
     parent: Any,
     *,
@@ -304,7 +331,13 @@ def score_trace(
         obs_id = getattr(obs, "id", None) or getattr(obs, "trace_id", None)
         if obs_id is None:
             return
-        client.score(trace_id=str(obs_id), **kwargs)
+        _emit_langfuse_score(
+            client,
+            trace_id=str(obs_id),
+            name=name,
+            value=value,
+            comment=comment,
+        )
     except Exception:
         logger.debug("Langfuse score_trace failed", exc_info=True)
 
@@ -323,14 +356,13 @@ def score_by_trace_id(
         client = get_langfuse_client()
         if client is None:
             return False
-        kwargs: dict[str, Any] = {
-            "trace_id": trace_id,
-            "name": name,
-            "value": value,
-        }
-        if comment:
-            kwargs["comment"] = comment
-        client.score(**kwargs)
+        _emit_langfuse_score(
+            client,
+            trace_id=trace_id,
+            name=name,
+            value=value,
+            comment=comment,
+        )
         try:
             client.flush()
         except Exception:

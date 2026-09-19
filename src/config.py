@@ -2,6 +2,8 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
+_LANGFUSE_DEFAULT_HOST = "https://cloud.langfuse.com"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -74,9 +76,11 @@ class Settings(BaseSettings):
     # ── AI Slice 3: LLM ────────────────────────────────────────────
     # Provider prefix selects backend. Hosted NIM ids are retired often (HTTP 410);
     # LLM_MODEL_FALLBACKS walks additional LiteLLM ids after the primary
-    # on HTTP 410 / model gone and on AGENT_TOOL_TIMEOUT wall-clock.
+    # on HTTP 410 / model gone, HTTP 429 / rate-limit, and AGENT_TOOL_TIMEOUT.
     LLM_MODEL: str = "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"
-    LLM_MODEL_FALLBACKS: str = "gemini/gemini-2.5-flash"
+    LLM_MODEL_FALLBACKS: str = (
+        "nvidia_nim/openai/gpt-oss-20b,gemini/gemini-2.5-flash"
+    )
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2048
     LLM_MAX_RETRIES: int = 4
@@ -94,7 +98,8 @@ class Settings(BaseSettings):
     # ── Observability: Langfuse (lazy client; tracing in Step 3) ───
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_SECRET_KEY: str = ""
-    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+    LANGFUSE_HOST: str = ""
+    LANGFUSE_BASE_URL: str = ""
 
     # ── AI Slice 5: Memory ──────────────────────────────────────────
     AI_THREAD_MESSAGE_LIMIT: int = 20   # recent messages loaded into context
@@ -161,6 +166,17 @@ class Settings(BaseSettings):
     def langfuse_enabled(self) -> bool:
         """True when Langfuse API keys are configured."""
         return bool(self.LANGFUSE_PUBLIC_KEY and self.LANGFUSE_SECRET_KEY)
+
+    @property
+    def effective_langfuse_host(self) -> str:
+        """Canonical LANGFUSE_HOST, else LANGFUSE_BASE_URL alias, else EU cloud."""
+        host = (self.LANGFUSE_HOST or "").strip()
+        if host:
+            return host
+        alias = (self.LANGFUSE_BASE_URL or "").strip()
+        if alias:
+            return alias
+        return _LANGFUSE_DEFAULT_HOST
 
     @property
     def psycopg_database_url(self) -> str:

@@ -13,7 +13,9 @@ from prometheus_client import REGISTRY
 from shared.llm.fallback import (
     LLMUnavailableError,
     acompletion_with_fallback,
+    cached_llm_model,
     is_model_gone,
+    is_rate_limited,
     reset_fallback_state,
 )
 
@@ -36,6 +38,15 @@ def test_is_model_gone_detects_410_text():
     assert is_model_gone(RuntimeError("Error code: 410 - end of life"))
     assert is_model_gone(RuntimeError("The model has reached its end of life"))
     assert not is_model_gone(RuntimeError("timeout"))
+    assert not is_model_gone(RuntimeError("Error code: 429 - rate limit"))
+
+
+def test_is_rate_limited_detects_429_text():
+    assert is_rate_limited(RuntimeError("Error code: 429 - RESOURCE_EXHAUSTED"))
+    assert is_rate_limited(RuntimeError("Rate limit exceeded"))
+    assert is_rate_limited(RuntimeError("quota exceeded on free tier"))
+    assert not is_rate_limited(RuntimeError("timeout"))
+    assert not is_rate_limited(RuntimeError("Error code: 410 - end of life"))
 
 
 @pytest.mark.asyncio
@@ -178,3 +189,68 @@ async def test_nvidia_thinking_disabled_on_nim_candidate():
 
     extra = captured.get("extra_body") or {}
     assert extra.get("chat_template_kwargs", {}).get("enable_thinking") is False
+
+
+@pytest.mark.asyncio
+async def test_fallback_skips_rate_limited_primary():
+    settings = MagicMock()
+    settings.llm_model_candidates = [
+        "gemini/gemini-2.5-flash",
+        "nvidia_nim/nvidia/other-free",
+    ]
+    settings.AGENT_TOOL_TIMEOUT = 30
+    calls: list[str] = []
+
+    async def fake_retry(**kwargs):
+        model = kwargs["model"]
+        calls.append(model)
+        if model.startswith("gemini/"):
+            raise RuntimeError("Error code: 429 - RESOURCE_EXHAUSTED")
+        return {"ok": True}
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        patch(
+            "shared.llm.fallback.acompletion_with_retry",
+            new_callable=AsyncMock,
+            side_effect=fake_retry,
+        ),
+    ):
+        before = _counter_value("dashnote_ai_llm_fallback")
+        result = await acompletion_with_fallback(
+            messages=[{"role": "user", "content": "hi"}]
+        )
+        assert result == {"ok": True}
+        assert calls == [
+            "gemini/gemini-2.5-flash",
+            "nvidia_nim/nvidia/other-free",
+        ]
+        assert _counter_value("dashnote_ai_llm_fallback") > before
+        assert cached_llm_model() == "nvidia_nim/nvidia/other-free"
+
+        calls.clear()
+        result2 = await acompletion_with_fallback(
+            messages=[{"role": "user", "content": "hi"}]
+        )
+
+    assert result2 == {"ok": True}
+    assert calls == ["nvidia_nim/nvidia/other-free"]
+    assert cached_llm_model() == "nvidia_nim/nvidia/other-free"
+
+
+@pytest.mark.asyncio
+async def test_all_candidates_rate_limited_raises_unavailable():
+    settings = MagicMock()
+    settings.llm_model_candidates = ["gemini/gemini-2.5-flash", "nvidia_nim/other"]
+    settings.AGENT_TOOL_TIMEOUT = 30
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        patch(
+            "shared.llm.fallback.acompletion_with_retry",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Error code: 429 - rate limit"),
+        ),
+    ):
+        with pytest.raises(LLMUnavailableError, match="LLM temporarily unavailable"):
+            await acompletion_with_fallback(messages=[{"role": "user", "content": "hi"}])

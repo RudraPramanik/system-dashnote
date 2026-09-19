@@ -63,3 +63,8 @@ def test_ci_fixture_eval_has_no_langfuse_judge() -> None:
     assert "run_langfuse_faithfulness" not in ci
     assert "langfuse" not in ci.lower()
     assert "--mode live" not in ci
+    assert "run_ragas" not in ci
+    assert "ragas" not in ci.lower()
+    assert "requirements-ragas" not in ci
+    assert "run_quality" not in ci
+    assert "/ai/feedback" not in ci

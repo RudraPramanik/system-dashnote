@@ -2,7 +2,7 @@
 
 Canonical before/after record for DashNoteSystem quality and cost experiments.
 Does **not** replace the golden harness (`evals/run_eval.py`). Fixture CI stays
-deterministic; live judges stay operator/nightly.
+deterministic; live judges stay operator/nightly. Eval program map: [`evals/BLUEPRINT.md`](../evals/BLUEPRINT.md).
 
 **Template (copy for new rows):**
 
@@ -69,6 +69,61 @@ $env:PYTHONPATH = "src"
 python evals/run_eval.py --mode fixture
 python evals/run_langfuse_faithfulness.py --ui-only
 ```
+
+---
+
+## EXP-004 — Local RAGAS lab (faithfulness + context precision)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-16 |
+| Environment | lab (operator laptop; **not** VPS, **not** PR CI) |
+| Baseline | C-gate fixture **PASS: 20/20** is binary markers only. Langfuse traces exist; RAGAS was documented as optional nightly but had no runnable extra or dedicated judge key. Using `GEMINI_API_KEY` for a judge would share embed/chat-fallback quota. First `--live` attempt crashed on `llm_factory(..., provider=)` under `ragas==0.3.2` (pin forced by `datasets<4`). |
+| Change | `evals/run_ragas.py` + `evals/requirements-ragas.txt` bumped to **ragas ≥ 0.4** (+ `instructor[google-genai]`). Judge = `GEMINI_API_KEY_2` only (fail-closed). Default judge model `gemini-3.6-flash`. Collection-failure CLI hint distinguishes API/chat quota from pin failures. Interview pack: `docs/ragas-lab-report.md`. |
+| After | **2026-09-16 lab (apply re-run):** seeded retrieval markers; cleared stuck Gemini fallback cache via API restart; `--live --limit 3` → collected **n=3** (ret-01..03); judge=`gemini-3.6-flash` → **faithfulness=1.0000**, **context_precision=NaN** (judge 503/429 mid-batch). Earlier same-day blocked collection: 5/5 chat 500 from Gemini free-tier 429 on chat fallback (empty retrieval still 200). Prior smoke: n=2 with both metrics 1.0000. Not a production SLO. |
+| Notes | **Not a production SLO.** Do not add ragas to the API image or CI. Do not copy `GEMINI_API_KEY_2` to the VPS. Chat 500 with hits often = provider quota / fallback cache, not a RAGAS pin bug. Judge NaNs → re-run with `--judge-model` or after quota reset; never invent scores. See `docs/ragas-lab-report.md`. |
+
+### How to re-verify
+
+```powershell
+pip install -r evals/requirements-ragas.txt
+python evals/run_ragas.py --setup
+python evals/run_ragas.py --live --token "<access_token>"
+```
+
+---
+
+## EXP-005 — L2 DeepEval GEval (correctness / completeness / style)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-19 |
+| Environment | lab (`http://127.0.0.1`; **not** VPS, **not** PR CI) |
+| Baseline | L0 fixture **PASS: 20/20**; L1 live **PASS: 8/8**. Answer quality unmeasured (no `run_quality.py`). 2026-09-18 apply collected `n=1` but GEval means were **NaN** (Gemini judge 503/429; NIM `gpt-oss-20b` timeout). |
+| Change | `evals/run_quality.py` + `evals/golden/rag_answers.jsonl` (12 AI-drafted cases) + laptop `requirements-quality.txt`. Judge = `GEMINI_API_KEY_2` (`gemini-3.6-flash`); product answers on NIM Lightning. `--judge-backend nim` hatch for Gemini judge 429/503. |
+| After | **2026-09-19 lab:** `--limit 2 --seed-live` → collected **n=2**, SKIP=0, judge=`gemini-3.6-flash` → **correctness=0.75**, **completeness=0.75**, **style=0.10** (exit 0; floor 0.7 met). Per-case: rag-ans-01 1.0/1.0/0.2; rag-ans-02 0.5/0.5/0.0. Style low is an honest generator signal, not omitted. |
+| Notes | **Not a production SLO.** Do not add DeepEval to the API image or CI. Style work is a later phase. Re-run without `--limit` when judge quota allows. |
+
+### How to re-verify
+
+```powershell
+pip install -r evals/requirements-quality.txt
+$env:PYTHONPATH = "src"
+python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1 --seed-live --environment lab
+```
+
+---
+
+## EXP-005 — L3 production observability close-out (lab)
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-09-19 |
+| Environment | lab (local Compose + Langfuse Cloud; **not** PR CI) |
+| Baseline | L0 **PASS: 20/20** and L1 **PASS: 8/8** (honest SKIPs) already recorded; serving traces/feedback existed but eval-lifecycle still labeled L3 as an unlabeled “exists” box; production-shaped `LANGFUSE_BASE_URL` was not read as `LANGFUSE_HOST`. |
+| Change | `effective_langfuse_host` (`LANGFUSE_HOST`, else `LANGFUSE_BASE_URL` alias); Langfuse v3 `create_score` for `POST /ai/feedback`; BLUEPRINT/README L3 phase + L0/L1 and L2/L3 alignment. |
+| After | Fresh L0 **PASS: 20/20**; L1 **PASS: 8/8** (12 SKIP, same shared corpus); chat emitted `rag.answer`; feedback `tracing=recorded`; Prom `dashnote_ai_*` present. |
+| Notes | **Not a production SLO.** Lightning product chat timed out; apply used NIM hatch `nvidia_nim/openai/gpt-oss-20b`. Judge still off the request path. |
 
 ---
 

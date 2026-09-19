@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Golden eval runner (Tier 0 / C-gate).
+Golden eval runner (Tier 0 / C-gate + L1 live).
 
 Modes:
   fixture — recorded responses under evals/fixtures/ (no live LLM keys)
@@ -9,7 +9,7 @@ Modes:
 Usage (from repo root):
   set PYTHONPATH=src
   python evals/run_eval.py --mode fixture
-  python evals/run_eval.py --mode live --base-url http://127.0.0.1 --token <jwt>
+  python evals/run_eval.py --mode live --base-url http://127.0.0.1 --token <jwt> --seed-live
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import uuid
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -136,6 +137,35 @@ def auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def case_skip_reason(
+    case: dict[str, Any],
+    *,
+    mode: str,
+    token_b: str | None = None,
+) -> str | None:
+    """Return a human SKIP reason, or None if the case should be scored in this mode."""
+    hint = case.get("mode_hint", "either")
+    skip_modes = set(case.get("skip_if_modes") or [])
+    if mode in skip_modes:
+        return f"skip_if_modes includes {mode}"
+    if hint not in ("either", mode):
+        if mode == "live":
+            return f"mode_hint={hint} (fixture-only; L0 recorded form)"
+        return f"mode_hint={hint}"
+
+    if mode != "live":
+        return None
+
+    if case.get("theme") == "agent_trajectory":
+        return "live trajectory not wired (use fixture)"
+
+    actor = (case.get("actor") or "a").lower()
+    if actor == "b" and not token_b:
+        return "actor=b needs --token-b (do not use --token as member)"
+
+    return None
+
+
 def live_seed_note(
     client: httpx.Client,
     headers: dict[str, str],
@@ -177,9 +207,10 @@ def live_search(
 
 
 def pick_token(case: dict[str, Any], token_a: str | None, token_b: str | None) -> str | None:
+    """Select JWT for the case actor. Never fall back to token_a for actor=b."""
     actor = (case.get("actor") or "a").lower()
     if actor == "b":
-        return token_b or token_a
+        return token_b
     return token_a
 
 
@@ -191,10 +222,11 @@ def run_cases(
     token_a: str | None,
     token_b: str | None,
     seed_live: bool,
-) -> tuple[int, int, list[str]]:
+) -> tuple[int, int, list[str], int, list[str]]:
+    """Return passed, scored_total, failed_ids, skipped, skip_reasons (one per SKIP)."""
     passed = 0
     failed_ids: list[str] = []
-    skipped = 0
+    skip_reasons: list[str] = []
     client: httpx.Client | None = None
     if mode == "live":
         client = httpx.Client(base_url=base_url.rstrip("/"), timeout=60.0)
@@ -205,6 +237,8 @@ def run_cases(
             max_wait = 0
             seen: set[str] = set()
             for case in cases:
+                if case_skip_reason(case, mode=mode, token_b=token_b):
+                    continue
                 seed = case.get("seed")
                 if not seed:
                     continue
@@ -221,15 +255,10 @@ def run_cases(
     try:
         for case in cases:
             cid = case.get("id", "<missing-id>")
-            hint = case.get("mode_hint", "either")
-            skip_modes = set(case.get("skip_if_modes") or [])
-            if mode in skip_modes:
-                skipped += 1
-                print(f"  SKIP  {cid}: skip_if_modes")
-                continue
-            if hint not in ("either", mode):
-                skipped += 1
-                print(f"  SKIP  {cid}: mode_hint={hint}")
+            reason = case_skip_reason(case, mode=mode, token_b=token_b)
+            if reason:
+                skip_reasons.append(reason)
+                print(f"  SKIP  {cid}: {reason}")
                 continue
 
             try:
@@ -244,14 +273,6 @@ def run_cases(
                         raise RuntimeError("live mode requires --token (and --token-b for actor=b)")
                     assert client is not None
                     headers = auth_headers(token)
-                    if case.get("theme") == "tenant_isolation" and case.get("actor") == "b" and not token_b:
-                        skipped += 1
-                        print(f"  SKIP  {cid}: live actor=b needs --token-b")
-                        continue
-                    if case.get("theme") == "agent_trajectory":
-                        skipped += 1
-                        print(f"  SKIP  {cid}: live trajectory not wired (use fixture)")
-                        continue
                     payload = live_search(client, headers, case)
 
                 if case.get("theme") == "agent_trajectory":
@@ -271,10 +292,9 @@ def run_cases(
         if client is not None:
             client.close()
 
+    skipped = len(skip_reasons)
     total = passed + len(failed_ids)
-    if skipped:
-        print(f"  ({skipped} skipped)")
-    return passed, total, failed_ids
+    return passed, total, failed_ids, skipped, skip_reasons
 
 
 def main() -> int:
@@ -304,12 +324,16 @@ def main() -> int:
         print("No golden cases found.", file=sys.stderr)
         return 1
 
-    print(f"=== Eval run mode={args.mode} cases={len(cases)} ===\n")
+    if args.mode == "live":
+        print(f"=== Eval run mode=live environment=live-local target={args.base_url} cases={len(cases)} ===\n")
+    else:
+        print(f"=== Eval run mode={args.mode} cases={len(cases)} ===\n")
+
     if args.mode == "live" and not args.token:
         print("ERROR: --token required for live mode", file=sys.stderr)
         return 1
 
-    passed, total, failed_ids = run_cases(
+    passed, total, failed_ids, skipped, skip_reasons = run_cases(
         mode=args.mode,
         cases=cases,
         base_url=args.base_url,
@@ -319,8 +343,18 @@ def main() -> int:
     )
 
     print(f"\nPASS: {passed}/{total}")
+    if skipped:
+        print(f"SKIP: {skipped}")
+        for reason, count in Counter(skip_reasons).most_common():
+            print(f"  - {count}x {reason}")
     if failed_ids:
         print("Failing:", ", ".join(failed_ids))
+        return 1
+    if args.mode == "live" and total == 0:
+        print(
+            "ERROR: live mode scored zero cases (all SKIP) — not a successful L1 run",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

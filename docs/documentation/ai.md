@@ -38,7 +38,7 @@ Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM →
 | `QDRANT_NOTES_COLLECTION` | `notes_chunks` | Note chunk vectors |
 | `QDRANT_FILES_COLLECTION` | `files_chunks` | File chunk vectors (Slice 7) |
 | `LLM_MODEL` | `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b` | Primary chat/agent/automation model (LiteLLM prefix) |
-| `LLM_MODEL_FALLBACKS` | `gemini/gemini-2.5-flash` | Tried in order after HTTP 410 / model gone **or** wall-clock timeout — see `issue_solve.md` |
+| `LLM_MODEL_FALLBACKS` | `nvidia_nim/openai/gpt-oss-20b,gemini/gemini-2.5-flash` | Tried in order after HTTP 410 / model gone, HTTP 429 / rate-limit, **or** wall-clock timeout. Extra NIM id is a different free catalog model so Gemini quota is not the only hatch. Do not default Super 120B / Ultra 550B. |
 | `LLM_TEMPERATURE` | `0.0` | Deterministic answers |
 | `LLM_MAX_TOKENS` | `2048` | Max completion tokens |
 | `LLM_MAX_RETRIES` | `4` | Tenacity attempts for completion calls (Slice 7.5) |
@@ -178,7 +178,7 @@ Resilience for automation LLM calls and agent `call_model`. Blueprint: `docs/doc
 |------|------|
 | `shared/llm/env.py` | `configure_litellm_env()` — push provider keys into `os.environ` at API/worker startup |
 | `shared/llm/retry.py` | `RETRYABLE_EXCEPTIONS`, `FATAL_EXCEPTIONS`, `acompletion_with_retry()` |
-| `shared/llm/fallback.py` | `acompletion_with_fallback` / `resolve_llm_model` — wall-clock abort + walk `LLM_MODEL` then `LLM_MODEL_FALLBACKS` on 410 or timeout |
+| `shared/llm/fallback.py` | `acompletion_with_fallback` / `resolve_llm_model` — wall-clock abort + walk `LLM_MODEL` then `LLM_MODEL_FALLBACKS` on 410, 429 / rate-limit, or timeout |
 | `shared/llm/structured.py` | `extract_json_blob()`, `parse_structured_response()`, `acompletion_structured()`, `StructuredLLMParseError` |
 
 **Import law:** `shared/llm/*` may import `config`, `litellm`, `pydantic`, `tenacity`, stdlib only. Both `src/worker/*` and `src/ai/*` import from `shared/llm/` — never `worker` from `ai`.

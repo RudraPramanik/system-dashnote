@@ -46,20 +46,86 @@ Operators MUST be able to record the eval pass rate in project documentation (RE
 - **THEN** the documented pass rate matches that summary (honest if X < Y)
 
 ### Requirement: Post-C-gate eval thickeners are documented without replacing the harness
-Planning documentation for the eval program (at minimum `docs/documentation/blueprint8.md`, and `evals/README.md` when the harness exists) MUST describe post-C-gate thickeners: Langfuse-native datasets/experiments as the preferred judge/experiment path, optional recall@k or MRR on goldens, optional faithfulness/answer-relevancy as operator/nightly, and an EXPERIMENTS / before-after record. These thickeners MUST NOT replace the golden JSONL + `run_eval.py` C-gate harness, and MUST NOT require live LLM judges to green PR CI.
+Planning documentation for the eval program (at minimum `docs/documentation/blueprint8.md`, and `evals/README.md` when the harness exists) MUST describe post-C-gate thickeners: Langfuse-native datasets/experiments as the preferred in-product judge/experiment path, optional recall@k or MRR on goldens, a runnable operator/nightly RAGAS lab (faithfulness and context metrics, dedicated judge credential, off VPS and off PR CI), and an EXPERIMENTS / before-after record. These thickeners MUST NOT replace the golden JSONL + `run_eval.py` C-gate harness, and MUST NOT require live LLM judges or RAGAS to green PR CI. `evals/README.md` MUST link to the EXPERIMENTS document. After this change the Langfuse dataset + sampled faithfulness judge MUST remain documented as an existing operator/nightly procedure, and the RAGAS lab MUST be documented as an existing local/nightly procedure (not only a future preference).
 
 #### Scenario: Operator finds preferred eval stack
 - **GIVEN** blueprint8 (and evals README when present)
 - **WHEN** an operator plans quality work after C-gate
-- **THEN** Langfuse-native experiments/judges are documented as the primary thickener
-- **AND** RAGAS is optional nightly if mentioned
+- **THEN** Langfuse-native experiments/judges are documented as the primary in-product thickener
+- **AND** RAGAS is documented as a runnable local/nightly lab (not VPS, not CI)
 - **AND** PR CI remains fixture/deterministic-only for blocking gates
 
 #### Scenario: C-gate remains the hire minimum
 - **GIVEN** the documented eval program
 - **WHEN** an operator checks the hire-ready eval minimum
 - **THEN** ≥10 retrieval/tenant cases, pass/fail CLI summary, tenant isolation automation, and honest pass-rate docs remain required
-- **AND** faithfulness or recall@k are not required to claim the C-gate
+- **AND** faithfulness, RAGAS scores, or recall@k are not required to claim the C-gate
+
+#### Scenario: EXPERIMENTS is linked from evals README
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** they find a link or pointer to the EXPERIMENTS before-after record
+
+#### Scenario: Operator README names the runnable judge procedures
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** they find how to run the Langfuse dataset/faithfulness operator path
+- **AND** they find how to set up and run the RAGAS lab (extra install, dedicated judge env var, command)
+- **AND** they are told PR CI and VPS deploy do not require those paths
+
+### Requirement: Operator RAGAS lab is runnable off the product path
+The eval program MUST provide an operator-runnable RAGAS (or equivalent RAG metric) lab that scores question, generated answer, and retrieved context. The lab MUST use a dedicated judge credential distinct from the embeddings / chat-fallback Gemini key. The lab MUST be invocable from documentation without installing the metric library into the API runtime image. Fixture `evals/run_eval.py --mode fixture` MUST remain the blocking eval gate and MUST still complete without the judge credential or the RAGAS extra.
+
+#### Scenario: Operator can run the lab without changing CI
+- **GIVEN** the dedicated judge credential is set in the operator environment
+- **AND** the documented RAGAS extra is installed in that environment
+- **WHEN** the operator runs the documented lab procedure
+- **THEN** the CLI prints aggregate metric scores (at least faithfulness, and context precision or context recall)
+- **AND** GitHub Actions PR CI still runs only fixture evals and does not invoke the lab
+
+#### Scenario: Missing judge credential fails closed
+- **GIVEN** the dedicated judge credential is unset or blank
+- **WHEN** the operator runs the lab
+- **THEN** the process exits non-zero with a message that names the required env var
+- **AND** it MUST NOT fall back to the embeddings / chat-fallback Gemini key
+
+#### Scenario: Hot path does not wait on RAGAS
+- **GIVEN** a production `/ai/chat` or `/ai/agent` request
+- **WHEN** the request returns an answer or `approval_required`
+- **THEN** response latency MUST NOT include a RAGAS or LLM-as-judge completion for that turn
+
+### Requirement: RAGAS lab stays off VPS and out of product config
+The RAGAS lab MUST NOT be deployed on the VPS, MUST NOT be added to Docker Compose API or worker images, and MUST NOT be loaded by API Settings. The judge credential placeholder MAY appear in `.env.example` for local operators. Product Settings, Compose, deploy scripts, and documented VPS `.env` MUST NOT require that credential.
+
+#### Scenario: VPS deploy artifacts ignore the judge key
+- **GIVEN** this change is complete
+- **WHEN** an operator inspects Compose, API Settings, and VPS deploy env examples
+- **THEN** the dedicated judge credential is absent from those product surfaces
+- **AND** the API still starts without it
+
+#### Scenario: Example env documents the operator key only
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `.env.example`
+- **THEN** they find an empty `GEMINI_API_KEY_2` placeholder labeled as the RAGAS/judge key
+- **AND** comments MUST state it is local/operator-only and MUST NOT be used for embeddings
+
+### Requirement: Live RAGAS collection keeps JWT tenancy
+When the lab collects answers or contexts from a live API, it MUST authenticate with a JWT and MUST scope retrieval to that token’s workspace (`wid`). It MUST NOT accept a workspace identifier from query or body for scoping. Tenant-isolation goldens remain the C-gate; the RAGAS lab MUST NOT claim to replace them.
+
+#### Scenario: Live collection uses JWT workspace only
+- **GIVEN** the operator runs the lab against a live base URL with a JWT
+- **WHEN** the lab requests chat or search for a golden query
+- **THEN** workspace scoping comes from the JWT only
+- **AND** forged workspace fields MUST NOT expand retrieval
+
+### Requirement: RAGAS scores are lab records not SLOs
+Operators MUST record at least one dated RAGAS lab result in `docs/EXPERIMENTS.md` with environment labeled `lab` (or `live-local`). The record MUST NOT present those scores as production SLOs. The golden JSONL harness remains the C-gate.
+
+#### Scenario: EXPERIMENTS has an honest RAGAS row
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `docs/EXPERIMENTS.md`
+- **THEN** they find a RAGAS (or equivalent) loop that names environment `lab` or `live-local`
+- **AND** the text MUST NOT call the scores a production SLO
 
 ### Requirement: Agent trajectory golden corpus exists
 The `evals/golden/` corpus MUST include at least five agent trajectory cases covering tool-use expectations. Cases MUST support constraints such as `required_tools`, `forbidden_tools`, and `sequence_mode` (`exact` or `subset`). At least one case MUST forbid surprise note creation (e.g. `create_note` in `forbidden_tools` when the user did not ask to create).
@@ -82,3 +148,231 @@ The eval runner MUST include trajectory cases in the aggregate `PASS: X/Y` summa
 - **GIVEN** a trajectory case that forbids `create_note`
 - **WHEN** the observed tool sequence includes `create_note`
 - **THEN** that case is marked fail in the runner output
+
+### Requirement: Eval lifecycle blueprint is the map for post-C-gate answer quality
+The eval program MUST treat `evals/BLUEPRINT.md` as the canonical map for answer-quality evaluation after the C-gate. `evals/README.md` MUST link to that blueprint. The golden JSONL + `evals/run_eval.py` fixture harness MUST remain the blocking PR eval gate. LLM-as-judge answer metrics (correctness, completeness, style) MUST be documented as a local / pre-deploy / nightly suite, not as a replacement for fixture CI, and MUST NOT be required to green PR CI.
+
+#### Scenario: Operator sees C-gate and quality suite as distinct
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** they find how to run `evals/run_eval.py --mode fixture`
+- **AND** they find a pointer to `evals/BLUEPRINT.md` for the answer-quality lifecycle
+- **AND** they are told PR CI does not run the LLM-as-judge quality suite
+
+### Requirement: Existing operator labs remain until a later change supersedes them
+Until a follow-on change explicitly folds or retires them, the Langfuse dataset / sampled faithfulness procedure and the RAGAS lab MUST remain documented as existing operator/nightly paths. The lifecycle blueprint MAY mark them as thickeners or as candidates to fold into the DeepEval suite later. This change MUST NOT delete those runners or require RAGAS scores to claim C-gate.
+
+#### Scenario: RAGAS and Langfuse paths are still discoverable
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** they can still find the Langfuse faithfulness operator path
+- **AND** they can still find the RAGAS lab setup and command
+- **AND** those paths are not presented as production SLOs or PR merge gates
+
+### Requirement: L0 fixture evals complete without LLM keys
+The golden fixture runner (`evals/run_eval.py --mode fixture`) MUST execute retrieval, tenant-isolation, and agent-trajectory cases from recorded fixtures without calling a live LLM provider. It MUST NOT require `GEMINI_API_KEY`, `GEMINI_API_KEY_2`, or `NVIDIA_NIM_API_KEY`. PR CI MUST continue to run this fixture mode as the blocking eval gate and MUST NOT invoke live API mode or an LLM-as-judge suite.
+
+#### Scenario: Fixture run with empty provider keys
+- **GIVEN** the repository goldens and fixtures under `evals/`
+- **AND** no Gemini or NVIDIA NIM keys are set in the process environment
+- **WHEN** an operator or CI runs `evals/run_eval.py --mode fixture`
+- **THEN** the process scores the fixture cases and prints an aggregate `PASS: X/Y`
+- **AND** it MUST NOT fail because a provider key is missing
+- **AND** it MUST NOT call a live LLM HTTP API
+
+#### Scenario: PR CI stays fixture-only
+- **GIVEN** GitHub Actions PR CI
+- **WHEN** the eval step runs
+- **THEN** it uses fixture mode only
+- **AND** it does not require live tokens, judge extras, or NVIDIA NIM
+
+### Requirement: L0 scoring is covered by CI-safe tests
+The repository MUST include automated tests that exercise fixture scoring for retrieval markers, tenant isolation (leaked markers fail), and agent trajectory constraints (`required_tools`, `forbidden_tools`, `sequence_mode`) without live HTTP or LLM keys. Those tests MUST run as part of the existing pytest CI job.
+
+#### Scenario: Marker miss fails a retrieval case
+- **GIVEN** a retrieval golden that expects a content marker
+- **AND** the recorded fixture payload omits that marker
+- **WHEN** the scoring tests run
+- **THEN** that case is reported as fail
+- **AND** no live API is contacted
+
+#### Scenario: Forbidden tool fails a trajectory case
+- **GIVEN** a trajectory golden that forbids `create_note`
+- **AND** the recorded tool list includes `create_note`
+- **WHEN** the scoring tests run
+- **THEN** that case is reported as fail
+
+#### Scenario: Tenant leak fails isolation
+- **GIVEN** a tenant-isolation golden with `expect_no_content_markers`
+- **AND** the recorded payload contains a forbidden marker
+- **WHEN** the scoring tests run
+- **THEN** that case is reported as fail
+
+### Requirement: L0 apply records an honest fixture pass rate
+Operators MUST be able to run the fixture runner locally after this change and record the actual `PASS: X/Y` in `evals/README.md`. The documented rate MUST match that run, including rates below 100% when failures exist. A previous dated row MUST NOT be reused as proof that this change works.
+
+#### Scenario: Fresh fixture summary is recorded
+- **GIVEN** this change’s apply has run `evals/run_eval.py --mode fixture`
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** the latest recorded fixture row matches that run’s `PASS: X/Y`
+- **AND** the text does not claim success from an older run
+
+### Requirement: Operator docs name NVIDIA NIM as the Gemini quota hatch for later live layers
+`evals/README.md` MUST state that L0 fixture mode needs no LLM keys, and MUST tell operators that if a later live collection or product chat path hits Gemini rate-limit / 429, they MUST use NVIDIA NIM with a different free/catalog model (via the product candidate list) rather than waiting on Gemini quota. That hatch MUST NOT be required to green L0 fixture CI.
+
+#### Scenario: Operator finds the quota hatch without needing it for L0
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** they find that fixture mode needs no Gemini or NVIDIA keys
+- **AND** they find that Gemini 429 is an operator/live concern addressed by NVIDIA NIM (a different free model), not by skipping L0
+- **AND** they are told PR CI still runs fixture-only
+
+### Requirement: L1 live contract uses the same goldens and scoring as L0
+The live eval runner (`evals/run_eval.py --mode live`) MUST execute eligible retrieval and tenant-isolation goldens from the same `evals/golden/` corpus used by fixture mode. Scoring MUST use the same marker / min-max hit / isolation rules as L0. Cases with `mode_hint` of `fixture` (or listed in `skip_if_modes` for `live`) MUST be SKIPPED, not failed. Agent trajectory cases MAY remain fixture-primary; when live trajectory is not wired, the runner MUST SKIP them with an explicit reason rather than FAIL. L0 fixtures MUST remain the recorded form of the same contract — not a separate golden set.
+
+#### Scenario: Shared scoring for an either-mode retrieval case
+- **GIVEN** a retrieval golden with `mode_hint` `either` and content markers
+- **AND** the live API returns hits whose text contains those markers
+- **WHEN** the operator runs `--mode live` with a valid JWT
+- **THEN** the case is marked PASS using the same scoring rules as fixture mode
+
+#### Scenario: Fixture-only cases skip in live
+- **GIVEN** a golden with `mode_hint` `fixture` or `skip_if_modes` including `live`
+- **WHEN** the operator runs `--mode live`
+- **THEN** that case is reported as SKIP with a clear reason
+- **AND** it does not count as FAIL in the aggregate denominator of scored cases (SKIP count is still reported)
+
+#### Scenario: L0 remains the CI-recorded form of the contract
+- **GIVEN** this change is complete
+- **WHEN** an operator compares L0 and L1
+- **THEN** docs state that fixture payloads are the recorded L1 contract for the same case ids
+- **AND** PR CI continues to run fixture mode only
+
+### Requirement: L1 live runner authenticates with JWT and scopes by wid
+Live L1 MUST call the real API with Bearer JWT(s). Retrieval scope MUST come from the token’s workspace (`wid`) only. Forged workspace query/body fields MUST NOT expand results. Dual-token tenant cases that need a member actor MUST require `--token-b` (or documented env equivalent); without it those cases MUST SKIP with an explicit reason, not silently use the owner token as the member.
+
+#### Scenario: Live search uses JWT workspace only
+- **GIVEN** a reachable API and a valid access token
+- **WHEN** live mode runs a retrieval or forged-workspace case
+- **THEN** workspace scoping comes from the JWT only
+- **AND** a forged workspace identifier MUST NOT return cross-tenant hits
+
+#### Scenario: Member deny needs token-b
+- **GIVEN** a tenant-isolation case with `actor` `b`
+- **AND** `--token-b` is unset
+- **WHEN** live mode reaches that case
+- **THEN** the case is SKIPPED with a message that names the missing second token
+- **AND** it is not scored as PASS using `--token` alone
+
+### Requirement: L1 apply records an honest live pass rate
+Operators MUST be able to run live mode against a reachable base URL after this change and record the actual `PASS: X/Y` in `evals/README.md`, including SKIP count and reasons, with environment labeled `live-local` (or staging). The documented rate MUST match that run. A previous dated live row MUST NOT be reused as proof that this change works. Zero scored cases with only SKIPs MUST NOT be documented as a successful L1 close-out.
+
+#### Scenario: Fresh live summary is recorded
+- **GIVEN** this change’s apply has run `evals/run_eval.py --mode live` against a real stack with at least one scored case
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** the latest recorded live row matches that run’s `PASS: X/Y`
+- **AND** SKIP count/reasons are visible in the row or adjacent notes
+- **AND** the text does not claim success from an older live run
+
+### Requirement: Operator docs name L1 live procedure and NIM hatch for Gemini 429
+`evals/README.md` and `evals/BLUEPRINT.md` MUST document how to run L1 (`--mode live`, `--base-url`, `--token`, optional `--token-b`, `--seed-live`), that L1 is operator/nightly and not a PR merge gate, and that if Gemini rate-limit / 429 blocks the live stack (embed, chat fallback, or related product LLM path), operators MUST use NVIDIA NIM with a different free/catalog model via `LLM_MODEL` / `LLM_MODEL_FALLBACKS` and recreate `api` + `worker`. That hatch MUST NOT put an LLM-as-judge on `/ai/chat` or `/ai/agent`, and MUST NOT be required to green L0 fixture CI.
+
+#### Scenario: Operator can run L1 from the README
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** they find the live command with base URL and token
+- **AND** they find that PR CI stays fixture-only
+- **AND** they find the NVIDIA NIM (different free model) hatch for Gemini 429 on the live stack
+
+#### Scenario: Blueprint places L1 between L0 and L2
+- **GIVEN** this change is complete
+- **WHEN** an operator opens the phased roadmap in `evals/BLUEPRINT.md`
+- **THEN** L1 live contract is listed as the phase after L0
+- **AND** DeepEval / `run_quality.py` remains a later phase
+
+### Requirement: RAG answer golden corpus exists for L2
+The repository MUST include `evals/golden/rag_answers.jsonl` with about 10–20 RAG answer cases for `POST /ai/chat`. Each case MUST include stable `id`, `theme` (`rag_answer`), `surface`, `query_text`, `expected_output`, and `completeness_checklist`. Cases MUST use `seed` and/or reuse retrieval-marker note content so entity IDs are not hard-coded to one environment. Initial goldens MAY be AI-drafted and MUST be labeled as such in operator docs. Agent trajectory goldens MUST NOT be treated as this answer suite.
+
+#### Scenario: Corpus meets minimum shape
+- **GIVEN** this change is complete
+- **WHEN** an operator inspects `evals/golden/rag_answers.jsonl`
+- **THEN** there are at least ten RAG answer cases
+- **AND** each case has `id`, `query_text`, `expected_output`, and `completeness_checklist`
+- **AND** cases do not hard-code environment-only `note_id` / `chunk_id` without seed or shared marker content
+
+#### Scenario: Surface is chat not agent
+- **GIVEN** the L2 answer corpus
+- **WHEN** an operator reads case `surface` values
+- **THEN** phase-1 cases target `POST /ai/chat`
+- **AND** `/ai/agent` is not used as a substitute for chat evals in this change
+
+### Requirement: L2 quality CLI collects chat answers and scores with an LLM judge
+The repository MUST provide `evals/run_quality.py` (and a laptop-only quality requirements file) that loads the RAG answer goldens, authenticates with a JWT against a configurable base URL, calls `POST /ai/chat` with message-only scoping (JWT `wid`), collects `actual_output` and retrieval context when present, and scores with LLM-as-judge metrics for correctness, completeness, and style. Correctness and completeness MUST enforce documented hard floors. Style MUST always be reported (loose or no floor allowed at first). The runner MUST NOT import the judge library from `evals/run_eval.py`. The quality extra MUST NOT be added to API, worker, Compose serving images, or VPS as a runtime dependency.
+
+#### Scenario: Operator runs the quality CLI
+- **GIVEN** a reachable API, a valid JWT, the dedicated judge credential, and the quality extra installed on the laptop
+- **WHEN** the operator runs `evals/run_quality.py` with base URL and token
+- **THEN** the CLI prints environment label, judge model, per-metric aggregates, collected `n`, and SKIP count/reasons
+- **AND** exit is non-zero when hard floors for correctness or completeness are missed on a scored run with `n > 0`
+
+#### Scenario: SKIP on bad collection rows
+- **GIVEN** a case whose live chat returns non-200, empty answer, or empty retrieval
+- **WHEN** the quality CLI processes that case
+- **THEN** the case is counted as SKIP with a reason
+- **AND** it is not scored as a successful judge row
+
+### Requirement: L2 judge fails closed and never uses the product Gemini key
+The quality CLI MUST require a dedicated judge credential (`GEMINI_API_KEY_2` or the documented successor). Missing or blank judge credential MUST exit non-zero and name the env var. The CLI MUST NOT fall back to `GEMINI_API_KEY`. Zero scored rows MUST exit non-zero without fabricating aggregate scores. Required metrics that are all NaN / non-numeric MUST exit non-zero.
+
+#### Scenario: Missing judge key fails closed
+- **GIVEN** the dedicated judge credential is unset or blank
+- **WHEN** the operator runs `evals/run_quality.py`
+- **THEN** the process exits non-zero with a message that names the required env var
+- **AND** it MUST NOT use the product embeddings / chat-fallback Gemini key
+
+#### Scenario: Empty collection is not success
+- **GIVEN** every case SKIPPED or collection yields zero scored rows
+- **WHEN** the quality CLI finishes
+- **THEN** the process exits non-zero
+- **AND** it does not print fabricated successful aggregate means
+
+### Requirement: L2 live collection aligns with L1 tenancy and NIM hatch
+L2 answer collection MUST authenticate with the same JWT workspace contract as L1 (`wid` from token only; no workspace id from query/body for scoping). Operators MUST prefer a stack already proven by L1 live when available. If Gemini rate-limit / 429 blocks product chat, embed, or related live collection, operators MUST use NVIDIA NIM with a different free/catalog model via `LLM_MODEL` / `LLM_MODEL_FALLBACKS` and recreate `api` + `worker`, then re-run L2 — without putting an LLM-as-judge on `/ai/chat` or `/ai/agent`. Tenant-isolation C-gate goldens remain the isolation proof; L2 MUST NOT claim to replace them. PR CI MUST remain L0 fixture-only and MUST NOT invoke `run_quality.py`.
+
+#### Scenario: Collection uses JWT workspace only
+- **GIVEN** the operator runs L2 against a live base URL with a JWT
+- **WHEN** the CLI posts `POST /ai/chat` for a golden query
+- **THEN** workspace scoping comes from the JWT only
+- **AND** forged workspace fields MUST NOT expand retrieval
+
+#### Scenario: Gemini 429 on product stack uses NIM
+- **GIVEN** product chat or embed returns rate-limit / 429 during L2 collection
+- **WHEN** the operator follows eval docs
+- **THEN** they switch to a different NVIDIA NIM free/catalog model via the product candidate list, recreate `api` + `worker`, and re-run
+- **AND** they do not invent judge scores
+- **AND** PR CI still does not require NIM or judge keys
+
+### Requirement: L2 apply records an honest quality run
+Operators MUST be able to run `evals/run_quality.py` against a reachable base URL after this change and record the actual aggregates, `n`, SKIP count/reasons, judge model, and environment (`lab` or `pre-deploy`) in `evals/README.md` (and MAY add a dated note in EXPERIMENTS). The documented numbers MUST match that run. A previous RAGAS or older row MUST NOT be reused as proof that this change works. Zero scored cases MUST NOT be documented as a successful L2 close-out.
+
+#### Scenario: Fresh quality summary is recorded
+- **GIVEN** this change’s apply has run `evals/run_quality.py` against a real stack with at least one scored case (or recorded an honest fail-closed outcome when collection/judge blocked)
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** the latest recorded L2 row matches that run’s aggregates / `n` / SKIPs (or names the fail-closed reason)
+- **AND** the text does not claim success from an older unrelated lab row
+
+### Requirement: Operator docs name L2 procedure and L1/L2 alignment
+`evals/README.md` and `evals/BLUEPRINT.md` MUST document how to install the quality extra, set the dedicated judge key, run `evals/run_quality.py`, that L2 is local/pre-deploy (not a PR merge gate), L1/L2 alignment (JWT tenancy, seed law, NIM hatch for product 429), and that RAGAS/Langfuse labs remain until a later change folds or retires them.
+
+#### Scenario: Operator can run L2 from the README
+- **GIVEN** this change is complete
+- **WHEN** an operator opens `evals/README.md`
+- **THEN** they find the quality CLI command with base URL and token
+- **AND** they find that PR CI stays fixture-only
+- **AND** they find L1/L2 alignment notes and the NVIDIA NIM hatch for Gemini 429 on the product stack during collection
+
+#### Scenario: Blueprint marks L2 as the shipped quality phase
+- **GIVEN** this change is complete
+- **WHEN** an operator opens the phased roadmap in `evals/BLUEPRINT.md`
+- **THEN** L2 LLM-as-judge / `run_quality.py` is listed as the phase after L1
+- **AND** thresholds/baseline, generator style work, and agent answer goldens remain later phases

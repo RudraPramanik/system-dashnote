@@ -1,0 +1,7 @@
+# Operator-only extra for evals/run_quality.py (laptop / pre-deploy).
+# Do NOT add these to requirements/base.txt or the API Docker image.
+deepeval>=2.0,<4
+google-genai>=1.0.0
+litellm>=1.40.0
+httpx>=0.27
+python-dotenv>=1.0

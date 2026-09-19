@@ -10,7 +10,9 @@ From repo root:
     $env:PYTHONPATH = "src"
     python evals/run_quality.py --token "<jwt>" --base-url http://127.0.0.1
 
-Requires GEMINI_API_KEY_2 (dedicated judge). Never uses GEMINI_API_KEY.
+Requires NVIDIA_NIM_API_KEY for the default NIM judge (gpt-oss-20b, not
+Lightning). Opt-in Gemini: --judge-backend gemini + GEMINI_API_KEY_2.
+Never uses product GEMINI_API_KEY.
 """
 from __future__ import annotations
 
@@ -28,9 +30,12 @@ if str(EVALS_DIR) not in sys.path:
 
 from quality_lab import (  # noqa: E402
     ALL_METRICS,
+    CHAT_TIMEOUT_RETRY_SLEEP_SEC,
     COLLECTION_FAILURE_HINT,
     DEFAULT_BASE_URL,
+    DEFAULT_COLLECTION_TIMEOUT,
     DEFAULT_HARD_FLOOR,
+    DEFAULT_JUDGE_BACKEND,
     DEFAULT_JUDGE_MODEL,
     REQUIRED_METRICS,
     STYLE_RUBRIC,
@@ -49,6 +54,7 @@ from quality_lab import (  # noqa: E402
     search_context_texts,
     search_params,
     select_rag_answer_cases,
+    transport_skip_reason,
 )
 
 SETUP_TEXT = f"""
@@ -56,19 +62,20 @@ DashNote L2 quality CLI — local / pre-deploy only (not VPS, not PR CI)
 =====================================================================
 1. On the laptop (not the API image):
      pip install -r evals/requirements-quality.txt
-2. Set {JUDGE_ENV} in local .env (dedicated Google AI Studio project).
-   Do NOT reuse {PRODUCT_GEMINI_ENV} (embeddings / chat fallback).
-   Do NOT copy {JUDGE_ENV} to Compose, VPS, or src/config.py.
+2. Product chat stays on LLM_MODEL (NIM Lightning). Judge default is a
+   *different* NIM id ({DEFAULT_JUDGE_MODEL}) via NVIDIA_NIM_API_KEY.
+   Opt-in Gemini judge: --judge-backend gemini with {JUDGE_ENV}.
+   Never reuse {PRODUCT_GEMINI_ENV}. Do not copy judge keys to Compose/VPS.
 3. Bring local Compose up. Confirm GET /health and GET /health/ai.
 4. Prefer a stack already proven by L1 live. Get a JWT; seed answer notes
    with --seed-live (reuses retrieval-marker seed content) or seed offline.
-5. If product chat/embed hits Gemini 429, switch to a different NVIDIA NIM
-   free/catalog model via LLM_MODEL / LLM_MODEL_FALLBACKS, recreate api +
-   worker, then re-run. Do not put a judge on /ai/chat or /ai/agent.
+5. Do not put a judge on /ai/chat or /ai/agent. Do not use Lightning as
+   both generator and judge (teacher bias).
 6. Run:
      python evals/run_quality.py --token "<jwt>" --base-url http://127.0.0.1
-   Optional: --limit N --judge-model {DEFAULT_JUDGE_MODEL} --seed-live
-   --environment lab|pre-deploy --floor {DEFAULT_HARD_FLOOR}
+   Optional: --limit N --timeout {int(DEFAULT_COLLECTION_TIMEOUT)}
+   --judge-backend {DEFAULT_JUDGE_BACKEND} --judge-model {DEFAULT_JUDGE_MODEL}
+   --seed-live --environment lab|pre-deploy --floor {DEFAULT_HARD_FLOOR}
 7. Record correctness / completeness / style (+ n / SKIPs / judge model) in
    evals/README.md with environment=lab or pre-deploy. Not a production SLO.
 8. Do NOT add this script to .github/workflows/ci.yml.
@@ -113,6 +120,23 @@ def _seed_notes(client: Any, headers: dict[str, str], cases: list[dict[str, Any]
         time.sleep(max_wait)
 
 
+def _is_timeout_error(exc: BaseException) -> bool:
+    cls = type(exc).__name__.lower()
+    return "timeout" in cls or "timeout" in str(exc).lower()
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """httpx.RequestError and lookalikes (tests may raise httpx.ReadTimeout)."""
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover
+        httpx = None  # type: ignore[assignment]
+    if httpx is not None and isinstance(exc, httpx.RequestError):
+        return True
+    cls = type(exc).__name__.lower()
+    return "timeout" in cls or "connect" in cls or "request" in cls
+
+
 def _collect_row(
     client: Any,
     headers: dict[str, str],
@@ -120,7 +144,25 @@ def _collect_row(
 ) -> tuple[dict[str, Any] | None, str | None]:
     query = str(case.get("query_text") or "")
     cid = str(case.get("id") or "")
-    chat_res = client.post("/ai/chat", headers=headers, json=chat_payload(query))
+
+    try:
+        chat_res = client.post("/ai/chat", headers=headers, json=chat_payload(query))
+    except Exception as exc:
+        if _is_timeout_error(exc):
+            time.sleep(CHAT_TIMEOUT_RETRY_SLEEP_SEC)
+            try:
+                chat_res = client.post(
+                    "/ai/chat", headers=headers, json=chat_payload(query)
+                )
+            except Exception as retry_exc:
+                if _is_transport_error(retry_exc):
+                    return None, transport_skip_reason(retry_exc, surface="chat")
+                raise
+        elif _is_transport_error(exc):
+            return None, transport_skip_reason(exc, surface="chat")
+        else:
+            raise
+
     status = chat_res.status_code
     answer = ""
     chunks_retrieved: int | None = None
@@ -135,11 +177,17 @@ def _collect_row(
             except (TypeError, ValueError):
                 chunks_retrieved = 0
 
-    search_res = client.get(
-        "/ai/test-search",
-        headers=headers,
-        params=search_params(query, limit=5),
-    )
+    try:
+        search_res = client.get(
+            "/ai/test-search",
+            headers=headers,
+            params=search_params(query, limit=5),
+        )
+    except Exception as exc:
+        if _is_transport_error(exc):
+            return None, transport_skip_reason(exc, surface="search")
+        raise
+
     if search_res.status_code == 200:
         retrieval_texts = search_context_texts(search_res.json())
 
@@ -260,8 +308,8 @@ def _build_nim_judge_llm(judge_model: str) -> Any:
                         messages=messages,
                         api_key=self._api_key,
                         temperature=0.0,
-                        max_tokens=512,
-                        timeout=180,
+                        max_tokens=2048,
+                        timeout=300,
                     )
                     content = response.choices[0].message.content or ""
                     last_exc = None
@@ -270,8 +318,7 @@ def _build_nim_judge_llm(judge_model: str) -> Any:
                     last_exc = exc
                     msg = str(exc).lower()
                     retryable = any(
-                        s in msg
-                        for s in ("timeout", "429", "503", "unavailable", "rate")
+                        s in msg for s in ("429", "503", "unavailable", "rate")
                     )
                     if retryable and attempt < 2:
                         time.sleep(8 * (attempt + 1))
@@ -406,7 +453,6 @@ def _score_rows(
                             "unavailable",
                             "high demand",
                             "rate",
-                            "timeout",
                         )
                     )
                     if retryable and attempt < 2:
@@ -443,7 +489,7 @@ def _fmt(val: float | None) -> str:
 
 def _run_live(args: argparse.Namespace) -> int:
     load_dotenv_repo()
-    judge_backend = str(args.judge_backend or "gemini").lower()
+    judge_backend = str(args.judge_backend or DEFAULT_JUDGE_BACKEND).lower()
     # Gemini path: dedicated GEMINI_API_KEY_2. NIM hatch: NVIDIA_NIM_API_KEY.
     # Never fall back to product GEMINI_API_KEY for judging.
     if judge_backend != "nim" and not str(args.judge_model).startswith("nvidia_nim/"):
@@ -497,18 +543,21 @@ def _run_live(args: argparse.Namespace) -> int:
     environment = str(args.environment or "lab")
     floor = float(args.floor)
     judge_model = str(args.judge_model)
+    collect_timeout = float(args.timeout)
 
     print(
         f"=== L2 quality env={environment} base={args.base_url} "
         f"judge={judge_model} backend={judge_backend} "
-        f"cases={len(cases)} floor={floor} ===\n"
+        f"cases={len(cases)} floor={floor} timeout={collect_timeout}s ===\n"
     )
 
     headers = {"Authorization": f"Bearer {args.token}"}
     rows: list[dict[str, Any]] = []
     skip_reasons: list[str] = []
 
-    with httpx.Client(base_url=str(args.base_url).rstrip("/"), timeout=180.0) as client:
+    with httpx.Client(
+        base_url=str(args.base_url).rstrip("/"), timeout=collect_timeout
+    ) as client:
         if args.seed_live:
             try:
                 _seed_notes(client, headers, cases)
@@ -601,14 +650,24 @@ def main() -> int:
         default=None,
         help="Optional max number of rag_answer cases.",
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_COLLECTION_TIMEOUT,
+        help=(
+            "HTTP timeout seconds for live collection "
+            f"(default {int(DEFAULT_COLLECTION_TIMEOUT)})."
+        ),
+    )
     parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument(
         "--judge-backend",
-        default="gemini",
+        default=DEFAULT_JUDGE_BACKEND,
         choices=("gemini", "nim"),
         help=(
-            "gemini = DeepEval GeminiModel via GEMINI_API_KEY_2; "
-            "nim = LiteLLMModel via NVIDIA_NIM_API_KEY when Gemini judge is 503/429."
+            "nim = LiteLLM via NVIDIA_NIM_API_KEY (default; different catalog "
+            "id from product Lightning). gemini = DeepEval GeminiModel via "
+            "GEMINI_API_KEY_2."
         ),
     )
     parser.add_argument(

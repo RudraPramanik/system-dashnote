@@ -118,6 +118,7 @@ def test_collection_failure_hint_names_nim_hatch() -> None:
     assert "zero scored rows" in hint.lower()
     assert "NIM" in hint or "nim" in hint.lower()
     assert "429" in hint
+    assert "timeout" in hint.lower()
     assert quality_lab.REQUIREMENTS_QUALITY.is_file()
     text = quality_lab.REQUIREMENTS_QUALITY.read_text(encoding="utf-8")
     assert "deepeval" in text.lower()
@@ -127,3 +128,154 @@ def test_chat_payload_never_sends_workspace_id() -> None:
     body = quality_lab.chat_payload("alpha project milestone")
     assert body == {"message": "alpha project milestone"}
     assert "workspace_id" not in body
+
+
+def test_transport_skip_reason_timeout_and_connect() -> None:
+    class ReadTimeout(Exception):
+        pass
+
+    class ConnectError(Exception):
+        pass
+
+    assert (
+        quality_lab.transport_skip_reason(ReadTimeout("timed out"), surface="chat")
+        == "chat timeout"
+    )
+    assert (
+        quality_lab.transport_skip_reason(ConnectError("refused"), surface="chat")
+        == "chat transport error"
+    )
+    assert (
+        quality_lab.transport_skip_reason(ReadTimeout("timed out"), surface="search")
+        == "search timeout"
+    )
+
+
+def test_collect_row_chat_timeout_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+    import run_quality
+
+    monkeypatch.setattr(run_quality, "CHAT_TIMEOUT_RETRY_SLEEP_SEC", 0)
+
+    class _TimeoutClient:
+        def __init__(self) -> None:
+            self.posts = 0
+
+        def post(self, *args: object, **kwargs: object) -> object:
+            self.posts += 1
+            raise httpx.ReadTimeout("timed out")
+
+        def get(self, *args: object, **kwargs: object) -> object:
+            raise AssertionError("search must not run after chat timeout")
+
+    client = _TimeoutClient()
+    row, reason = run_quality._collect_row(
+        client,
+        {"Authorization": "Bearer x"},
+        {"id": "c1", "query_text": "alpha project milestone"},
+    )
+    assert row is None
+    assert reason == "chat timeout"
+    assert client.posts == 2  # one retry on timeout
+
+
+def test_collect_row_connect_error_skips_without_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+    import run_quality
+
+    monkeypatch.setattr(run_quality, "CHAT_TIMEOUT_RETRY_SLEEP_SEC", 0)
+
+    class _ConnectClient:
+        def __init__(self) -> None:
+            self.posts = 0
+
+        def post(self, *args: object, **kwargs: object) -> object:
+            self.posts += 1
+            raise httpx.ConnectError("refused")
+
+        def get(self, *args: object, **kwargs: object) -> object:
+            raise AssertionError("search must not run after chat connect error")
+
+    client = _ConnectClient()
+    row, reason = run_quality._collect_row(
+        client,
+        {"Authorization": "Bearer x"},
+        {"id": "c1", "query_text": "q"},
+    )
+    assert row is None
+    assert reason == "chat transport error"
+    assert client.posts == 1
+
+
+def test_collect_row_search_timeout_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+    import run_quality
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(run_quality, "CHAT_TIMEOUT_RETRY_SLEEP_SEC", 0)
+
+    class _SearchTimeoutClient:
+        def post(self, *args: object, **kwargs: object) -> object:
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {"answer": "the alpha milestone is 12 March", "chunks_retrieved": 1},
+            )
+
+        def get(self, *args: object, **kwargs: object) -> object:
+            raise httpx.ReadTimeout("timed out")
+
+    row, reason = run_quality._collect_row(
+        _SearchTimeoutClient(),
+        {"Authorization": "Bearer x"},
+        {"id": "c1", "query_text": "q"},
+    )
+    assert row is None
+    assert reason == "search timeout"
+
+
+def test_collect_row_retries_chat_timeout_then_collects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+    import run_quality
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(run_quality, "CHAT_TIMEOUT_RETRY_SLEEP_SEC", 0)
+
+    class _RetryThenOk:
+        def __init__(self) -> None:
+            self.posts = 0
+
+        def post(self, *args: object, **kwargs: object) -> object:
+            self.posts += 1
+            if self.posts == 1:
+                raise httpx.ReadTimeout("timed out")
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {"answer": "ok", "chunks_retrieved": 1},
+            )
+
+        def get(self, *args: object, **kwargs: object) -> object:
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: [{"text": "chunk about alpha"}],
+            )
+
+    client = _RetryThenOk()
+    row, reason = run_quality._collect_row(
+        client,
+        {"Authorization": "Bearer x"},
+        {
+            "id": "c1",
+            "query_text": "q",
+            "expected_output": "ok",
+            "completeness_checklist": ["ok"],
+        },
+    )
+    assert reason is None
+    assert row is not None
+    assert row["actual_output"] == "ok"
+    assert row["retrieval_context"] == ["chunk about alpha"]
+    assert client.posts == 2

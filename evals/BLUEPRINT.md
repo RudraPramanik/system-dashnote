@@ -155,8 +155,9 @@ Concrete style rubric (keep this specific so the judge does not drift): citation
 $env:PYTHONPATH = "src"
 pip install -r evals/requirements-quality.txt
 python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1
-# optional: --limit N  --judge-model gemini-3.6-flash  --seed-live
 ```
+
+Optional flags (add to the same command; do not paste `>>` comment lines into PowerShell): `--limit N` (smoke path), `--timeout 300`, `--judge-backend nim` (default, `gpt-oss-20b`), `--judge-backend gemini` (opt-in), `--seed-live`. Never embed a live JWT in this file.
 
 One runner. Do not add a second DeepEval entrypoint. Do not import DeepEval from `run_eval.py`.
 
@@ -169,7 +170,8 @@ run_quality.py
     ├─ load rag_answers.jsonl (optional --limit)
     ├─ for each case: POST /ai/chat with JWT (message only; wid from token)
     │     collect actual_output + retrieval_context texts
-    │     SKIP on non-200, empty answer, or empty retrieval (count SKIPs)
+    │     SKIP on non-200, empty answer, empty retrieval, HTTP timeout,
+    │     or other request-transport failure (count SKIPs; remaining cases still run)
     ├─ DeepEval evaluate(test_cases, metrics)
     └─ print per-case + aggregate scores; exit 0 only if
          n>0, required metrics numeric, hard floors met
@@ -182,6 +184,7 @@ run_quality.py
 - Missing/blank judge key → non-zero exit; name the env var; **never** fall back to `GEMINI_API_KEY`
 - Zero scored rows → non-zero exit; **do not** print fabricated aggregate scores
 - Required metrics all NaN / non-numeric → non-zero exit; do not invent means
+- Timed-out `POST /ai/chat` (or follow-up search) → **SKIP**, not an uncaught traceback. All-timeout SKIPs still fail-closed (`n=0`). Uncaught timeout traceback is a harness bug. `--limit` is the smoke path on a slow NIM stack.
 
 ---
 
@@ -195,7 +198,7 @@ run_quality.py
 - Laptop / operator env only. Placeholder may live in `.env.example`.
 - Must **not** be required by API Settings, Compose product env, or VPS `.env`.
 - Must **not** be copied into the API image.
-- Default judge model (planned): `gemini-3.6-flash` with `--judge-model` override (quota / 503 / 429 are expected failure modes — re-run, do not invent scores).
+- Default L2 judge: NVIDIA NIM `nvidia_nim/openai/gpt-oss-20b` (`--judge-backend nim`) — a different catalog id from product Lightning. Opt-in Gemini: `--judge-backend gemini` with `GEMINI_API_KEY_2`. Quota / timeout / 429 are expected failure modes — fail closed, do not invent scores.
 - **L0 fixture needs no LLM keys.** Gemini 429 on later live collection or product chat is an operator concern: walk to NVIDIA NIM with a different free/catalog model (`LLM_MODEL_FALLBACKS`, e.g. `nvidia_nim/openai/gpt-oss-20b` before Gemini Flash). That hatch MUST NOT await a judge on `/ai/chat` or `/ai/agent`, and MUST NOT be required to green PR CI.
 
 ---

@@ -95,18 +95,18 @@ goldens stay L0/L1; they are not the L2 answer suite.
 pip install -r evals/requirements-quality.txt
 $env:PYTHONPATH = "src"
 python evals/run_quality.py --setup
-python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1 `
-  --seed-live --environment lab
-# optional: --limit 3  --judge-model gemini-3.6-flash  --floor 0.7
-# Gemini judge 429/503 hatch (does not use product GEMINI_API_KEY):
-python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1 `
-  --seed-live --judge-backend nim --judge-model nvidia_nim/openai/gpt-oss-20b
+python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1 --seed-live --environment lab
 ```
 
-**Requires** `GEMINI_API_KEY_2` for `--judge-backend gemini` (default). Never
-falls back to `GEMINI_API_KEY`. `--judge-backend nim` uses `NVIDIA_NIM_API_KEY`
-with a different free/catalog model. Install DeepEval on the laptop only — not
-in the API image.
+Default judge is NVIDIA NIM `gpt-oss-20b` (different catalog id from product Lightning). Same `NVIDIA_NIM_API_KEY`. Smoke path: add `--limit 2`. Do **not** paste `>>` comment lines into PowerShell. Do **not** put a real JWT in this README.
+
+Opt-in Gemini judge (when `GEMINI_API_KEY_2` quota exists):
+
+```powershell
+python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1 --seed-live --judge-backend gemini --judge-model gemini-3.6-flash
+```
+
+**Requires** `NVIDIA_NIM_API_KEY` for the default NIM judge. `--judge-backend gemini` requires `GEMINI_API_KEY_2`. Never falls back to product `GEMINI_API_KEY`. Install DeepEval on the laptop only — not in the API image.
 
 **Honesty fields:** environment (`lab` / `pre-deploy`), judge model, per-metric
 aggregates (correctness, completeness, style), collected `n`, SKIP count/reasons,
@@ -114,10 +114,16 @@ NaN notes. Correctness + completeness hard floor default **0.7**; style is alway
 reported (loose / no floor). Exit non-zero on missing judge key, `n=0`, all-NaN
 required metrics, or hard-floor miss — never invent scores.
 
+**Collection SKIPs:** non-200, empty answer, empty retrieval, HTTP timeout, or
+other request-transport failure. A timed-out `POST /ai/chat` is SKIP (remaining
+cases still run), not an uncaught traceback. A full-set run with only timeout
+SKIPs is fail-closed (`n=0`), not a successful L2 close-out. `--limit` is the
+smoke path. Uncaught `httpx.ReadTimeout` is a harness bug.
+
 **Preflight:** same as L1 (`/health`, `/health/ai`, JWT). Prefer `--seed-live`.
-If product chat hits Gemini **429**, use the NIM hatch above, recreate `api` +
-`worker`, re-run. Judge 429/503 → re-run, `--judge-model`, or `--judge-backend nim`;
-do not use the product Gemini key.
+Product chat stays on NIM Lightning. Judge default is a different NIM id
+(`gpt-oss-20b`). Gemini judge is opt-in. Do not use the product Gemini key.
+Mint a fresh access token; do not paste JWTs into docs or chat.
 
 ## Golden schema
 
@@ -163,6 +169,8 @@ Common fields:
 
 | When | Mode | Target | Result |
 |------|------|--------|--------|
+| 2026-09-19 | L2 `run_quality.py` `--limit 2 --seed-live` NIM judge | `http://127.0.0.1` (`lab`) | **exit 1** (hard floors missed, not a hang). Product chat = NIM Lightning. Judge = `nvidia_nim/openai/gpt-oss-20b` (`--judge-backend nim`). n=2 · SKIP=0 · correctness=0.075 · completeness=0.050 · style=0.075. Per-case: rag-ans-01 0.1/0.0/0.1; rag-ans-02 0.05/0.1/0.05. ~5 min. Numeric scores (not NaN). Not a production SLO. |
+| 2026-09-19 | L2 `run_quality.py` `--seed-live` (full 12, timeout 300s) | `http://127.0.0.1` (`lab`) | **collection crash gone** — no uncaught `httpx.ReadTimeout`. Collected n=9 · SKIP=3 (`rag-ans-10` empty retrieval; `rag-ans-11`/`rag-ans-12` chat HTTP 401). Remaining cases still ran after SKIPs. Judge=`gemini-3.6-flash`: rag-ans-01 1.0/1.0/0.4; then **429 RESOURCE_EXHAUSTED** (NaNs on later GEval). Process ended mid-judge before aggregates. Fail-closed / incomplete GEval — not a scored close-out. Product stack NIM Lightning. Not a production SLO. |
 | 2026-09-19 | L2 `run_quality.py` `--limit 2 --seed-live` | `http://127.0.0.1` (`lab`) | **exit 0** · judge=`gemini-3.6-flash` · n=2 · SKIP=0 · correctness=0.75 · completeness=0.75 · style=0.10 · floor 0.7 met. Per-case: rag-ans-01 1.0/1.0/0.2; rag-ans-02 0.5/0.5/0.0. Product stack NIM Lightning. Not a production SLO. |
 | 2026-09-18 | L2 `run_quality.py` `--limit 1 --seed-live --judge-backend nim` | `http://127.0.0.1` (`lab`) | **fail-closed** (exit 2): collected `n=1` (`rag-ans-01-alpha-milestone`), SKIP=0; correctness/completeness/style **NaN** — NIM `gpt-oss-20b` judge timed out. Product collection used NIM Lightning. Gemini judge earlier hit 503/429. Not a successful GEval close-out; do not invent scores. |
 | 2026-09-18 | fixture | n/a | **PASS: 20/20** — L0 alignment check during L2 apply |

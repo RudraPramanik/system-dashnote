@@ -1,7 +1,8 @@
 """
 Helpers for the L2 DeepEval quality CLI. No deepeval import (CI-safe).
 
-Judge credential is GEMINI_API_KEY_2 only — never GEMINI_API_KEY.
+Default judge is NVIDIA NIM (a different catalog id than product Lightning).
+Gemini (`GEMINI_API_KEY_2`) remains an opt-in `--judge-backend gemini`. Never GEMINI_API_KEY.
 """
 from __future__ import annotations
 
@@ -28,9 +29,12 @@ REPO_ROOT = EVALS_ROOT.parent
 GOLDEN_RAG_ANSWERS = EVALS_ROOT / "golden" / "rag_answers.jsonl"
 REQUIREMENTS_QUALITY = EVALS_ROOT / "requirements-quality.txt"
 
-DEFAULT_JUDGE_MODEL = "gemini-3.6-flash"
+DEFAULT_JUDGE_MODEL = "nvidia_nim/openai/gpt-oss-20b"
+DEFAULT_JUDGE_BACKEND = "nim"
 DEFAULT_BASE_URL = "http://127.0.0.1"
 DEFAULT_HARD_FLOOR = 0.7
+DEFAULT_COLLECTION_TIMEOUT = 300.0
+CHAT_TIMEOUT_RETRY_SLEEP_SEC = 5.0
 REQUIRED_METRICS = ("correctness", "completeness")
 ALL_METRICS = ("correctness", "completeness", "style")
 
@@ -47,10 +51,13 @@ COLLECTION_FAILURE_HINT = (
     "  1) GET /health and GET /health/ai are ok\n"
     "  2) JWT is valid; seed answer notes (--seed-live) or reuse L1 marker seeds\n"
     "  3) POST /ai/chat returns 200 with a non-empty answer and retrieval context\n"
-    "  4) If chat is HTTP 500, check API logs (often LLM 429 quota) — "
+    "  4) Chat HTTP timeout / transport SKIP is expected on a slow NIM turn — "
+    "raise --timeout (default 300s) or use --limit for smoke; remaining cases "
+    "still run. Uncaught timeout traceback is a harness bug.\n"
+    "  5) If chat is HTTP 500, check API logs (often LLM 429 quota) — "
     "switch to a different NVIDIA NIM free/catalog model via "
     "LLM_MODEL / LLM_MODEL_FALLBACKS, recreate api + worker, re-run\n"
-    "  5) Empty answer / empty retrieval SKIPs the row — seed before scoring"
+    "  6) Empty answer / empty retrieval / timeout SKIPs the row — seed before scoring"
 )
 
 
@@ -103,6 +110,20 @@ def classify_collection_skip(
     if not retrieval_texts:
         return "empty retrieval"
     return None
+
+
+def transport_skip_reason(exc: BaseException, *, surface: str) -> str:
+    """
+    Map HTTP client timeout / other request-transport failures to a SKIP reason.
+
+    surface is ``chat`` (POST /ai/chat) or ``search`` (GET /ai/test-search).
+    """
+    label = "chat" if surface == "chat" else "search"
+    cls = type(exc).__name__.lower()
+    text = str(exc).lower()
+    if "timeout" in cls or "timeout" in text:
+        return f"{label} timeout"
+    return f"{label} transport error"
 
 
 def checklist_text(case: dict[str, Any]) -> str:

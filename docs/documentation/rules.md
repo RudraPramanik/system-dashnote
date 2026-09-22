@@ -15,15 +15,12 @@ EXISTING CODE THAT MUST NOT CHANGE:
 
 ARQ WORKER CONTEXT LAW:
   ctx["redis"] exists (set in worker startup from Slice 1)
-  ctx["arq_pool"] does NOT exist by default
+  ctx["arq_pool"] exists (create_pool in worker startup — Slice 7); reuse it
   To enqueue fan-out jobs from inside a worker task:
-    from arq import create_pool
-    from arq.connections import RedisSettings
-    pool = await create_pool(RedisSettings.from_dsn(settings.effective_arq_redis_url))
+    pool = ctx["arq_pool"]
     await pool.enqueue_job(...)
-    await pool.close()
-  OR: create arq_pool once in worker startup, store on ctx["arq_pool"]
-  Use the startup pattern — create once, reuse across all tasks
+  Do NOT create a new pool per enqueue unless startup failed to set arq_pool
+  (legacy escape hatch: create_pool + close — prefer the startup pattern)
 
 STORAGE LAW:
   File binary download: use get_storage() from core.storage.client

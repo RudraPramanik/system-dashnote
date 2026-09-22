@@ -1,4 +1,3 @@
-=== L2 quality env=lab base=http://127.0.0.1 judge=nvidia_nim/openai/gpt-oss-20b backend=nim cases=12 floor=0.7 timeout=300.0s ===
 
   ... seeded 7 notes; waiting 20s for embeds
   COLLECT rag-ans-01-alpha-milestone: contexts=5

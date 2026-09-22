@@ -1,6 +1,6 @@
 # DashNoteSystem UML Diagrams
 
-Mermaid diagrams derived from [`src/docs/lld.md`](../../src/docs/lld.md). Render in GitHub, VS Code (Markdown Preview), or any Mermaid-compatible viewer.
+Mermaid diagrams derived from [`docs/documentation/lld.md`](../documentation/lld.md). Render in GitHub, VS Code (Markdown Preview), or any Mermaid-compatible viewer.
 
 | # | Diagram | Type | LLD section |
 |---|---------|------|-------------|

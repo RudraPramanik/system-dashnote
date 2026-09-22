@@ -111,11 +111,17 @@ python evals/run_quality.py --token "<access_token>" --base-url http://127.0.0.1
 
 **Requires** `NVIDIA_NIM_API_KEY` for the default NIM judge. `--judge-backend gemini` requires `GEMINI_API_KEY_2`. Never falls back to product `GEMINI_API_KEY`. Install DeepEval on the laptop only — not in the API image.
 
+**Judge scale.** DeepEval GEval asks for an integer from 0 to 10 and divides by 10 before the 0.7 floors. Evaluation steps must not tell the judge to score from 0 to 1. That instruction collapsed an earlier lab paste (`evals/eval_report.md`) onto `0.00` / `0.05` / `0.10`. Do not cite that paste as a later run’s result.
+
+**Durable record.** Each scored run replaces `evals/quality_scores.jsonl` (case id, scores, and reasons, including when the score is numeric) and writes `evals/eval_report_2.md` from that file. The console can be overwritten by DeepEval’s progress bar; the JSONL is the source of truth.
+
+**Style voice.** Style scores the answer string only: concise, no invented facts, marker tokens preserved, and the product refusal sentence when context is thin (`I could not find relevant information in your notes and files for this query.`). Do not require citation prose inside the answer. Citations stay a sibling field. Generator-prompt edits and agent-answer goldens stay later work.
+
 **Honesty fields:** environment (`lab` / `pre-deploy`), judge model, per-metric
 aggregates (correctness, completeness, style), collected `n`, SKIP count/reasons,
 NaN notes. Correctness + completeness hard floor default **0.7**; style is always
 reported (loose / no floor). Exit non-zero on missing judge key, `n=0`, all-NaN
-required metrics, or hard-floor miss — never invent scores.
+required metrics, or hard-floor miss — never invent scores. A floor miss still leaves the JSONL and `eval_report_2.md`.
 
 **Collection SKIPs:** non-200, empty answer, empty retrieval, HTTP timeout, or
 other request-transport failure. A timed-out `POST /ai/chat` is SKIP (remaining
@@ -205,6 +211,7 @@ Common fields:
 
 | When | Mode | Target | Result |
 |------|------|--------|--------|
+| 2026-09-23 | L2 `run_quality.py` `--seed-live` (full 12) | `http://127.0.0.1` (`lab`) | **exit 0.** Judge `nvidia_nim/openai/gpt-oss-20b`. n=12 · SKIP=0 · correctness=0.9000 · completeness=0.7417 · style=1.0000 · floor 0.7 met. Record is `evals/quality_scores.jsonl` and `evals/eval_report_2.md`. Narrative: `evals/article.md`. The earlier `evals/eval_report.md` paste (means near 0.08) is the 0–1 scale artifact, not this result. Generator prompt was not changed. Not a production SLO. |
 | 2026-09-19 | L3 traces + `POST /ai/feedback` + `/metrics` | `http://127.0.0.1` (`lab`) | **Proven.** Chat returned `thread_id` + `trace_id` (`chunks_retrieved=7`). Langfuse list showed parent **`rag.answer`**. Feedback HTTP 200 `tracing=recorded`. `/metrics` includes `dashnote_ai_empty_retrieval_total`, `dashnote_ai_agent_interrupt_total`, `dashnote_ai_llm_fallback_total` (no per-user judge labels). Langfuse SDK v3: scores via `create_score`. Product chat used NIM hatch `nvidia_nim/openai/gpt-oss-20b` after Lightning resolve/timeout. **Not a production SLO.** Not a merge gate. |
 | 2026-09-19 | live + `--seed-live` | `http://127.0.0.1` (`live-local`) | **PASS: 8/8** (SKIP: 12 — 11 fixture-only / L0 recorded form; 1 `actor=b` needs `--token-b`). Same `evals/golden/` corpus and scorers as L0. L0/L1 alignment re-check during L3 apply. |
 | 2026-09-19 | fixture | n/a | **PASS: 20/20** — L0 alignment check during L3 apply (15 retrieval/tenant + 5 trajectory; no Langfuse/judge keys) |

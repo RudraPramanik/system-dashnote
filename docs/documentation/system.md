@@ -30,6 +30,7 @@ Registers routers and global dependencies:
 | `ai_routes/chat.py` | `/ai` | `POST /ai/chat`, `POST /ai/chat/stream` |
 | `ai_routes/threads.py` | `/ai` | Thread list, messages, `PATCH /ai/threads/{thread_id}` rename, delete |
 | `ai_routes/agent.py` | `/ai` | `POST /ai/agent`, `/ai/agent/stream`, `/ai/agent/resume`, `/ai/agent/reject` (HITL) |
+| `ai_routes/feedback.py` | `/ai` | `POST /ai/feedback` — JWT `wid` only; thumbs or 1–5; chat/agent turns do **not** require it |
 
 **Not mounted:** `ai_search/router.py` (`POST /ai/test-search`) — present in tree but **not** the live contract. Use `GET /ai/test-search` via `ai_gateway/search.py`.
 
@@ -43,7 +44,7 @@ Registers routers and global dependencies:
 
 **Event bus (Slice 7):** `shared/events/bus.py` — `emit_event()` maps domain events to ARQ automation tasks. Never raises; failures logged only. Routers call `emit_event` after successful DB commit alongside existing Slice 1 embed enqueue.
 
-**Metrics:** `GET /metrics` — Prometheus via `prometheus-fastapi-instrumentator` (`dashnote_api_*`); scraped by Compose `prometheus`, not Nginx.
+**Metrics:** `GET /metrics` — Prometheus via `prometheus-fastapi-instrumentator` (`dashnote_api_*` HTTP series) plus low-cardinality AI quality counters (`dashnote_ai_*`). Scraped by Compose `prometheus`, not Nginx. **Not** a production SLO and **not** the hard `/health` gate.
 
 **Health:**
 
@@ -113,7 +114,7 @@ Bytes in object storage; metadata in PostgreSQL (`files` table: `storage_key`, `
 
 All AI module layout, RBAC filters, HTTP contracts, and agent laws: **[ai.md](./ai.md)**. Import/modification laws: **[rules.md](./rules.md)**.
 
-Surface summary: embeddings → Qdrant (`notes_chunks`, `files_chunks`); file upload → text extraction → `extracted_text` (7.2) → fan-out indexing + metadata (7.3); note create → auto-tagging (7.3); destructive AI automation gated by `AutomationDecisionEngine` (7.4); shared LLM retry/structured/fallback layer (7.5+); RAG at `/ai/chat*`; threads at `/ai/threads*`; LangGraph agent at `/ai/agent*` with HITL resume/reject. Fast RAG and agent paths coexist. Soft readiness: `GET /health/ai`.
+Surface summary: embeddings → Qdrant (`notes_chunks`, `files_chunks`); file upload → text extraction → `extracted_text` (7.2) → fan-out indexing + metadata (7.3); note create → auto-tagging (7.3); destructive AI automation gated by `AutomationDecisionEngine` (7.4); shared LLM retry/structured/fallback layer (7.5+); RAG at `/ai/chat*`; threads at `/ai/threads*`; LangGraph agent at `/ai/agent*` with HITL resume/reject; optional `POST /ai/feedback` (JWT `wid` only). Fast RAG and agent paths coexist. Soft readiness: `GET /health/ai`.
 
 **Conversation auto-titles:** After the first successful chat or agent turn, threads get a one-shot title (`ai/memory/titles.py` — deterministic truncate + optional LLM polish). No historical backfill. Streaming clients may receive a `title` field on chat SSE `metadata` and agent `done` / `approval_required` events. Manual rename: `PATCH /ai/threads/{thread_id}`. Details: [ai.md](./ai.md). Smoke: [smoke-conversation-titles.md](./smoke-conversation-titles.md).
 
@@ -123,9 +124,18 @@ Surface summary: embeddings → Qdrant (`notes_chunks`, `files_chunks`); file up
 
 ### Observability
 
-JSON logs (`observability/logging.py`), Langfuse RAG traces (`observability/tracing.py`), Prometheus `/metrics`, Compose `prometheus` (:9090). Grafana is **not** a default local Compose service; use Grafana Cloud / leftover `monitoring/grafana/` provisioning when needed.
+JSON logs (`observability/logging.py`), Langfuse traces via `observability.tracing` (`rag.answer` / `agent.turn`), optional `POST /ai/feedback` (JWT `wid` thumbs or 1–5), Prometheus `/metrics` (`dashnote_api_*` + `dashnote_ai_*`), Compose `prometheus` (:9090). Grafana is **not** a default local Compose service; use Grafana Cloud / leftover `monitoring/grafana/` provisioning when needed.
 
-**Details:** [observe.md](./observe.md) (agent) · [observability.md](../observability.md) (human runbook)
+**Eval program (L0–L3 implemented; not a production SLO):**
+
+| Layer | What | Where |
+|-------|------|--------|
+| **L0** fixture contract | Marker / tenant / trajectory goldens | `evals/run_eval.py --mode fixture` — **PR CI** |
+| **L1** live contract | Same goldens vs a real API | `evals/run_eval.py --mode live` — operator / nightly |
+| **L2** answer quality | DeepEval **GEval** (correctness, completeness, style) on `rag_answers.jsonl` | `evals/run_quality.py` — laptop / pre-deploy. **Never** on `/ai/chat` or `/ai/agent`. Not PR CI. |
+| **L3** serving observability | Langfuse traces, `POST /ai/feedback`, `dashnote_ai_*` | Request path has **no** judge. **Not** the hard `/health` gate. |
+
+Later (not on this hub): thresholds/baseline, generator rewrites, agent answer goldens. Map: [evals/BLUEPRINT.md](../../evals/BLUEPRINT.md) · how to run: [evals/README.md](../../evals/README.md). Depth: [observe.md](./observe.md) (agent) · [observability.md](../observability.md) (human runbook).
 
 ### Operational practices
 
@@ -146,6 +156,7 @@ python -m pytest tests/shared/test_parsers.py tests/shared/test_llm_structured.p
 python -m pytest tests/worker/test_automation_decision.py tests/worker/test_automation_llm_tasks.py -q
 python -m pytest tests/ai/test_agent_retry.py tests/ai/test_agent_hitl.py -q
 python -m pytest tests/ai/test_thread_titles.py tests/ai/test_thread_rename_api.py -q
+python -m pytest tests/ai_routes/test_feedback.py tests/observability/ -q
 python -m pytest tests/core/test_rate_limit.py -q
 ```
 

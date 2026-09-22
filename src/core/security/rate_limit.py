@@ -79,6 +79,9 @@ class RateLimiter:
 
 _global_limiter = RateLimiter(scope="global", limit=100, window_seconds=60)
 _auth_login_limiter = RateLimiter(scope="auth_login", limit=5, window_seconds=60)
+_auth_forgot_limiter = RateLimiter(scope="auth_forgot", limit=5, window_seconds=60)
+_auth_reset_limiter = RateLimiter(scope="auth_reset", limit=5, window_seconds=60)
+_auth_change_limiter = RateLimiter(scope="auth_change_password", limit=5, window_seconds=60)
 
 
 async def enforce_global_rate_limit(
@@ -95,3 +98,27 @@ async def enforce_auth_login_rate_limit(
     redis: Annotated[Redis | None, Depends(get_redis_connection)],
 ) -> None:
     await _auth_login_limiter.check(redis, request, ctx)
+
+
+async def enforce_auth_forgot_rate_limit(
+    request: Request,
+    ctx: Annotated[RequestContext | None, Depends(get_optional_current_context)],
+    redis: Annotated[Redis | None, Depends(get_redis_connection)],
+) -> None:
+    await _auth_forgot_limiter.check(redis, request, ctx)
+
+
+async def enforce_auth_reset_rate_limit(
+    request: Request,
+    ctx: Annotated[RequestContext | None, Depends(get_optional_current_context)],
+    redis: Annotated[Redis | None, Depends(get_redis_connection)],
+) -> None:
+    await _auth_reset_limiter.check(redis, request, ctx)
+
+
+async def enforce_auth_change_password_rate_limit(
+    request: Request,
+    ctx: Annotated[RequestContext | None, Depends(get_optional_current_context)],
+    redis: Annotated[Redis | None, Depends(get_redis_connection)],
+) -> None:
+    await _auth_change_limiter.check(redis, request, ctx)

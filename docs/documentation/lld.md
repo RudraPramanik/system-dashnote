@@ -39,8 +39,8 @@ LLD-relevant wiring:
 
 - **Middleware:** `CORSMiddleware` (`CORS_ORIGINS`) + `ProxyHeadersMiddleware` + global `enforce_global_rate_limit`
 - **Lifespan:** `setup_logging()` → `configure_litellm_env` / `resolve_llm_model` (non-fatal) → ARQ pool → Qdrant bootstrap (non-fatal) → LangGraph checkpointer (non-fatal)
-- **Routers:** includes `integrations` (`/integrations`) and HITL agent resume/reject — see system.md table
-- **Metrics:** `Instrumentator` → `GET /metrics` (`dashnote_api_*`)
+- **Routers:** includes `integrations` (`/integrations`), HITL agent resume/reject, and `POST /ai/feedback` (JWT `wid` only) — see system.md table
+- **Metrics:** `Instrumentator` → `GET /metrics` (`dashnote_api_*` plus `dashnote_ai_*` quality counters; not a production SLO)
 - **Health:** hard `GET /health`; soft `GET /health/ai`
 
 ### 3.2 Protected request flow (sequence diagram source)
@@ -228,8 +228,10 @@ GET /ai/test-search?q=...
     ├─► WorkspaceVectorSearch.search()
     │       ├─► embed query
     │       ├─► build_rbac_filter(workspace_id, user_id, role)
-    │       └─► query_points(..., query_filter=rbac)
-    └─► list[SearchResult]
+    │       ├─► query_points(notes_chunks, query_filter=rbac)
+    │       ├─► query_points(files_chunks, query_filter=rbac)
+    │       └─► merge by score → truncate limit
+    └─► list[SearchResult]  # note + file hits; source_type on payload
 ```
 
 | Role | Qdrant filter |
@@ -237,7 +239,7 @@ GET /ai/test-search?q=...
 | `owner`, `admin` | `must`: `workspace_id` |
 | `member` | `must`: `workspace_id`; `should`: `visibility=public` OR `created_by=user_id` |
 
-**Invariants:** `workspace_id` from JWT only · routers never use `AsyncQdrantClient` · search entry = `wrapper.py` only.
+**Invariants:** `workspace_id` from JWT only · routers never use `AsyncQdrantClient` · search entry = `wrapper.py` only · both collections always queried under the same RBAC filter.
 
 ### 4.13 RAG chat — Slices 3–4
 
@@ -247,12 +249,12 @@ GET /ai/test-search?q=...
 POST /ai/chat  { message, thread_id? }
     ├─► freeze workspace_id, user_id, role (plain str)
     ├─► RagService.answer(...)
-    │       ├─► WorkspaceVectorSearch.search
+    │       ├─► WorkspaceVectorSearch.search  # notes_chunks + files_chunks
     │       ├─► ContextBuilder (when thread_id + db)
     │       ├─► char budget TOKEN_BUDGET_PER_REQUEST
-    │       ├─► litellm.acompletion(response_format=RAGAnswer)
+    │       ├─► acompletion_with_fallback(response_format=RAGAnswer)
     │       ├─► ground cited_chunk_ids against retrieved set
-    │       └─► ThreadService.persist_turn (when db)
+    │       └─► ThreadService.persist_turn + optional one-shot title (when db)
     └─► ChatResponse
 ```
 
@@ -263,6 +265,7 @@ POST /ai/chat/stream
     ├─► freeze ctx BEFORE generate()
     ├─► async for event in stream_answer():
     │       token → metadata (citations from top chunks, not token parse)
+    │       comment heartbeats may keep Nginx from closing quiet streams
     └─► data: [DONE]
 ```
 
@@ -274,7 +277,7 @@ POST /ai/chat/stream
 
 Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
 
-**Invariants:** `RagService` has no FastAPI/SQLAlchemy/RequestContext imports · citations only from retrieved chunks · structured output only.
+**Invariants:** `RagService` has no FastAPI/SQLAlchemy/RequestContext imports · citations only from retrieved chunks · structured output only · completions via `shared.llm.fallback.acompletion_with_fallback` (not a bare `litellm.acompletion` / sole retry entry).
 
 ### 4.14 Conversation memory + threads (Slice 5)
 
@@ -313,12 +316,15 @@ create_note / update_note            → NoteService.*(db from db_session_var)
 POST /ai/agent { message, thread_id? }
     ├─► freeze ctx, resolve thread, db_session_var.set(db)
     ├─► get_workspace_assistant().ainvoke(state, config={thread_id})
-    │       └─► call_model → shared.llm.acompletion_with_retry(tools=...)
-    ├─► RateLimitError / ServiceUnavailableError after retries → 503
-    └─► AgentResponse(answer, thread_id, steps_taken, tool_calls_made)
+    │       └─► call_model → shared.llm.acompletion_with_fallback(tools=...)
+    ├─► mutation tools → interrupt → approval_required
+    │       ├─► POST /ai/agent/resume → NoteService create/update
+    │       └─► POST /ai/agent/reject → end turn without mutation
+    ├─► candidates exhausted / wall-clock → 503
+    └─► AgentResponse(answer, thread_id, steps_taken, tool_calls_made, title?)
 ```
 
-Graph: `START → agent → tools → agent → END` · LiteLLM `tools=` (OpenAI function defs) · `AGENT_MAX_ITERATIONS` guard · lazy compile with optional checkpointer.
+Graph: `START → agent → tools → agent → END` (HITL interrupt on create/update) · LiteLLM `tools=` (OpenAI function defs) · `AGENT_MAX_ITERATIONS` guard · lazy compile with optional checkpointer.
 
 **Coexistence:** `/ai/chat*` unchanged (fast RAG) · `/ai/agent*` additive (incl. HITL resume/reject). See [rules.md](./rules.md) for modification laws.
 
@@ -329,8 +335,22 @@ RagService.answer / stream_answer
     └─► rag_trace → spans: retrieval, context_building, llm_generation
             └─► get_langfuse_client() (lazy, optional)
 
-HTTP → Instrumentator → dashnote_api_* → Prometheus (:9090). Grafana is optional (Grafana Cloud or a separately added Compose service); provisioning files may live under `monitoring/grafana/` without a default local Grafana container.
+Agent turn
+    └─► agent.turn (or equivalent) via observability.tracing — optional Langfuse
+
+POST /ai/feedback  { thread_id, thumbs|score, trace_id? }
+    └─► JWT wid only → optional Langfuse score (not required to complete a turn)
+
+HTTP → Instrumentator → dashnote_api_* + dashnote_ai_* → Prometheus (:9090).
+Grafana is optional (Grafana Cloud or a separately added Compose service);
+provisioning files may live under `monitoring/grafana/` without a default local Grafana container.
 ```
+
+| Signal | Notes |
+|--------|-------|
+| `dashnote_api_*` | HTTP latency / status instrumentation |
+| `dashnote_ai_*` | Low-cardinality AI quality counters — **not** a production SLO |
+| Traces / thumbs | Serving L3 observability — **not** the hard `/health` gate |
 
 | Langfuse observation | Outputs |
 |---------------------|---------|
@@ -363,16 +383,21 @@ Proposed destructive AI action (future tasks: auto-delete, auto-merge, …)
 ### 4.18 Shared LLM layer (Slice 7.5)
 
 ```
+acompletion_with_fallback(**kwargs)
+    ├─► wall-clock abort per candidate
+    ├─► walk LLM_MODEL then LLM_MODEL_FALLBACKS
+    ├─► non-stream: acompletion_with_retry (transient) inside each candidate
+    └─► used by RagService, agent call_model, titles, integrations enrich
+
 acompletion_structured(messages, schema, max_tokens)
-    ├─► tenacity retry on RETRYABLE_EXCEPTIONS (RateLimit, Timeout, 503, connection)
-    ├─► litellm.acompletion(response_format=schema)
+    ├─► acompletion_with_fallback(+ response_format / structured path)
     ├─► parse_structured_response(raw, schema)
     │       ├─► model_validate_json(raw)
     │       └─► extract_json_blob(raw) → salvage markdown fences / preamble
     └─► StructuredLLMParseError → re-raise (ARQ retry in worker tasks)
 
 acompletion_with_retry(**kwargs)
-    └─► tenacity-wrapped litellm.acompletion (agent call_model; non-structured)
+    └─► tenacity-wrapped litellm.acompletion — internal helper under fallback
 ```
 
 | Module | May import |
@@ -380,13 +405,15 @@ acompletion_with_retry(**kwargs)
 | `shared/llm/*` | `config`, `litellm`, `pydantic`, `tenacity`, stdlib |
 | Must **not** | FastAPI, SQLAlchemy, `worker/*`, `ai/*` (shared is imported by both) |
 
-**Coexistence:** embedding retry remains in `ai/embeddings/litellm_provider.py` (`EMBEDDING_MAX_RETRIES`); completion retry uses `LLM_MAX_RETRIES`.
+**Coexistence:** embedding retry remains in `ai/embeddings/litellm_provider.py` (`EMBEDDING_MAX_RETRIES`); completion transient retries use `LLM_MAX_RETRIES` inside the fallback candidate walk.
 
 ---
 
 ## 5) Data model
 
-**Entities:** `users`, `workspaces`, `workspace_users`, `notes`, `notebooks`, `pages`, `files`, `note_attachments`, `ai_threads`, `ai_messages`
+**Entities:** `users`, `workspaces`, `workspace_users`, `notes`, `notebooks`, `pages`, `files`, `note_attachments`, `ai_threads`, `ai_messages`, inbound/integration tables (`inbound_idempotency`, `whatsapp_identity_links`, …)
+
+**AI-era fields (summary):** `notes.tags` · `files.extracted_text` / `summary` / `tags` · `ai_threads.title` (one-shot auto-title; null-only)
 
 **Patterns:** `TimestampMixin`, `WorkspaceTenantMixin`, `tenant_filter(model, workspace_id)`
 
@@ -409,7 +436,7 @@ acompletion_with_retry(**kwargs)
 | AI routes | `ai_gateway/search.py`, `ai_routes/*` | HTTP adapters; freeze ctx |
 | AI memory | `ai_memory/*`, `ai/memory/*` | Threads ORM + services |
 | AI agent | `ai/workflows/*`, `ai/tools/*`, `ai/memory/checkpointer.py` | LangGraph + tools |
-| Shared LLM | `shared/llm/*` | Retry policy, structured completion, JSON salvage |
+| Shared LLM | `shared/llm/*` | Fallback + retry policy, structured completion, JSON salvage |
 | Worker | `worker/*` | ARQ embed, automation fan-out, governance gate |
 | Observability | `observability/*`, `monitoring/*` | Logs, traces, metrics, dashboards |
 
@@ -425,7 +452,7 @@ acompletion_with_retry(**kwargs)
 | 404 | Entity not found (includes cross-workspace thread) |
 | 429 | Rate limit (`Retry-After`) |
 | 500 | Unhandled (global handler; generic body) |
-| 503 | Health probe failure; AI disabled (`ai_enabled` / `qdrant_enabled`); agent LLM retries exhausted (`RateLimitError` / `ServiceUnavailableError`) |
+| 503 | Health probe failure; AI disabled (`ai_enabled` / `qdrant_enabled`); agent/RAG LLM candidates exhausted (`RateLimitError` / `ServiceUnavailableError` / wall-clock) |
 
 ---
 

@@ -1,6 +1,6 @@
 # DashNoteSystem
 
-Multi-tenant notes backend: **FastAPI**, **PostgreSQL**, **Redis**, **Qdrant**, **ARQ worker**. AI features include embeddings, RBAC-aware semantic search, RAG chat (JSON + SSE), and a LangGraph workspace agent.
+Multi-tenant notes backend: **FastAPI**, **PostgreSQL**, **Redis**, **Qdrant**, **ARQ worker**. AI features include embeddings, RBAC-aware semantic search, RAG chat (JSON + SSE), and a LangGraph workspace agent. Inbound channels (`/integrations`) cover email and WhatsApp — see [inbound-channels](docs/inbound-channels.md).
 
 **Pitch:** Hire-ready multi-tenant RAG + LangGraph agent platform — live demo path, golden evals, production deploy scripts.
 
@@ -36,7 +36,9 @@ FastAPI · async SQLAlchemy · PostgreSQL · Redis/ARQ · Qdrant · LiteLLM · L
 | RBAC-aware vector search | Yes — JWT `wid` + role filters |
 | RAG chat + SSE citations | `/ai/chat`, `/ai/chat/stream` |
 | LangGraph workspace agent | `/ai/agent`, `/ai/agent/stream` |
+| AI feedback (optional) | `POST /ai/feedback` — JWT `wid`; thumbs or 1–5; not required to complete a turn |
 | Workers / file automation | ARQ ingestion + governance |
+| Inbound integrations | `/integrations` — email API key + WhatsApp webhook/link |
 | Eval harness (C-gate) | `evals/run_eval.py` fixture + live |
 | Thin CI | `.github/workflows/ci.yml` (pytest + docker build; no live LLM keys) |
 
@@ -58,8 +60,12 @@ Evidence pack: [EXPERIMENTS](docs/EXPERIMENTS.md) · [Eval harness](evals/README
 - [Job-search gate tracker](docs/documentation/blueprint/goal.md)
 - [System workflow & routing](docs/documentation/system.md)
 - [AI architecture](docs/documentation/ai.md)
+- [Low-level design (LLD)](docs/documentation/lld.md)
+- [Auth / JWT](docs/documentation/auth.md)
+- [Observability](docs/documentation/observe.md)
 - [EXPERIMENTS (measure→improve)](docs/EXPERIMENTS.md)
 - [Frontend guide (sibling FE)](docs/documentation/frontendguide.md)
+- [Inbound channels](docs/inbound-channels.md)
 - [Eval harness](evals/README.md)
 - [Interview talk track](docs/interview-talk-track.md)
 - [UML diagrams](docs/uml/diagrams.md)

@@ -30,6 +30,22 @@ Endpoints:
     - `wid=membership.tenant_id`
     - `role=membership.role`
 
+- `POST /auth/change-password` (Bearer access)
+  - Body: `{ current_password, new_password }` (`new_password` min 8)
+  - Verifies current password; 401 `Invalid credentials` on mismatch (hash unchanged)
+  - Updates `password_hash`; revokes **all** refresh tokens for that user; issues a new `TokenResponse` for the current session
+
+- `POST /auth/forgot-password` (public, 5/min)
+  - Body: `{ email }`
+  - Always `200` `{ "message": "If an account exists, we sent a reset link." }` whether or not the email is registered
+  - When the user exists and Redis can store a hashed one-time token, sends a Resend email with `{FRONTEND_PUBLIC_URL}/auth/reset?token=...`
+  - Empty `RESEND_API_KEY` / `RESEND_FROM_EMAIL` / `FRONTEND_PUBLIC_URL`: still `200`, no email, API still boots (`/health` does not probe Resend)
+
+- `POST /auth/reset-password` (public, 5/min)
+  - Body: `{ token, new_password }` (`new_password` min 8)
+  - `204` on success; token is one-shot; all refresh tokens for that user are revoked; caller signs in via existing `/auth/login`
+  - Invalid/expired/reused token → `400` without changing the hash
+
 JWT creation is done in:
 
 - `src/auth/security.py`
@@ -49,6 +65,8 @@ To keep auth module changes minimal, token state is handled by a reusable core c
   - `store_refresh_token(user_id, jti, ttl_seconds)`
   - `is_refresh_token_active(user_id, jti)`
   - `revoke_refresh_token(user_id, jti)`
+  - `revoke_all_refresh_tokens(user_id)` (SET index `auth:refresh:index:{user_id}`, not `KEYS`)
+  - `store_password_reset_token` / `consume_password_reset_token` (hashed tokens at `auth:pwdreset:{digest}`, 30 min TTL)
   - `blacklist_access_token(jti, ttl_seconds)`
   - `is_access_token_blacklisted(jti)`
 

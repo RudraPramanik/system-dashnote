@@ -38,11 +38,17 @@ from quality_lab import (  # noqa: E402
     DEFAULT_JUDGE_BACKEND,
     DEFAULT_JUDGE_MODEL,
     REQUIRED_METRICS,
+    COMPLETENESS_STEPS,
+    CORRECTNESS_STEPS,
+    EVAL_REPORT_2_PATH,
+    QUALITY_SCORES_PATH,
     STYLE_RUBRIC,
+    STYLE_STEPS,
     JudgeKeyError,
     PRODUCT_GEMINI_ENV,
     JUDGE_ENV,
     aggregate_metric_scores,
+    append_quality_score,
     chat_payload,
     checklist_text,
     classify_collection_skip,
@@ -50,7 +56,10 @@ from quality_lab import (  # noqa: E402
     hard_floors_met,
     load_dotenv_repo,
     load_judge_key,
+    load_quality_scores,
     load_rag_answer_goldens,
+    render_eval_report_2,
+    reset_quality_scores,
     search_context_texts,
     search_params,
     select_rag_answer_cases,
@@ -347,12 +356,7 @@ def _build_metrics(judge_model: str, floor: float, judge_backend: str) -> list[A
 
     correctness = GEval(
         name="Correctness",
-        evaluation_steps=[
-            "Compare actual output facts to the expected output.",
-            "Penalize contradictions and invented facts.",
-            "Do not penalize harmless wording differences.",
-            "Return a score from 0 to 1 with a short reason.",
-        ],
+        evaluation_steps=list(CORRECTNESS_STEPS),
         evaluation_params=[
             params.ACTUAL_OUTPUT,
             params.EXPECTED_OUTPUT,
@@ -363,12 +367,7 @@ def _build_metrics(judge_model: str, floor: float, judge_backend: str) -> list[A
     )
     completeness = GEval(
         name="Completeness",
-        evaluation_steps=[
-            "Treat expected output as the completeness checklist.",
-            "Check whether every required checklist point appears in the actual output.",
-            "Missing a required point should lower the score.",
-            "Return a score from 0 to 1 with a short reason.",
-        ],
+        evaluation_steps=list(COMPLETENESS_STEPS),
         evaluation_params=[
             params.ACTUAL_OUTPUT,
             params.EXPECTED_OUTPUT,
@@ -379,11 +378,7 @@ def _build_metrics(judge_model: str, floor: float, judge_backend: str) -> list[A
     )
     style = GEval(
         name="Style",
-        evaluation_steps=[
-            f"Score against this product voice rubric: {STYLE_RUBRIC}",
-            "Low style is an honest outcome; do not invent citations.",
-            "Return a score from 0 to 1 with a short reason.",
-        ],
+        evaluation_steps=list(STYLE_STEPS),
         evaluation_params=[params.ACTUAL_OUTPUT],
         threshold=0.0,
         model=model,
@@ -467,17 +462,20 @@ def _score_rows(
                 scores[key] = None
                 reasons[key] = f"judge error: {last_exc}"
 
-        scored.append({"id": row["id"], "scores": scores, "reasons": reasons})
+        record = {"id": row["id"], "scores": scores, "reasons": reasons}
+        scored.append(record)
+        append_quality_score(record)
         c = scores.get("correctness")
         p = scores.get("completeness")
         s = scores.get("style")
-        print(
+        _console_print(
             f"  SCORE  {row['id']}: "
             f"correctness={_fmt(c)} completeness={_fmt(p)} style={_fmt(s)}"
         )
         for key in ALL_METRICS:
-            if scores.get(key) is None and reasons.get(key):
-                print(f"         {key} reason: {reasons[key][:240]}")
+            reason = str(reasons.get(key) or "").strip()
+            if reason:
+                _console_print(f"         {key} reason: {reason[:240]}")
     return scored
 
 
@@ -485,6 +483,13 @@ def _fmt(val: float | None) -> str:
     if val is None:
         return "NaN"
     return f"{val:.4f}"
+
+
+def _console_print(text: str) -> None:
+    """Print without aborting the run when the console encoding cannot hold a character."""
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    safe = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+    print(safe)
 
 
 def _run_live(args: argparse.Namespace) -> int:
@@ -583,13 +588,30 @@ def _run_live(args: argparse.Namespace) -> int:
         return 1
 
     print(f"\n=== DeepEval GEval n={len(rows)} ===\n")
+    reset_quality_scores()
     scored = _score_rows(
         rows,
         judge_model=judge_model,
         floor=floor,
         judge_backend=judge_backend,
     )
-    aggregates = aggregate_metric_scores(scored)
+    persisted = load_quality_scores()
+    aggregates = aggregate_metric_scores(persisted)
+    EVAL_REPORT_2_PATH.write_text(
+        render_eval_report_2(
+            persisted,
+            environment=environment,
+            judge_model=judge_model,
+            skip_reasons=skip_reasons,
+            floor=floor,
+            aggregates=aggregates,
+        ),
+        encoding="utf-8",
+    )
+    print(
+        f"\nWrote {QUALITY_SCORES_PATH.name} and {EVAL_REPORT_2_PATH.name} "
+        "(JSONL is the source of truth)."
+    )
 
     print("\n=== Aggregates ===")
     print(f"environment={environment}")

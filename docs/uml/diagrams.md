@@ -1,6 +1,6 @@
 # DashNoteSystem UML Diagrams
 
-Source: [`src/docs/lld.md`](../../src/docs/lld.md)
+Source: [`docs/documentation/lld.md`](../documentation/lld.md) · system map: [`docs/documentation/system.md`](../documentation/system.md)
 
 ---
 
@@ -194,7 +194,7 @@ sequenceDiagram
 
 ## 5. Semantic search + RBAC
 
-`GET /ai/test-search` and internal retrieval used by RAG.
+`GET /ai/test-search` and internal retrieval used by RAG. Dual collections: `notes_chunks` + `files_chunks`, merged by score under one RBAC/`workspace_id` filter.
 
 ```mermaid
 sequenceDiagram
@@ -215,10 +215,16 @@ sequenceDiagram
     EP-->>WS: query vector
     WS->>F: build_rbac_filter
     F-->>WS: Filter must workspace_id should visibility
-    WS->>QD: query_points filter rbac limit
-    QD-->>WS: scored payloads
-    WS-->>RT: SearchResult list
-    RT-->>C: JSON hits chunk_id score visibility
+    par notes_chunks
+        WS->>QD: query_points notes_chunks filter rbac
+        QD-->>WS: note payloads
+    and files_chunks
+        WS->>QD: query_points files_chunks filter rbac
+        QD-->>WS: file payloads
+    end
+    WS->>WS: merge by score truncate limit
+    WS-->>RT: SearchResult list note and file
+    RT-->>C: JSON hits chunk_id score visibility source_type
 ```
 
 ---
@@ -237,7 +243,7 @@ sequenceDiagram
     participant TS as ThreadService
     participant CB as ContextBuilder
     participant WS as WorkspaceVectorSearch
-    participant LLM as LiteLLM
+    participant LLM as acompletion_with_fallback
     participant TR as ThreadRepository
     participant DB as PostgreSQL
 
@@ -252,20 +258,21 @@ sequenceDiagram
         TR->>DB: ai_threads ai_messages
     end
 
-    RS->>WS: search RBAC
-    WS-->>RS: retrieved chunks
+    RS->>WS: search RBAC dual collections
+    WS-->>RS: retrieved note and file chunks
     RS->>CB: build history + chunks budget
     CB-->>RS: messages array
-    RS->>LLM: acompletion response_format RAGAnswer
+    RS->>LLM: acompletion_with_fallback response_format RAGAnswer
     LLM-->>RS: answer cited_chunk_ids
     RS->>RS: ground citations to retrieved set
 
     opt db session
         RS->>TS: persist_turn
         TS->>TR: insert messages
+        TS->>TS: set_title_for_new_thread one-shot
     end
 
-    RS-->>RT: ChatResult thread_id citations
+    RS-->>RT: ChatResult thread_id citations title
     RT-->>C: ChatResponse JSON
 ```
 
@@ -281,16 +288,16 @@ sequenceDiagram
     participant C as Client
     participant RT as ai_routes/chat
     participant RS as RagService
-    participant LLM as LiteLLM stream
+    participant LLM as acompletion_with_fallback stream
 
     C->>RT: POST /ai/chat/stream
     RT->>RT: freeze ctx before generate
     RT->>RS: stream_answer frozen strings
 
-    RS->>RS: retrieve + ContextBuilder same as answer
+    RS->>RS: retrieve dual collections + ContextBuilder same as answer
 
     loop token stream
-        RS->>LLM: acompletion stream True
+        RS->>LLM: acompletion_with_fallback stream True
         LLM-->>RS: delta
         RS-->>RT: StreamToken
         RT-->>C: SSE type token
@@ -323,6 +330,7 @@ classDiagram
         +id UUID
         +workspace_id str
         +created_by str
+        +title str nullable
         +is_active bool
     }
 
@@ -344,6 +352,7 @@ classDiagram
         +get_or_create_thread(...)
         +load_history(...)
         +persist_turn(...)
+        +set_title_for_new_thread(...)
     }
 
     class ContextBuilder {
@@ -369,19 +378,23 @@ classDiagram
     RagService ..> RequestContext : plain strings only at boundary
 
     note for AsyncPostgresSaver "Linked to AIThread.id by thread_id string no FK"
+    note for AIThread "title set one-shot after first turn null-only no backfill"
 ```
 
 ---
 
 ## 9. LangGraph agent loop
 
-State machine + invoke sequence for `POST /ai/agent`.
+State machine + invoke sequence for `POST /ai/agent*` (separate from `/ai/chat*`). Mutation tools HITL-interrupt; resume/reject continue the checkpointed turn.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Agent: START
     Agent --> Tools: tool_calls present AND steps_taken less max
-    Tools --> Agent: tool results
+    Tools --> Agent: tool results read-only
+    Tools --> Interrupted: create_note or update_note interrupt
+    Interrupted --> Agent: POST /ai/agent/resume
+    Interrupted --> [*]: POST /ai/agent/reject
     Agent --> [*]: no tools OR max iterations
 ```
 
@@ -391,29 +404,41 @@ sequenceDiagram
     participant C as Client
     participant RT as ai_routes/agent
     participant G as workspace_assistant graph
-    participant M as call_model acompletion_with_retry
+    participant M as call_model acompletion_with_fallback
     participant TN as tool_node
     participant T as StructuredTools
     participant RS as RagService
     participant NS as NoteService
     participant CP as AsyncPostgresSaver
 
-    C->>RT: POST /ai/agent message thread_id
+    C->>RT: POST /ai/agent or /ai/agent/stream
     RT->>RT: freeze ctx db_session_var.set
-    RT->>G: ainvoke state config thread_id
+    RT->>G: ainvoke or astream state config thread_id
     G->>CP: load checkpoint optional
 
-    loop until END or AGENT_MAX_ITERATIONS
-        G->>M: acompletion_with_retry tools function defs
+    loop until END or AGENT_MAX_ITERATIONS or interrupt
+        G->>M: acompletion_with_fallback tools function defs
         alt tool_calls
             M-->>G: assistant message + tools
             G->>TN: execute_tools
             alt search_notes summarize_workspace
                 TN->>RS: answer workspace_id user_id role
+                TN-->>G: tool messages
             else create_note update_note
-                TN->>NS: NoteService db from contextvar
+                TN->>TN: interrupt pending approval
+                G->>CP: save checkpoint
+                RT-->>C: approval_required tool args thread_id interrupt_id
+                Note over C,RT: stream may close; chat path stays separate
+                alt Approve
+                    C->>RT: POST /ai/agent/resume thread_id interrupt_id
+                    RT->>G: resume checkpoint
+                    TN->>NS: NoteService db from contextvar
+                    TN-->>G: tool messages
+                else Reject
+                    C->>RT: POST /ai/agent/reject thread_id interrupt_id
+                    RT-->>C: turn ended without mutation
+                end
             end
-            TN-->>G: tool messages
         else final answer
             M-->>G: text response
         end
@@ -421,10 +446,10 @@ sequenceDiagram
 
     G->>CP: save checkpoint
     RT->>RT: db_session_var.reset
-    alt LLM retries exhausted
+    alt LLM candidates exhausted
         RT-->>C: 503 LLM temporarily unavailable
     else success
-        RT-->>C: AgentResponse steps_taken tool_calls_made
+        RT-->>C: AgentResponse or done SSE steps_taken tool_calls_made title
     end
 ```
 
@@ -432,7 +457,7 @@ sequenceDiagram
 
 ## 10. Docker Compose deployment
 
-Runtime deployment view (see also `src/docs/system.md`).
+Runtime deployment view (see also [`docs/documentation/system.md`](../documentation/system.md)). Grafana is optional (Cloud or a separately added service) — **not** a default Compose service.
 
 ```mermaid
 flowchart LR
@@ -448,7 +473,6 @@ flowchart LR
         RD[(redis :6379)]
         QD[(qdrant :6333)]
         PR[prometheus :9090]
-        GF[grafana :3001]
         MG[migrate one-shot]
     end
 
@@ -462,7 +486,6 @@ flowchart LR
     WRK --> RD
     WRK --> QD
     PR -->|scrape /metrics| API
-    GF --> PR
     MG --> PG
 
     note1[notes router enqueues embed jobs to Redis]
@@ -525,7 +548,7 @@ sequenceDiagram
 
 ## 12. Shared LLM layer (Slice 7.5)
 
-Class collaboration for structured and retry-wrapped completions.
+Class collaboration for structured completions and wall-clock + candidate fallback (RAG, agent, titles).
 
 ```mermaid
 classDiagram
@@ -538,8 +561,16 @@ classDiagram
         +returns BaseModel
     }
 
+    class acompletion_with_fallback {
+        +kwargs litellm params
+        +wall_clock timeout
+        +LLM_MODEL plus LLM_MODEL_FALLBACKS
+        +returns ModelResponse
+    }
+
     class acompletion_with_retry {
         +kwargs litellm params
+        +transient retries
         +returns ModelResponse
     }
 
@@ -581,17 +612,24 @@ classDiagram
         workspace_assistant
     }
 
+    class RagService {
+        answer stream_answer
+    }
+
+    acompletion_structured --> acompletion_with_fallback
     acompletion_structured --> parse_structured_response
     parse_structured_response --> extract_json_blob
     parse_structured_response ..> StructuredLLMParseError : raises
-    acompletion_structured ..> RETRYABLE_EXCEPTIONS : retries
+    acompletion_with_fallback --> acompletion_with_retry
     acompletion_with_retry ..> RETRYABLE_EXCEPTIONS : retries
 
     generate_note_tags --> acompletion_structured
     generate_file_metadata --> acompletion_structured
     AutomationDecisionEngine --> acompletion_structured
-    call_model --> acompletion_with_retry
+    call_model --> acompletion_with_fallback
+    RagService --> acompletion_with_fallback
 
     note for acompletion_structured "Used by worker automation + governance"
-    note for acompletion_with_retry "Used by agent call_model only"
+    note for acompletion_with_fallback "Primary path for RAG agent titles integrations"
+    note for acompletion_with_retry "Internal helper under fallback not the live entry"
 ```

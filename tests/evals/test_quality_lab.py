@@ -279,3 +279,97 @@ def test_collect_row_retries_chat_timeout_then_collects(
     assert row["actual_output"] == "ok"
     assert row["retrieval_context"] == ["chunk about alpha"]
     assert client.posts == 2
+
+
+def test_console_print_survives_unencodable_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    import run_quality
+
+    seen: list[str] = []
+
+    class _Stdout:
+        encoding = "cp1252"
+
+    monkeypatch.setattr(run_quality.sys, "stdout", _Stdout())
+    monkeypatch.setattr("builtins.print", lambda text="": seen.append(text))
+    run_quality._console_print("non\u2011breaking")
+    assert len(seen) == 1
+    assert "\u2011" not in seen[0]
+
+
+def test_judge_steps_use_library_scale_not_unit_interval() -> None:
+    steps = (
+        quality_lab.CORRECTNESS_STEPS
+        + quality_lab.COMPLETENESS_STEPS
+        + quality_lab.STYLE_STEPS
+    )
+    blob = "\n".join(steps).lower()
+    assert "0 to 1" not in blob
+    assert "0-1" not in blob
+    assert "score from 0" not in blob
+    runner = (_EVALS / "run_quality.py").read_text(encoding="utf-8")
+    assert "score from 0 to 1" not in runner
+    assert "rubric=" not in runner
+
+
+def test_style_rubric_matches_declared_answer_voice() -> None:
+    rubric = quality_lab.STYLE_RUBRIC
+    lowered = rubric.lower()
+    assert "concise" in lowered
+    assert "do not invent facts" in lowered
+    assert "marker token" in lowered
+    assert (
+        "I could not find relevant information in your notes and files for this query."
+        in rubric
+    )
+    assert "do not require citation prose inside the answer" in lowered
+    assert "citations should come from" not in lowered
+
+
+def test_quality_scores_jsonl_and_report_match_aggregates(tmp_path: Path) -> None:
+    scores_path = tmp_path / "quality_scores.jsonl"
+    rows = [
+        {
+            "id": "rag-ans-01",
+            "scores": {"correctness": 0.8, "completeness": 0.9, "style": 0.4},
+            "reasons": {
+                "correctness": "marker present",
+                "completeness": "both points present",
+                "style": "concise",
+            },
+        },
+        {
+            "id": "rag-ans-02",
+            "scores": {"correctness": 0.6, "completeness": 0.7, "style": 0.5},
+            "reasons": {
+                "correctness": "partial",
+                "completeness": "one point thin",
+                "style": "direct",
+            },
+        },
+    ]
+    quality_lab.reset_quality_scores(scores_path)
+    for row in rows:
+        quality_lab.append_quality_score(row, scores_path)
+    loaded = quality_lab.load_quality_scores(scores_path)
+    assert [row["id"] for row in loaded] == ["rag-ans-01", "rag-ans-02"]
+    assert loaded[0]["reasons"]["correctness"] == "marker present"
+    assert loaded[0]["scores"]["correctness"] == 0.8
+
+    expected = quality_lab.aggregate_metric_scores(loaded)
+    report = quality_lab.render_eval_report_2(
+        loaded,
+        environment="lab",
+        judge_model="nvidia_nim/openai/gpt-oss-20b",
+        skip_reasons=["rag-ans-99: empty retrieval"],
+        floor=0.7,
+        aggregates=expected,
+    )
+    assert "environment: `lab`" in report
+    assert "judge_model: `nvidia_nim/openai/gpt-oss-20b`" in report
+    assert "n: 2" in report
+    assert "SKIP: 1" in report
+    assert "rag-ans-99: empty retrieval" in report
+    assert f"correctness: {expected['correctness']:.4f}" in report
+    assert f"completeness: {expected['completeness']:.4f}" in report
+    assert f"style: {expected['style']:.4f}" in report
+    assert "marker present" in report

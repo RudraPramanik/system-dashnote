@@ -39,10 +39,32 @@ REQUIRED_METRICS = ("correctness", "completeness")
 ALL_METRICS = ("correctness", "completeness", "style")
 
 STYLE_RUBRIC = (
-    "Citations should come from retrieved notes when available; "
-    "be concise; do not invent certainty; "
-    "do not claim private notes the user cannot see."
+    "Be concise. Do not invent facts. "
+    "When the answer uses a marker token from the retrieved notes, preserve that token exactly. "
+    "When context is insufficient, the only allowed non-answer is: "
+    '"I could not find relevant information in your notes and files for this query." '
+    "Score the answer text only. Do not require citation prose inside the answer."
 )
+
+# DeepEval GEval asks for an integer on its default 0–10 range and divides by 10.
+# These steps must not tell the judge to score from 0 to 1.
+CORRECTNESS_STEPS = [
+    "Compare actual output facts to the expected output.",
+    "Penalize contradictions and invented facts.",
+    "Do not penalize harmless wording differences.",
+]
+COMPLETENESS_STEPS = [
+    "Treat expected output as the completeness checklist.",
+    "Check whether every required checklist point appears in the actual output.",
+    "Missing a required point should lower the score.",
+]
+STYLE_STEPS = [
+    f"Score against this product voice rubric: {STYLE_RUBRIC}",
+    "Low style is an honest outcome.",
+]
+
+QUALITY_SCORES_PATH = EVALS_ROOT / "quality_scores.jsonl"
+EVAL_REPORT_2_PATH = EVALS_ROOT / "eval_report_2.md"
 
 COLLECTION_FAILURE_HINT = (
     "ERROR: L2 quality collection failed — zero scored rows.\n"
@@ -177,6 +199,90 @@ def hard_floors_met(
         if float(val) < float(floor):
             problems.append(f"{name}={val:.4f} < floor {floor}")
     return (not problems), problems
+
+
+def reset_quality_scores(path: Path | None = None) -> Path:
+    """Replace the scores JSONL so a new run cannot mix with the previous one."""
+    target = path or QUALITY_SCORES_PATH
+    target.write_text("", encoding="utf-8")
+    return target
+
+
+def append_quality_score(row: dict[str, Any], path: Path | None = None) -> None:
+    """Append one scored case. Reasons are stored even when scores are numeric."""
+    target = path or QUALITY_SCORES_PATH
+    record = {
+        "id": row.get("id"),
+        "scores": row.get("scores") or {},
+        "reasons": row.get("reasons") or {},
+    }
+    with target.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def load_quality_scores(path: Path | None = None) -> list[dict[str, Any]]:
+    target = path or QUALITY_SCORES_PATH
+    rows: list[dict[str, Any]] = []
+    if not target.exists():
+        return rows
+    for line in target.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        obj = json.loads(line)
+        if isinstance(obj, dict):
+            rows.append(obj)
+    return rows
+
+
+def render_eval_report_2(
+    rows: list[dict[str, Any]],
+    *,
+    environment: str,
+    judge_model: str,
+    skip_reasons: list[str],
+    floor: float,
+    aggregates: dict[str, float | None] | None = None,
+) -> str:
+    """Markdown report rendered from scored JSONL rows. Full reasons stay in the file."""
+    means = aggregates if aggregates is not None else aggregate_metric_scores(rows)
+    lines = [
+        "# L2 quality report",
+        "",
+        "Rendered from `evals/quality_scores.jsonl`. The console transcript is not the record.",
+        "",
+        f"- environment: `{environment}`",
+        f"- judge_model: `{judge_model}`",
+        f"- n: {len(rows)}",
+        f"- SKIP: {len(skip_reasons)}",
+        f"- floor: {floor} (correctness and completeness; style is not gated)",
+        "",
+        "## Aggregates",
+        "",
+    ]
+    for name in ALL_METRICS:
+        val = means.get(name)
+        shown = "NaN" if val is None else f"{float(val):.4f}"
+        lines.append(f"- {name}: {shown}")
+    if skip_reasons:
+        lines.extend(["", "## SKIP reasons", ""])
+        for reason in skip_reasons:
+            lines.append(f"- {reason}")
+    lines.extend(["", "## Cases", ""])
+    for row in rows:
+        scores = row.get("scores") or {}
+        reasons = row.get("reasons") or {}
+        lines.append(f"### {row.get('id')}")
+        lines.append("")
+        for name in ALL_METRICS:
+            raw = scores.get(name)
+            shown = "NaN" if raw is None else f"{float(raw):.4f}"
+            lines.append(f"- {name}: {shown}")
+            reason = str(reasons.get(name) or "").strip()
+            if reason:
+                lines.append(f"  - reason: {reason}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def configure_judge_env(judge_key: str, environ: dict[str, str] | None = None) -> None:

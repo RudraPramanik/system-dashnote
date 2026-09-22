@@ -15,7 +15,7 @@ Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM →
 | Qdrant search | **`WorkspaceVectorSearch`** in `ai/retrieval/wrapper.py` only — queries `notes_chunks` **and** `files_chunks` (merge by score); never `AsyncQdrantClient` in routers |
 | Qdrant writes | `WorkspaceVectorIndex` + `NoteVectorIndexer` (notes); `WorkspaceFileVectorIndex` + `FileVectorIndexer` (files) — worker/indexer path only |
 | RBAC filter | `build_rbac_filter()` in `ai/retrieval/filters.py` — mirrors `notes/permissions.py` exactly |
-| Routers | Test: **`GET /ai/test-search`**; chat: **`POST /ai/chat`**, **`POST /ai/chat/stream`**; agent: **`POST /ai/agent`**, **`POST /ai/agent/stream`**, **`POST /ai/agent/resume`**, **`POST /ai/agent/reject`** |
+| Routers | Test: **`GET /ai/test-search`**; chat: **`POST /ai/chat`**, **`POST /ai/chat/stream`**; agent: **`POST /ai/agent`**, **`POST /ai/agent/stream`**, **`POST /ai/agent/resume`**, **`POST /ai/agent/reject`**; feedback: **`POST /ai/feedback`** (JWT `wid` only; turns complete without it) |
 | Services | **`RagService.answer()`** / **`stream_answer()`** — plain `workspace_id` / `user_id` / `role` strings only |
 | Streaming | SSE citations in final `metadata` event only — never parsed from token stream; quiet streams emit SSE comment heartbeats (`ai_routes/sse_heartbeat.py`); optional `title` on chat `metadata` / agent `done` |
 | HITL | Mutation tools (`create_note`, `update_note`) interrupt → `approval_required` then stream ends; client reconnects via resume/reject |
@@ -338,7 +338,7 @@ Slice 6 invariants: see [rules.md](./rules.md). HITL blueprint history: [bluepri
 
 ## Observability
 
-RAG instrumentation via `observability.tracing` (`rag_trace` → spans `retrieval`, `context_building`, `llm_generation`). HTTP metrics at `GET /metrics` (`dashnote_api_*`). Soft AI readiness: **`GET /health/ai`**. Details and validation commands: **[observe.md](./observe.md)**.
+RAG instrumentation via `observability.tracing` (`rag_trace` → spans `retrieval`, `context_building`, `llm_generation`). Agent turns may emit an `agent.turn` (or equivalent) observation. HTTP metrics at `GET /metrics`: `dashnote_api_*` plus low-cardinality `dashnote_ai_*` quality counters — **not** a production SLO. Optional `POST /ai/feedback` (JWT `wid`; thumbs or 1–5) can score a turn in Langfuse; feedback is **not** required to complete chat/agent. Soft AI readiness: **`GET /health/ai`** (not the hard `/health` gate). Details and validation commands: **[observe.md](./observe.md)**.
 
 ---
 

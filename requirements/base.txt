@@ -95,3 +95,6 @@ langfuse >= 2.60.0,<4
 
 # --- Observability: Prometheus HTTP metrics ---
 prometheus-fastapi-instrumentator >= 0.11.0
+
+# --- Transactional email (password reset; optional at runtime) ---
+resend>=2.0.0

@@ -61,6 +61,7 @@ Next.js (browser) ──Bearer JWT──► Nginx (optional) ──► FastAPI
 | RAG chat | `/ai/chat`, `/ai/chat/stream` |
 | Threads sidebar | `/ai/threads*` |
 | Agent demo | `/ai/agent`, `/ai/agent/stream` (+ resume/reject) |
+| Feedback (optional) | `POST /ai/feedback` — not required for B-gate |
 
 ---
 
@@ -91,6 +92,9 @@ All auth bodies are **JSON** (not OAuth2 form `username`/`password`).
 | `POST` | `/auth/login` | none | `{ email, password }` | `TokenResponse` (stricter rate limit) |
 | `POST` | `/auth/refresh` | none | `{ refresh_token }` | new `TokenResponse` (refresh rotated) |
 | `POST` | `/auth/logout` | Bearer access | optional `{ refresh_token }` | `204` |
+| `POST` | `/auth/change-password` | Bearer access | `{ current_password, new_password }` | `TokenResponse` (other refresh tokens revoked) |
+| `POST` | `/auth/forgot-password` | none | `{ email }` | `200` same message whether or not the email exists (5/min) |
+| `POST` | `/auth/reset-password` | none | `{ token, new_password }` | `204`; then sign in via `/auth/login` |
 
 `TokenResponse`:
 
@@ -248,6 +252,7 @@ Both **chat** and **agent** MUST remain available as separate modes (tabs/pages)
 | Agent | `POST /ai/agent`, `POST /ai/agent/stream` | Multi-step tools (search, create/update notes) |
 | Threads | `GET /ai/threads`, `GET /ai/threads/{id}/messages`, `PATCH /ai/threads/{id}`, `DELETE /ai/threads/{id}` | History sidebar |
 | Dev search | `GET /ai/test-search?q=...&limit=5` | Diagnostic retrieval — not primary product UI |
+| Feedback (optional) | `POST /ai/feedback` | Thumbs or 1–5 after a turn — not required |
 
 All AI routes require Bearer. `workspace_id` / `user_id` / `role` are taken from JWT only — never send `workspace_id` on these routes.
 
@@ -276,6 +281,8 @@ Content-Type: `text/event-stream`. Events:
 | metadata | `{ "type": "metadata", "citations": [...], "chunks_retrieved", "chunks_used", "latency_ms", "thread_id"?, "title"? }` | Render sources **here only**; if `title` is present, update the thread sidebar label |
 | error | `{ "type": "error", "message": "...", "status_code"? }` | Show error |
 | done | literal `data: [DONE]` | Close reader |
+
+**Heartbeats:** The API may emit SSE **comment** frames (lines starting with `:`) on quiet streams so Nginx does not drop the connection. Clients MUST ignore comment frames for answer rendering — they are not tokens, metadata, or errors. Heartbeat UI is **not** a B-gate checklist item.
 
 **Law:** Never scrape citations from the token text stream.
 
@@ -354,7 +361,7 @@ New threads receive an auto-generated `title` after the first successful chat/ag
 | `error` | `message` | User-visible error; suggest falling back to chat |
 | `[DONE]` | literal | Close stream |
 
-If the stream closes with no `token`, `done`, `approval_required`, or `error`, treat it as failure and show `LLM temporarily unavailable; retry shortly` — not an empty bubble.
+If the stream closes with no `token`, `done`, `approval_required`, or `error`, treat it as failure and show `LLM temporarily unavailable; retry shortly` — not an empty bubble. Ignore SSE comment/heartbeat frames the same way as chat streams.
 
 **Approve:** `POST /ai/agent/resume` body `{ "thread_id": "...", "interrupt_id": "..." }` (interrupt_id optional). JWT only — do **not** send `workspace_id`. JSON response is the continued turn (`answer`, …) or another `approval_required`.
 
@@ -367,6 +374,14 @@ Agent may create/update notes via tools — refresh the notes list after a succe
 - Default product chat → **RAG stream** (citations).
 - “Agent” / “Assistant with tools” → **agent stream** (tool timeline + answer).
 - Do not hide chat because agent exists.
+
+### 5.6 Optional feedback — `POST /ai/feedback`
+
+After a successful chat or agent turn, the client MAY call `POST /ai/feedback`. Turns complete without it. Do **not** require a thumbs UI for B-gate.
+
+**Body:** `thread_id` (required) plus either `thumbs` (`up` | `down`) or `score` (1–5). Include `trace_id` when the API returned one. JWT only — do **not** send `workspace_id` to override tenancy.
+
+**Response:** `2xx` with `tracing=recorded` or `tracing=unavailable` (Langfuse off). Chat and agent remain usable if this call is skipped or fails.
 
 ---
 

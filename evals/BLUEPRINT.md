@@ -5,7 +5,7 @@ Canonical eval program for DashNoteSystem. All eval code and datasets live under
 **This is not a production SLO.** Judge scores are `lab` or `pre-deploy` records.  
 **This is not** [`docs/documentation/blueprint/slice8_eval.md`](../docs/documentation/blueprint/slice8_eval.md) — that file is Slice 8X.2 Cursor prompts for the C-gate harness. Do not rewrite it.
 
-**Phase 0 (this file) is done.** L0 fixture-gate, L1 live contract, and L2 LLM-as-judge are done. **L3 production observability** (Langfuse traces, Prometheus, `POST /ai/feedback`) is the current implementation phase. Thresholds / baseline, generator style work, and agent answer goldens remain later.
+**Phase 0 (this file) is done.** L0 fixture-gate, L1 live contract, L2 LLM-as-judge, and **L3 production observability** (Langfuse traces, Prometheus, `POST /ai/feedback`) are done. Thresholds / baseline, generator style work, and agent answer goldens remain later.
 
 How to run what exists today: [`README.md`](README.md).
 
@@ -52,7 +52,7 @@ Enterprise/startup practice is this split — not “GEval on every user request
 ├─────────────────────────────────────────────────────────────────┤
 │ L3  Production observability      Langfuse + Prom + feedback    │
 │     traces, empty_retrieval, thumbs                             │
-│     THIS PHASE  · NEVER await a judge on /ai/chat or /ai/agent  │
+│     DONE  · NEVER await a judge on /ai/chat or /ai/agent        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -63,7 +63,7 @@ Enterprise/startup practice is this split — not “GEval on every user request
 | L0 | `python evals/run_eval.py --mode fixture` | Done — PR blocking |
 | L1 | `python evals/run_eval.py --mode live --base-url … --token …` | Done — operator / nightly |
 | L2 | `python evals/run_quality.py` | Done — local / pre-deploy; not PR CI |
-| L3 | Langfuse UI + `POST /ai/feedback`; Prometheus `/metrics` | This phase — serving path has no judge |
+| L3 | Langfuse UI + `POST /ai/feedback`; Prometheus `/metrics` | Done — serving path has no judge |
 
 **PR CI MUST stay L0 only.** L1 MUST NOT be a merge gate. L2 MUST stay off the hot path. Production serving MUST NOT require the judge suite to return an answer.
 
@@ -141,9 +141,11 @@ L2 engine: **DeepEval `GEval`** (criteria or `evaluation_steps`) with Gemini as 
 | **Style** | actual vs product voice rubric | **Always report**; loose or no floor at first | Control loop for generator prompts |
 | Faithfulness | actual vs `retrieval_context` | Optional; not required for phase 1 | Grounding |
 
-**Style may score low on v1.** That is an honest outcome, not a reason to omit the metric. Raising style is **generator** work (prompt, citation policy, concision) measured again by L2 and recorded in [`docs/EXPERIMENTS.md`](../docs/EXPERIMENTS.md).
+**Style may score low on v1.** That is an honest outcome, not a reason to omit the metric. Raising style by editing the generator prompt is later work, measured again by L2. Agent-answer goldens stay a later phase. Do not change `RAG_SYSTEM_INSTRUCTION` just to lift a style mean.
 
-Concrete style rubric (keep this specific so the judge does not drift): citations from retrieved notes, concise, no invented certainty, no claiming private notes the user cannot see.
+Concrete style rubric (answer string only): concise; no invented facts; preserve marker tokens from the retrieved notes; the product refusal sentence is the allowed non-answer. Do not require citation prose inside the answer. Citations stay a sibling field of the chat response.
+
+**Judge scale:** GEval’s default integer range is 0–10, then divided by 10. Steps must not say “score from 0 to 1”. Each run replaces `evals/quality_scores.jsonl` and renders `evals/eval_report_2.md` from it. `evals/eval_report.md` is the historical scale-collapsed paste, not the record of a later run.
 
 **These scores are not production SLOs.** Label runs `lab` or `pre-deploy`.
 
@@ -273,7 +275,7 @@ Each phase is a **separate OpenSpec change** unless an operator explicitly expan
 | **1** | L0 fixture-gate close-out: scoring tests, honest recorded `PASS: X/Y`, NVIDIA NIM as Gemini 429 hatch | Done |
 | **2** | L1 live contract: same goldens/scorers vs Compose/staging, L0/L1 alignment docs, honest live `PASS: X/Y`, NIM hatch when Gemini 429 blocks live | Done |
 | **3** | `rag_answers.jsonl` (AI-drafted), `run_quality.py`, `requirements-quality.txt`, CI-safe helper tests only | Done |
-| **4** | L3 production observability: Langfuse env alias, traces + feedback + Prom docs, apply proof, L0/L1 re-alignment | **This change** |
+| **4** | L3 production observability: Langfuse env alias, traces + feedback + Prom docs, apply proof, L0/L1 re-alignment | Done |
 | **5** | Thresholds, baseline comparison, dated EXPERIMENTS row from a real local run | Later |
 | **6** | Generator / prompt / citation work driven by style scores (product code; still measured by L2) | Later |
 | **7** | `agent_answers.jsonl` + same CLI theme; trajectories stay L0/L1 fixture-primary | Later |
@@ -312,7 +314,7 @@ Keep these until a later change **explicitly** folds or retires them. C-gate is 
 | `run_ragas.py` | Laptop RAGAS lab (faithfulness / context precision, `GEMINI_API_KEY_2`) |
 | Langfuse traces + `POST /ai/feedback` + Prom `dashnote_ai_*` | L3 serving observability — not a merge gate, not a production SLO |
 
-RAGAS and Langfuse labs are thickeners, not SLOs, not PR CI. They MAY later fold into DeepEval (e.g. `FaithfulnessMetric`). This phase does not delete them.
+RAGAS and Langfuse labs are thickeners, not SLOs, not PR CI. They MAY later fold into DeepEval (e.g. `FaithfulnessMetric`). A later change must explicitly fold or retire them.
 
 ---
 

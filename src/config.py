@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     WHATSAPP_APP_SECRET: str = ""
     WHATSAPP_PHONE_NUMBER_ID: str = ""
 
+    # ── Outbound transactional email (password reset; soft / optional) ──
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = ""
+    FRONTEND_PUBLIC_URL: str = ""
+
     @property
     def llm_model_candidates(self) -> list[str]:
         """Primary LLM_MODEL then unique fallbacks, order preserved."""

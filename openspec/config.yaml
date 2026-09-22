@@ -22,7 +22,7 @@ context: |
   - `workspaces`, `membership` — tenants and roles (`owner` | `admin` | `member`)
   - `notebooks`, `notes`, `pages` (ORM only, no HTTP), `files` — core content + attachments
   - `integrations` — inbound email (API key) + WhatsApp webhook/link (`docs/inbound-channels.md`)
-  - `ai`, `ai_gateway`, `ai_routes`, `ai_memory` — embeddings, RAG chat, threads, LangGraph agent + HITL (`ai_search` POST router unmounted)
+  - `ai`, `ai_gateway`, `ai_routes`, `ai_memory` — embeddings, RAG chat, threads, LangGraph agent + HITL, optional feedback (`ai_search` POST router unmounted)
   - `core` — DB session, security/RequestContext, Redis, storage, rate limit
   - `shared` — events bus, parsers, LLM helpers (retry/fallback/structured)
   - `worker` — ingestion + automation tasks
@@ -34,7 +34,7 @@ context: |
   - `/workspaces`, `/workspaces/members`
   - `/notebooks`, `/notes`, `/files`
   - `/integrations` — inbound email; WhatsApp webhook + JWT link
-  - `/ai` — `GET /ai/test-search`; `POST /ai/chat`, `/ai/chat/stream`; threads (`GET/PATCH/DELETE /ai/threads*`); `POST /ai/agent`, `/ai/agent/stream`, `/ai/agent/resume`, `/ai/agent/reject`
+  - `/ai` — `GET /ai/test-search`; `POST /ai/chat`, `/ai/chat/stream`; threads (`GET/PATCH/DELETE /ai/threads*`); `POST /ai/agent`, `/ai/agent/stream`, `/ai/agent/resume`, `/ai/agent/reject`; `POST /ai/feedback` (JWT `wid` only; optional after a turn)
   - Threads: one-shot auto-title after first turn (`ai/memory/titles.py`); no historical backfill; SSE may include `title`
   - Fast RAG (`/ai/chat*`) and agent (`/ai/agent*`) MUST coexist — never replace one with the other
 

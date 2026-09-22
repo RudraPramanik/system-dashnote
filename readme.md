@@ -2,7 +2,7 @@
 
 Multi-tenant notes backend: **FastAPI**, **PostgreSQL**, **Redis**, **Qdrant**, **ARQ worker**. AI features include embeddings, RBAC-aware semantic search, RAG chat (JSON + SSE), and a LangGraph workspace agent. Inbound channels (`/integrations`) cover email and WhatsApp — see [inbound-channels](docs/inbound-channels.md).
 
-**Pitch:** Hire-ready multi-tenant RAG + LangGraph agent platform — live demo path, golden evals, production deploy scripts.
+**Pitch:** multi-tenant RAG + LangGraph agent platform — live demo path, golden evals, production deploy scripts.
 
 ## Live links
 

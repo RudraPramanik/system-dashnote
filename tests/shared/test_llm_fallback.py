@@ -17,6 +17,7 @@ from shared.llm.fallback import (
     is_model_gone,
     is_rate_limited,
     reset_fallback_state,
+    warn_if_no_distinct_llm_fallback,
 )
 
 
@@ -254,3 +255,36 @@ async def test_all_candidates_rate_limited_raises_unavailable():
     ):
         with pytest.raises(LLMUnavailableError, match="LLM temporarily unavailable"):
             await acompletion_with_fallback(messages=[{"role": "user", "content": "hi"}])
+
+
+def test_warn_if_no_distinct_llm_fallback_when_dedupe_collapses(caplog):
+    settings = MagicMock()
+    settings.LLM_MODEL = "nvidia_nim/openai/gpt-oss-20b"
+    settings.LLM_MODEL_FALLBACKS = "nvidia_nim/openai/gpt-oss-20b"
+    settings.llm_model_candidates = ["nvidia_nim/openai/gpt-oss-20b"]
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        caplog.at_level("WARNING", logger="shared.llm.fallback"),
+    ):
+        warn_if_no_distinct_llm_fallback()
+
+    assert any("not a distinct hatch" in r.message for r in caplog.records)
+
+
+def test_warn_if_no_distinct_llm_fallback_silent_when_hatch_exists(caplog):
+    settings = MagicMock()
+    settings.LLM_MODEL = "nvidia_nim/nvidia/nemotron-3-super-120b-a12b"
+    settings.LLM_MODEL_FALLBACKS = "gemini/gemini-2.5-flash"
+    settings.llm_model_candidates = [
+        "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+        "gemini/gemini-2.5-flash",
+    ]
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        caplog.at_level("WARNING", logger="shared.llm.fallback"),
+    ):
+        warn_if_no_distinct_llm_fallback()
+
+    assert not any("not a distinct hatch" in r.message for r in caplog.records)

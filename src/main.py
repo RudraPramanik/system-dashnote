@@ -95,8 +95,12 @@ async def lifespan(app: FastAPI):
     _s = _get_settings()
     configure_litellm_env(_s)
     try:
-        from shared.llm.fallback import resolve_llm_model
+        from shared.llm.fallback import (
+            resolve_llm_model,
+            warn_if_no_distinct_llm_fallback,
+        )
 
+        warn_if_no_distinct_llm_fallback()
         resolved = await resolve_llm_model(timeout=12.0)
         if resolved:
             logger.info("LLM candidate ready", extra={"model": resolved})

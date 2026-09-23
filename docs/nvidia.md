@@ -49,6 +49,8 @@ Pinged working from this stack:
 
 A model can appear in `GET /v1/models` and still 404 for this account. Always ping before documenting as default.
 
+**2026-09-23 local restore note:** `openai/gpt-oss-20b` hung (wall-clock); Lightning was flaky; Super 120B + Gemini Flash both pinged PASS. Local `.env` may pin Super **explicitly** as primary with Gemini as distinct fallback — still not a documented default hop. Never set `LLM_MODEL_FALLBACKS` equal to `LLM_MODEL` alone. Full restore steps: `docs/documentation/ai.md` § Operator restore smoke.
+
 ## NVIDIA API samples (reference)
 
 See upstream docs at [build.nvidia.com](https://build.nvidia.com/). Raw OpenAI SDK examples use `base_url=https://integrate.api.nvidia.com/v1` and model ids **without** the `nvidia_nim/` prefix; LiteLLM requires the prefix.

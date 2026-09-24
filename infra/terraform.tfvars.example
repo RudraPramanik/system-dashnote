@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars (gitignored) after A0 inventory. Placeholders only.
+
+region              = "us-east-1"
+name_prefix         = "dashnote"
+instance_type       = "t3.small"
+ami_id              = "ami-REPLACE_ME"
+vpc_id              = "vpc-REPLACE_ME"
+subnet_id           = "subnet-REPLACE_ME"
+security_group_name = "REPLACE_ME"
+key_name            = ""
+allowed_ssh_cidrs   = ["203.0.113.10/32"]
+allowed_http_cidrs  = ["0.0.0.0/0"]
+associate_public_ip = true
+manage_eip          = false

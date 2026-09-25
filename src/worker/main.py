@@ -103,8 +103,12 @@ async def startup(ctx: dict) -> None:
 
     configure_litellm_env(settings)
     try:
-        from shared.llm.fallback import resolve_llm_model
+        from shared.llm.fallback import (
+            resolve_llm_model,
+            warn_if_no_distinct_llm_fallback,
+        )
 
+        warn_if_no_distinct_llm_fallback()
         resolved = await resolve_llm_model(timeout=12.0)
         if resolved:
             logger.info("LLM candidate ready", extra={"model": resolved})

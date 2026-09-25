@@ -175,7 +175,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | OIDC → ECR (no long-lived pull token) | ⬜ | Want modern CD bullet | CD already reliable |
 | RDS instead of current Postgres host | ⬜ | Want managed DB story | Hosted PG is fine |
 | ECS/Fargate | ⬜ | Want orchestration bullet | Compose ops not calm yet |
-| Terraform / IaC | ⬜ | Want IaC bullet | Still fighting first deploy |
+| Terraform / IaC | 🚧 | Level A scaffold is in [`deployment/terraform-a.md`](deployment/terraform-a.md). Live import is still an operator step. Level B and Level C are not started. | ECS, RDS, and OIDC stay unchecked |
 
 **Skills this phase teaches:** deliberate AWS swaps, saying “no” to resume padding.
 
@@ -205,6 +205,7 @@ Fill as phases close. Prefer proof over buzzwords.
 |-------|------|
 | Progress / learner path | **This file** |
 | Deploy commands | [deployment/runbook.md](deployment/runbook.md) |
+| Terraform Level A | [deployment/terraform-a.md](deployment/terraform-a.md) |
 | Storage (R2) | [deployment/storage.md](deployment/storage.md) |
 | 7P engineering checklist | [documentation/production.md](documentation/production.md) |
 | Hire / A-gate | [documentation/blueprint/goal.md](documentation/blueprint/goal.md) |

@@ -88,6 +88,29 @@ def is_rate_limited(exc: BaseException) -> bool:
     )
 
 
+def warn_if_no_distinct_llm_fallback() -> None:
+    """Soft boot warning when FALLBACKS are set but dedupe leaves one candidate.
+
+    Does not raise — API/worker must stay up. Duplicate primary=fallback is not
+    a working hatch (see llm-resilience distinct-hatch requirement).
+    """
+    settings = get_settings()
+    raw_fallbacks = [
+        m.strip() for m in settings.LLM_MODEL_FALLBACKS.split(",") if m.strip()
+    ]
+    candidates = settings.llm_model_candidates
+    if raw_fallbacks and len(candidates) < 2:
+        logger.warning(
+            "LLM_MODEL_FALLBACKS collapses to a single candidate after dedupe; "
+            "not a distinct hatch — set a different live id before calling AI healthy",
+            extra={
+                "primary": settings.LLM_MODEL,
+                "fallbacks": settings.LLM_MODEL_FALLBACKS,
+                "candidates": candidates,
+            },
+        )
+
+
 def reset_fallback_state() -> None:
     """Test helper — clear process cache."""
     global _cached_model

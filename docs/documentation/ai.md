@@ -199,6 +199,16 @@ Resilience for automation LLM calls and agent `call_model`. Blueprint: `docs/doc
 
 **Agent / chat HTTP:** `ai_routes/agent.py` and chat map exhausted LLM to **503** `"LLM temporarily unavailable; retry shortly"` (not opaque 500). Streams use `iter_with_heartbeat` so nginx does not drop a quiet first hop.
 
+### Operator restore smoke (chat / agent unavailable)
+
+When DashNotes shows `LLM temporarily unavailable; retry shortly` but `/health` is green:
+
+1. **Printenv** on `api`: `LLM_MODEL`, `LLM_MODEL_FALLBACKS`, `AGENT_TOOL_TIMEOUT`, `NVIDIA_NIM_API_BASE`. If primary equals the only fallback after dedupe, that is **not** a hatch — fix env first.
+2. **Ping** LiteLLM ids from the `api` container (short completion). Prefer a live primary + a **different** live fallback (second NIM free/catalog id and/or `gemini/gemini-2.5-flash`). Rotate on HTTP 410 / hang. Operators **may** pin Super 120B explicitly when Lightning/gpt-oss hang; do not make Super the documented default hop.
+3. **Recreate** `api` + `worker` (`docker compose up -d --force-recreate api worker`) so in-process candidate cache clears.
+4. **Prove** via nginx (`http://127.0.0.1`): `POST /ai/chat/stream` yields a `type: "token"` frame; `POST /ai/agent/stream` yields `token` / `tool_start` / `approval_required` / `done` — not unavailable-only. Then confirm DashNotes Chat/Agent UI for the same.
+5. Soft boot warning: if `LLM_MODEL_FALLBACKS` is set but dedupes to one candidate, API/worker log `not a distinct hatch` and stay up.
+
 ---
 
 ## Slice 2 — RBAC search & Qdrant indexing

@@ -1,0 +1,6 @@
+# Copy to backend.hcl (gitignored) after the one-time bucket and lock table exist.
+# Do not put the live EC2 or security group in this file.
+
+bucket         = "REPLACE_ME-tfstate"
+region         = "us-east-1"
+dynamodb_table = "REPLACE_ME-tfstate-lock"

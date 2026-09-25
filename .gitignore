@@ -54,3 +54,13 @@ coverage.xml
 # Local compose port overrides
 docker-compose.override.yml
 
+# Terraform Level A — state, real vars, and crash logs stay local
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfvars
+!infra/*.tfvars.example
+infra/backend.hcl
+infra/crash.log
+infra/crash.*.log
+

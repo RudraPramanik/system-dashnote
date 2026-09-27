@@ -31,6 +31,6 @@
 
 ## 6. Live adoption (operator, after 1–5)
 
-- [ ] 6.1 After the operator fills gitignored tfvars from A0, `terraform init` the remote backend, import the security group, and apply only if the plan is empty or in-place; re-check SSH and `GET http://<ip>/health`
-- [ ] 6.2 Import the instance (and existing EIP if any); abort apply if the plan replaces the instance; re-check health and `scripts/smoke_prod.py` exit 0
+- [x] 6.1 After the operator fills gitignored tfvars from A0, `terraform init` the remote backend, import the security group, and apply only if the plan is empty or in-place; re-check SSH and `GET http://<ip>/health`
+- [x] 6.2 Import the instance (and existing EIP if any); abort apply if the plan replaces the instance; re-check health and `scripts/smoke_prod.py` exit 0
 - [x] 6.3 Optional A6: separate workspace throwaway instance, first-boot from the runbook, then destroy only that workspace. Skip and note the skip in `terraform-a.md` when no spare instance is available

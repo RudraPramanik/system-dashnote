@@ -1,14 +1,19 @@
-# Copy to terraform.tfvars (gitignored) after A0 inventory. Placeholders only.
+# Copy to terraform.tfvars (gitignored) before import.
+# Do NOT put AWS access keys here — use `aws configure` or env vars.
+# Import hints (not HCL): i-09d139066d8043da4 | sg-0aa85d451b2b00c10 | eipalloc-0ef67cfa57372b219
+# Do NOT use AWS Config / AWSLogs buckets as Terraform state.
 
-region              = "us-east-1"
+region              = "eu-north-1"
 name_prefix         = "dashnote"
 instance_type       = "t3.small"
-ami_id              = "ami-REPLACE_ME"
-vpc_id              = "vpc-REPLACE_ME"
-subnet_id           = "subnet-REPLACE_ME"
-security_group_name = "REPLACE_ME"
-key_name            = ""
-allowed_ssh_cidrs   = ["203.0.113.10/32"]
+ami_id              = "ami-0aba19e56f3eaec05"
+vpc_id              = "vpc-003f9ce30c7e3a8f9"
+subnet_id           = "subnet-095f4a9b9207d72ea"
+security_group_name = "dashnote-production"
+key_name            = "dashnote"
+# Match live SG for import; tighten SSH later with a careful plan.
+allowed_ssh_cidrs   = ["0.0.0.0/0"]
 allowed_http_cidrs  = ["0.0.0.0/0"]
 associate_public_ip = true
+# EIP exists but is not attached to the instance — leave false until deliberate associate.
 manage_eip          = false

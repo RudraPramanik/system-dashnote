@@ -1,6 +1,10 @@
-# Copy to backend.hcl (gitignored) after the one-time bucket and lock table exist.
-# Do not put the live EC2 or security group in this file.
+# Copy to backend.hcl (gitignored) AFTER you create a dedicated tfstate bucket
+# and DynamoDB lock table in eu-north-1.
+#
+# Do NOT use AWS Config buckets (e.g. config-bucket-… / AWSLogs/…).
+# This S3 bucket is ONLY for Terraform's state file — not your app database.
+# Hosted Postgres / Redis / Qdrant / R2 stay as they are.
 
-bucket         = "REPLACE_ME-tfstate"
-region         = "us-east-1"
-dynamodb_table = "REPLACE_ME-tfstate-lock"
+bucket         = "dashnote-tfstate-010798385836"
+region         = "eu-north-1"
+dynamodb_table = "dashnote-tfstate-lock"

@@ -1,6 +1,7 @@
 resource "aws_security_group" "edge" {
   name        = var.security_group_name
-  description = "DashNote thin VPS edge. SSH and HTTP only; API 8000 stays unpublished."
+  # Must match the live SG exactly — changing description forces replacement.
+  description = "Security group for DashNote production API"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -19,10 +20,17 @@ resource "aws_security_group" "edge" {
     cidr_blocks = var.allowed_http_cidrs
   }
 
-  # Port 8000 is intentionally absent. Nginx publishes :80; the API stays on the Docker network.
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = var.allowed_http_cidrs
+  }
+
+  # Port 8000 is intentionally absent.
 
   egress {
-    description = "Hosted data plane, registries, and LLM APIs"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"

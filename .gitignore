@@ -61,6 +61,7 @@ infra/*.tfstate.*
 infra/*.tfvars
 !infra/*.tfvars.example
 infra/backend.hcl
+infra/tf.env
 infra/crash.log
 infra/crash.*.log
 

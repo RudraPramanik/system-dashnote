@@ -175,7 +175,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | OIDC → ECR (no long-lived pull token) | ⬜ | Want modern CD bullet | CD already reliable |
 | RDS instead of current Postgres host | ⬜ | Want managed DB story | Hosted PG is fine |
 | ECS/Fargate | ⬜ | Want orchestration bullet | Compose ops not calm yet |
-| Terraform / IaC | 🚧 | Level A scaffold is in [`deployment/terraform-a.md`](deployment/terraform-a.md). Live import is still an operator step. Level B and Level C are not started. | ECS, RDS, and OIDC stay unchecked |
+| Terraform / IaC | ✅ | Level A live: EC2 + SG imported, remote state, health + smoke PASS. Blueprint: [`deployment/terraform-a.md`](deployment/terraform-a.md). Level B and Level C not started. | ECS, RDS, and OIDC stay unchecked |
 
 **Skills this phase teaches:** deliberate AWS swaps, saying “no” to resume padding.
 

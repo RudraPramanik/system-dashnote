@@ -54,7 +54,7 @@ Copy this section into your tracker. Check each item. **All must be ✅ before j
 | A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ✅ | HTTP-on-IP first-boot PASS 2026-09-12 (`http://16.192.166.178` health + smoke exit 0). **Not** production-live — **HTTPS still required** for A7 |
 | A5 | **7P.7** CI green on PR (`pytest` + docker build) | ✅ | `.github/workflows/ci.yml` |
 | A6 | **7P.8** CD workflow + gate docs | ✅ | `.github/workflows/deploy.yml` (CD HTTPS not required for first-boot; live TLS proof still needed for A7) |
-| A7 | TLS live API | ⬜ | `https://api.<domain>/health` → 200 — **no domain yet** |
+| A7 | TLS live API | 🚧 | Target `https://api.aisystem.world` via Cloudflare Flexible — DNS A `api` not resolving yet; see `docs/deployment/edge-aisystem.md` |
 
 ```powershell
 # A-gate commands

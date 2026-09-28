@@ -22,9 +22,9 @@ Status glyphs: `✅` done · `⬜` todo · `🚧` in progress · `⛔` blocked (
 
 ## Current level (one-line status)
 
-**Phase 1 — HTTP first-boot (A4) ✅ PASS (2026-09-12).** Live `http://<vps-ipv4>/health` + prod smoke exit 0 proven. **Not** production-live — no domain / **A7 HTTPS still open**. Next: Phase 2 CD proof and/or Phase 3 TLS. Bedrock deferred.
+**Phase 3 — HTTPS / A7 🚧.** Zone `aisystem.world` is on Cloudflare. **Next operator step:** DNS A `api` → `16.192.166.178` (proxied) + SSL Flexible — see [`deployment/edge-aisystem.md`](deployment/edge-aisystem.md). Origin HTTP health still PASS. Frontend stays off this VPS. CD smoke URL will be `https://api.aisystem.world` after DNS works.
 
-_Last reviewed: 2026-09-13_
+_Last reviewed: 2026-09-28_
 
 ---
 
@@ -128,19 +128,20 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 ## Phase 3 — HTTPS / production-live (A7)
 
-**Why:** HTTP-on-IP is first-boot only. Hire/production-live needs TLS + domain. See runbook TLS notes / 7P.5.
+**Why:** HTTP-on-IP first-boot is proven. Production-live needs `https://api.aisystem.world`. Guide: [`deployment/edge-aisystem.md`](deployment/edge-aisystem.md) · commands: [runbook §5](deployment/runbook.md).
 
 | Item | Status | Proof |
 |------|--------|-------|
-| Domain + DNS → VPS | ⬜ | `api.<domain>` resolves |
-| TLS (Caddy / Certbot / Cloudflare) | ⬜ | Cert valid |
-| SG / edge: **443** open; still no public **8000** | ⬜ | SG rules |
-| `CORS_ORIGINS` includes real frontend origin (not `*`) | ⬜ | VPS `.env` |
-| `GET https://api.<domain>/health` → 200 | ⬜ | curl |
-| HTTPS `smoke_prod.py` exit 0 | ⬜ | A4 HTTPS + A7 |
-| Sync A7 in [goal.md](documentation/blueprint/goal.md) | ⬜ | A-gate row |
+| Cloudflare zone for `aisystem.world` | ✅ | Operator: domain protected by Cloudflare |
+| DNS A `api` → VPS IP (proxied) | 🚧 | Create in Cloudflare DNS — not resolving yet from apply laptop |
+| SSL mode Flexible | 🚧 | Set after `api` record exists |
+| SG: 80 (and 443 if needed); **not** public 8000 | ✅ | Terraform-managed SG |
+| `CORS_ORIGINS` includes `https://aisystem.world` (not `*`) | 🚧 | VPS `.env` + restart; contract in `.env.production.example` |
+| `GET https://api.aisystem.world/health` → 200 | ⬜ | Blocked on DNS |
+| HTTPS `smoke_prod.py` exit 0 | ⬜ | Blocked on DNS |
+| Sync A7 in [goal.md](documentation/blueprint/goal.md) | ⬜ | Flip with HTTPS smoke |
 
-**Do next:** pick domain + TLS path only after Phase 1 (and ideally Phase 2) are green. Do not block Bedrock learning on perfect CDN setup if HTTPS smoke already passes.
+**Do next:** add the `api` A record → Flexible → HTTPS health + smoke → CORS on VPS → CD `SMOKE_BASE_URL`. Apex FE hosting is a follow-on (not this VPS). Bedrock stays deferred.
 
 **Skills this phase teaches:** DNS, TLS termination, CORS for real origins, “production-live” vs first-boot claims.
 
@@ -205,6 +206,7 @@ Fill as phases close. Prefer proof over buzzwords.
 |-------|------|
 | Progress / learner path | **This file** |
 | Deploy commands | [deployment/runbook.md](deployment/runbook.md) |
+| API edge (`api.aisystem.world`) | [deployment/edge-aisystem.md](deployment/edge-aisystem.md) |
 | Terraform Level A | [deployment/terraform-a.md](deployment/terraform-a.md) |
 | Storage (R2) | [deployment/storage.md](deployment/storage.md) |
 | 7P engineering checklist | [documentation/production.md](documentation/production.md) |

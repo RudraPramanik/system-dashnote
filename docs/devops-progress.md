@@ -22,9 +22,9 @@ Status glyphs: `✅` done · `⬜` todo · `🚧` in progress · `⛔` blocked (
 
 ## Current level (one-line status)
 
-**Phase 1 — HTTP first-boot (A4) ✅ PASS (2026-09-12).** Live `http://<vps-ipv4>/health` + prod smoke exit 0 proven. **Not** production-live — no domain / **A7 HTTPS still open**. Next: Phase 2 CD proof and/or Phase 3 TLS. Bedrock deferred.
+**Phase 3 — HTTPS / A7 ✅.** `https://api.aisystem.world/health` → 200; HTTPS `smoke_prod.py` HARD GATE PASS (2026-09-28). Cloudflare Full + origin self-signed `:443` — see [`deployment/edge-aisystem.md`](deployment/edge-aisystem.md). **Next:** Phase 2 CD secrets + one green `workflow_dispatch`. Frontend stays off this VPS.
 
-_Last reviewed: 2026-09-13_
+_Last reviewed: 2026-09-28_
 
 ---
 
@@ -33,7 +33,7 @@ _Last reviewed: 2026-09-13_
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  AWS EC2 t3.small (~2 GB) — thin compute                │
-│  nginx :80  →  api :8000 (unpublished)  +  ARQ worker   │
+│  nginx :80/:443  →  api :8000 (unpublished)  +  ARQ worker   │
 │  migrate oneshot · optional prometheus (off first-boot) │
 └───────────────────────────┬─────────────────────────────┘
                             │ .env URLs only
@@ -66,7 +66,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | 7P.3 Soft Qdrant boot | ✅ | API/worker start without hard AI gate |
 | 7P.4 R2 / storage contract | ✅ | [storage.md](deployment/storage.md) |
 | 7P.5 Deploy scripts + runbook | ✅ | [`scripts/deploy/`](../scripts/deploy/) · [runbook](deployment/runbook.md) |
-| 7P.6 `smoke_prod.py` + `/health` / `/health/ai` | ✅ | [`scripts/smoke_prod.py`](../scripts/smoke_prod.py) (local + **HTTP-IP prod PASS 2026-09-12**; HTTPS A7 still open) |
+| 7P.6 `smoke_prod.py` + `/health` / `/health/ai` | ✅ | [`scripts/smoke_prod.py`](../scripts/smoke_prod.py) (local + HTTP-IP 2026-09-12 + **HTTPS A7 PASS 2026-09-28**) |
 | 7P.7 CI (`pytest` + docker build) | ✅ | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) |
 | 7P.8 CD workflow (tag `v*` / `workflow_dispatch`) | ✅ | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (**live VPS success still required**) |
 | Hosted data plane provisioned (A1) | ✅ | Operator-confirmed; credentials on VPS `.env` only |
@@ -95,9 +95,8 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 **Do next:**
 
-1. Prefer Phase 2 secrets + one green CD run, or Phase 3 TLS when a domain is ready.
-2. Keep **HTTPS / A7** open until TLS smoke passes — HTTP-IP ≠ production-live.
-3. Prefer `IMAGE=ghcr.io/...` pull over building on 2 GB RAM for later rolls.
+1. Prefer Phase 2 secrets + one green CD run (A7 HTTPS is already proven).
+2. Prefer `IMAGE=ghcr.io/...` pull over building on 2 GB RAM for later rolls.
 
 **Skills this phase teaches:** EC2, security groups, SSH, Docker Compose on thin RAM, hosted dependency reachability, health as a gate.
 
@@ -109,7 +108,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 | Item | Status | Proof |
 |------|--------|-------|
-| Repo secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `SMOKE_BASE_URL` | ⬜ | GitHub → Settings → Secrets |
+| Repo secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `SMOKE_BASE_URL` | 🚧 | Set in GitHub UI: `SMOKE_BASE_URL=https://api.aisystem.world`, `VPS_HOST=16.192.166.178` (+ user/key). Blocker: `gh` CLI missing on apply laptop 2026-09-28 |
 | Optional: `SMOKE_EMAIL` / `SMOKE_PASSWORD`, `GHCR_TOKEN` | ⬜ | If private package / auth smoke |
 | Optional var: `VPS_APP_DIR` (default `/opt/dashnote`) | ⬜ | Matches real app dir on box |
 | `workflow_dispatch` **or** tag `v*` succeeds | ⬜ | Actions run green |
@@ -128,19 +127,20 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 ## Phase 3 — HTTPS / production-live (A7)
 
-**Why:** HTTP-on-IP is first-boot only. Hire/production-live needs TLS + domain. See runbook TLS notes / 7P.5.
+**Why:** HTTP-on-IP first-boot is proven. Production-live needs `https://api.aisystem.world`. Guide: [`deployment/edge-aisystem.md`](deployment/edge-aisystem.md) · commands: [runbook §5](deployment/runbook.md).
 
 | Item | Status | Proof |
 |------|--------|-------|
-| Domain + DNS → VPS | ⬜ | `api.<domain>` resolves |
-| TLS (Caddy / Certbot / Cloudflare) | ⬜ | Cert valid |
-| SG / edge: **443** open; still no public **8000** | ⬜ | SG rules |
-| `CORS_ORIGINS` includes real frontend origin (not `*`) | ⬜ | VPS `.env` |
-| `GET https://api.<domain>/health` → 200 | ⬜ | curl |
-| HTTPS `smoke_prod.py` exit 0 | ⬜ | A4 HTTPS + A7 |
-| Sync A7 in [goal.md](documentation/blueprint/goal.md) | ⬜ | A-gate row |
+| Cloudflare zone for `aisystem.world` | ✅ | Operator: domain protected by Cloudflare |
+| DNS A `api` → VPS IP (proxied) | ✅ | `api` → `16.192.166.178` Proxied |
+| SSL mode Full + origin `:443` | ✅ | Self-signed under `nginx/certs/` (Full; not Full strict) |
+| SG: 80 (and 443 if needed); **not** public 8000 | ✅ | Terraform-managed SG |
+| `CORS_ORIGINS` includes `https://aisystem.world` (not `*`) | ✅ | VPS `.env` + api recreate; contract in `.env.production.example` |
+| `GET https://api.aisystem.world/health` → 200 | ✅ | 2026-09-28 |
+| HTTPS `smoke_prod.py` exit 0 | ✅ | HARD GATE PASS 2026-09-28 |
+| Sync A7 in [goal.md](documentation/blueprint/goal.md) | ✅ | Flipped with HTTPS smoke |
 
-**Do next:** pick domain + TLS path only after Phase 1 (and ideally Phase 2) are green. Do not block Bedrock learning on perfect CDN setup if HTTPS smoke already passes.
+**Do next:** Phase 2 — wire GitHub deploy secrets (`SMOKE_BASE_URL=https://api.aisystem.world`, `VPS_HOST` = SSH IP) and one green `workflow_dispatch`. Apex FE hosting is a follow-on (not this VPS). Bedrock stays deferred.
 
 **Skills this phase teaches:** DNS, TLS termination, CORS for real origins, “production-live” vs first-boot claims.
 
@@ -205,6 +205,7 @@ Fill as phases close. Prefer proof over buzzwords.
 |-------|------|
 | Progress / learner path | **This file** |
 | Deploy commands | [deployment/runbook.md](deployment/runbook.md) |
+| API edge (`api.aisystem.world`) | [deployment/edge-aisystem.md](deployment/edge-aisystem.md) |
 | Terraform Level A | [deployment/terraform-a.md](deployment/terraform-a.md) |
 | Storage (R2) | [deployment/storage.md](deployment/storage.md) |
 | 7P engineering checklist | [documentation/production.md](documentation/production.md) |

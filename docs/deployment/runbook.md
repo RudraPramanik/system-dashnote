@@ -2,6 +2,7 @@
 
 > **Progress tracker:** [`../devops-progress.md`](../devops-progress.md) — phase checklists (first-boot → CD → HTTPS → Bedrock) and skills ledger. This runbook owns commands only.  
 > **Edge as code:** [`terraform-a.md`](terraform-a.md) — Terraform Level A adopt/import gates. App deploy commands stay in this runbook.  
+> **Live API hostname:** [`edge-aisystem.md`](edge-aisystem.md) — `api.aisystem.world`, Cloudflare Flexible, ownership map.  
 > Platform steps **7P.5** (scripts) + **7P.8** (CD gate). Compose file: `docker-compose.prod.yml` only.  
 > Storage contract: [`storage.md`](storage.md). Never commit a filled `.env` or `.env.production`.  
 > **First-boot (no domain):** HTTP on the VPS public IPv4 is enough to prove the thin stack. That is **not** A7, **not** production-live, **not** hire-ready.  
@@ -144,17 +145,52 @@ Scripts read credentials only via compose `env_file: .env`. They never embed sec
 
 If a bad image is running, prefer pinning `IMAGE=<previous_tag>` in `.env` and re-running `up.sh` rather than inventing ad-hoc `docker run` commands.
 
-## 5. TLS options (pick one — not implemented in 7P.5)
+## 5. TLS and `api.aisystem.world` (A7)
 
-`docker-compose.prod.yml` publishes **HTTP :80** via nginx. HTTPS is an operator decision:
+`docker-compose.prod.yml` publishes **HTTP :80** and **HTTPS :443** via nginx. Browser HTTPS terminates at **Cloudflare**; Cloudflare speaks HTTPS to the origin when SSL mode is **Full**.
+
+### 5.1 Chosen path — Cloudflare Full + origin self-signed
+
+See also [`edge-aisystem.md`](edge-aisystem.md) (ownership map).
+
+| Step | Action |
+|------|--------|
+| DNS | Cloudflare → A record **Name** `api` → **IPv4** VPS public IP (e.g. `16.192.166.178`), **Proxied** (orange) |
+| SSL/TLS | Overview → **Full** (not Full strict). Flexible alone returns **521** if origin has no `:443`. |
+| Origin cert | On VPS under `/opt/dashnote/nginx/certs/` (gitignored): see commands below |
+| Proof | `curl -sS https://api.aisystem.world/health` → hard health OK |
+| Smoke | `SMOKE_BASE_URL=https://api.aisystem.world python scripts/smoke_prod.py` exit 0 |
+| SSH | Always `ubuntu@<vps-ipv4>` with the `.pem` — **never** SSH to the Cloudflare-proxied hostname |
+
+Generate origin cert once on the VPS (self-signed is enough for **Full**):
+
+```bash
+cd /opt/dashnote
+mkdir -p nginx/certs
+openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+  -keyout nginx/certs/origin.key -out nginx/certs/origin.crt \
+  -subj "/CN=api.aisystem.world" \
+  -addext "subjectAltName=DNS:api.aisystem.world"
+docker compose -f docker-compose.prod.yml up -d --force-recreate nginx
+```
+
+CORS on the VPS `.env` (restart api after edit):
+
+```bash
+# MUST NOT be "*"
+CORS_ORIGINS=["https://aisystem.world","http://localhost:3000","http://127.0.0.1:3000"]
+```
+
+### 5.2 Other TLS options (still available)
 
 | Option | Notes |
 |--------|--------|
-| **Cloudflare SSL** | Proxy DNS through Cloudflare; Flexible or Full (Full preferred once origin has a cert). Fastest path for a demo URL. |
-| **Caddy** | Replace or sit in front of nginx; automatic Let's Encrypt. Documented as a common thin-VPS choice. |
-| **Certbot + nginx** | Obtain certificates on the host; extend nginx to listen on 443 and mount certs (compose currently comments 443 — wire when chosen). |
+| **Cloudflare Flexible** | HTTPS to clients; HTTP to origin `:80` only. Use if you intentionally drop origin `:443`. |
+| **Cloudflare Full (strict)** | Needs a trusted origin cert (Cloudflare origin CA or Let’s Encrypt). |
+| **Caddy** | Sit in front of or replace nginx; automatic Let’s Encrypt. |
+| **Certbot + nginx** | Public CA on the host; replace the self-signed files when ready. |
 
-This section is decision documentation only. **First-boot does not implement TLS.** Wire one of these after a domain exists (A7). HTTP-on-IP PASS does not satisfy A7.
+First-boot HTTP-on-IP remains valid evidence for A4 only. **A7 / production-live** requires the HTTPS hostname proof above.
 
 ## 6. Optional observability profile
 
@@ -211,10 +247,10 @@ Configure under the repo **Settings → Secrets and variables → Actions**. Nev
 
 | Name | Required | Purpose |
 |------|----------|---------|
-| `VPS_HOST` | Yes | VPS hostname or IP for SSH |
+| `VPS_HOST` | Yes | VPS **public IP** for SSH (prefer IP, not the Cloudflare-proxied hostname) |
 | `VPS_USER` | Yes | SSH user |
 | `VPS_SSH_KEY` | Yes | Private key (PEM) for that user |
-| `SMOKE_BASE_URL` | Yes | Public (or reachable) API edge for post-deploy smoke, e.g. `https://api.example.com` or `http://<vps-ip>` |
+| `SMOKE_BASE_URL` | Yes | After A7: `https://api.aisystem.world`. First-boot only: `http://<vps-ip>` |
 | `SMOKE_EMAIL` | No | Stable smoke login (otherwise ephemeral register) |
 | `SMOKE_PASSWORD` | No | Password for `SMOKE_EMAIL` |
 | `GHCR_TOKEN` | No | PAT / token with `read:packages` so the VPS can `docker login ghcr.io` when the image is private |

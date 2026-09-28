@@ -51,10 +51,10 @@ Copy this section into your tracker. Check each item. **All must be ✅ before j
 | A1 | Hosted services provisioned (Postgres, Redis, Qdrant Cloud, R2 or equiv.) | ✅ | Operator-confirmed 2026-09-08 — credentials in VPS `.env` only |
 | A2 | **7P.4** R2/storage — worker reads uploads without local volume | ✅ | Documented in `.env.production.example` + `docs/deployment/storage.md` |
 | A3 | **7P.5** Deploy scripts + runbook | ✅ | `scripts/deploy/*`, `docs/deployment/runbook.md` |
-| A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ✅ | HTTP-on-IP first-boot PASS 2026-09-12 (`http://16.192.166.178` health + smoke exit 0). **Not** production-live — **HTTPS still required** for A7 |
+| A4 | **7P.6** `scripts/smoke_prod.py` passes on prod URL | ✅ | HTTP-on-IP first-boot PASS 2026-09-12 (`http://16.192.166.178`); production HTTPS proof is A7 |
 | A5 | **7P.7** CI green on PR (`pytest` + docker build) | ✅ | `.github/workflows/ci.yml` |
-| A6 | **7P.8** CD workflow + gate docs | ✅ | `.github/workflows/deploy.yml` (CD HTTPS not required for first-boot; live TLS proof still needed for A7) |
-| A7 | TLS live API | ⬜ | `https://api.<domain>/health` → 200 — **no domain yet** |
+| A6 | **7P.8** CD workflow + gate docs | ✅ | `.github/workflows/deploy.yml` (one live green CD run still open — Phase 2) |
+| A7 | TLS live API | ✅ | `https://api.aisystem.world/health` → 200 + HTTPS smoke HARD GATE PASS 2026-09-28 (Cloudflare Full + origin self-signed); see `docs/deployment/edge-aisystem.md` |
 
 ```powershell
 # A-gate commands
@@ -137,10 +137,10 @@ PRODUCTION
 [x] A1 Hosted services live (operator-confirmed 2026-09-08)
 [x] A2 Storage contract (R2)
 [x] A3 Deploy scripts + runbook
-[x] A4 smoke_prod.py HTTP-IP first-boot PASS 2026-09-12 (HTTPS still required for production-live)
+[x] A4 smoke_prod.py HTTP-IP first-boot PASS 2026-09-12
 [x] A5 CI green on PR
-[x] A6 CD workflow + gate docs (live TLS proof still open)
-[ ] A7 https://api.<domain>/health → 200
+[x] A6 CD workflow + gate docs (live green CD run still open — Phase 2)
+[x] A7 https://api.aisystem.world/health → 200 (HTTPS smoke PASS 2026-09-28)
 
 FRONTEND
 [x] B1 Auth + CORS (local Playwright B-gate)
@@ -199,7 +199,7 @@ Use only when interview harness depth matters more than a public URL this week:
 5. **B1–B7 / 8X.5** — frontend (+ HITL UX after 8X.3)
 6. **D1–D6** — portfolio packaging
 
-**Active (2026-09):** Local AI-depth-first Tier 1 is **complete**. VPS work resumed as **HTTP first-boot** on AWS t3.small (no domain). **Do not** mark A7 or job-search ready until HTTPS prod smoke passes — HTTP-IP first-boot and local Tier 1 ≠ hire gate.
+**Active (2026-09):** Local AI-depth-first Tier 1 is **complete**. **A7 HTTPS live** on `https://api.aisystem.world` (smoke PASS 2026-09-28). Next platform proof is one green CD run (Phase 2). Job-search still needs remaining B/FE and eval gates — A7 alone ≠ hire gate.
 
 ---
 
@@ -235,7 +235,7 @@ Improves offer rate and rate negotiation; not a blocker to **first** application
 | Public technical article | LinkedIn + dev.to | ⬜ | ship-plan Day 36–45 |
 | Lite template clone | Fast Upwork turnaround | ⬜ | ship-plan §Lite |
 
-**Reminder:** completing local Tier 1 or HTTP-IP first-boot does **not** check A7 or start job search. HTTPS smoke still required.
+**Reminder:** A7 HTTPS is proven. Completing local Tier 1 or HTTP-IP first-boot alone did **not** open job search — finish remaining B/FE and eval gates before claiming hire-ready.
 
 ---
 
@@ -294,6 +294,7 @@ Attach **Phase 2 upgrade quote** on every Lite delivery.
 
 | Date | Change |
 |------|--------|
+| 2026-09-28 | A7 HTTPS PASS (`https://api.aisystem.world` health + smoke); Cloudflare Full + origin self-signed |
 | 2026-09-12 | A4 HTTP-on-IP first-boot PASS (`http://16.192.166.178` health + smoke); A7/HTTPS still open |
 | 2026-09-08 | A1 operator-confirmed; VPS HTTP first-boot window (no domain); A7/HTTPS still open |
 | 2026-08-03 | Added preferred **Slice 8X** order; kept alternate “fastest live URL” short-order |

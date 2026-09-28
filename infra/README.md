@@ -4,6 +4,8 @@ Adopts the existing EC2 instance, security group, and optional Elastic IP. It do
 
 Full stages, verify gates, and fallbacks: [`docs/deployment/terraform-a.md`](../docs/deployment/terraform-a.md).
 
+Live API hostname / Cloudflare Flexible (DNS not in Terraform): [`docs/deployment/edge-aisystem.md`](../docs/deployment/edge-aisystem.md).
+
 ## Commands
 
 ```bash

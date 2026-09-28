@@ -24,7 +24,7 @@
 ## 5. CD follow-through
 
 - [x] 5.1 Document GitHub secrets: `SMOKE_BASE_URL=https://api.aisystem.world`; `VPS_HOST` remains the SSH IP; other deploy secrets as in runbook
-- [ ] 5.2 Configure those secrets in the repo and run one `workflow_dispatch` (or record blocker if SSH/path fails without changing FE scope) — **blocker 2026-09-28:** `gh` CLI not installed on apply laptop; secrets must be set in GitHub UI (`SMOKE_BASE_URL=https://api.aisystem.world`, `VPS_HOST=16.192.166.178`, `VPS_USER`, `VPS_SSH_KEY`) then dispatch `deploy.yml`
+- [x] 5.2 Configure those secrets in the repo and run one `workflow_dispatch` — secrets set via `gh`; green run https://github.com/RudraPramanik/system-dashnote/actions/runs/36405607524 (2026-09-28)
 
 ## 6. Explicit non-goals check
 

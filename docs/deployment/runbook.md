@@ -147,19 +147,32 @@ If a bad image is running, prefer pinning `IMAGE=<previous_tag>` in `.env` and r
 
 ## 5. TLS and `api.aisystem.world` (A7)
 
-`docker-compose.prod.yml` publishes **HTTP :80** via nginx. Browser HTTPS for production uses **Cloudflare** in front of that origin.
+`docker-compose.prod.yml` publishes **HTTP :80** and **HTTPS :443** via nginx. Browser HTTPS terminates at **Cloudflare**; Cloudflare speaks HTTPS to the origin when SSL mode is **Full**.
 
-### 5.1 Chosen path — Cloudflare Flexible
+### 5.1 Chosen path — Cloudflare Full + origin self-signed
 
 See also [`edge-aisystem.md`](edge-aisystem.md) (ownership map).
 
 | Step | Action |
 |------|--------|
 | DNS | Cloudflare → A record **Name** `api` → **IPv4** VPS public IP (e.g. `16.192.166.178`), **Proxied** (orange) |
-| SSL/TLS | Overview → **Flexible** (HTTPS to clients; HTTP to origin `:80`) |
+| SSL/TLS | Overview → **Full** (not Full strict). Flexible alone returns **521** if origin has no `:443`. |
+| Origin cert | On VPS under `/opt/dashnote/nginx/certs/` (gitignored): see commands below |
 | Proof | `curl -sS https://api.aisystem.world/health` → hard health OK |
 | Smoke | `SMOKE_BASE_URL=https://api.aisystem.world python scripts/smoke_prod.py` exit 0 |
 | SSH | Always `ubuntu@<vps-ipv4>` with the `.pem` — **never** SSH to the Cloudflare-proxied hostname |
+
+Generate origin cert once on the VPS (self-signed is enough for **Full**):
+
+```bash
+cd /opt/dashnote
+mkdir -p nginx/certs
+openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+  -keyout nginx/certs/origin.key -out nginx/certs/origin.crt \
+  -subj "/CN=api.aisystem.world" \
+  -addext "subjectAltName=DNS:api.aisystem.world"
+docker compose -f docker-compose.prod.yml up -d --force-recreate nginx
+```
 
 CORS on the VPS `.env` (restart api after edit):
 
@@ -172,9 +185,10 @@ CORS_ORIGINS=["https://aisystem.world","http://localhost:3000","http://127.0.0.1
 
 | Option | Notes |
 |--------|--------|
-| **Cloudflare Full / Full (strict)** | Needs a certificate on the VPS (Caddy or Certbot). Prefer after Flexible A7 is boring. |
-| **Caddy** | Sit in front of or replace nginx; automatic Let's Encrypt. |
-| **Certbot + nginx** | Certs on host; compose currently comments 443 — wire when chosen. |
+| **Cloudflare Flexible** | HTTPS to clients; HTTP to origin `:80` only. Use if you intentionally drop origin `:443`. |
+| **Cloudflare Full (strict)** | Needs a trusted origin cert (Cloudflare origin CA or Let’s Encrypt). |
+| **Caddy** | Sit in front of or replace nginx; automatic Let’s Encrypt. |
+| **Certbot + nginx** | Public CA on the host; replace the self-signed files when ready. |
 
 First-boot HTTP-on-IP remains valid evidence for A4 only. **A7 / production-live** requires the HTTPS hostname proof above.
 

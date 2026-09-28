@@ -56,9 +56,10 @@ services:
       - api
     ports:
       - "80:80"
-      # 443 + TLS certs — see 7P.5 runbook (Caddy/Certbot/Cloudflare)
+      - "443:443"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
     restart: unless-stopped
 
   # Optional metrics — enable with: docker compose -f docker-compose.prod.yml --profile observability up -d

@@ -22,7 +22,7 @@ Status glyphs: `✅` done · `⬜` todo · `🚧` in progress · `⛔` blocked (
 
 ## Current level (one-line status)
 
-**Phase 3 — HTTPS / A7 🚧.** Zone `aisystem.world` is on Cloudflare. **Next operator step:** DNS A `api` → `16.192.166.178` (proxied) + SSL Flexible — see [`deployment/edge-aisystem.md`](deployment/edge-aisystem.md). Origin HTTP health still PASS. Frontend stays off this VPS. CD smoke URL will be `https://api.aisystem.world` after DNS works.
+**Phase 3 — HTTPS / A7 ✅.** `https://api.aisystem.world/health` → 200; HTTPS `smoke_prod.py` HARD GATE PASS (2026-09-28). Cloudflare Full + origin self-signed `:443` — see [`deployment/edge-aisystem.md`](deployment/edge-aisystem.md). **Next:** Phase 2 CD secrets + one green `workflow_dispatch`. Frontend stays off this VPS.
 
 _Last reviewed: 2026-09-28_
 
@@ -33,7 +33,7 @@ _Last reviewed: 2026-09-28_
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  AWS EC2 t3.small (~2 GB) — thin compute                │
-│  nginx :80  →  api :8000 (unpublished)  +  ARQ worker   │
+│  nginx :80/:443  →  api :8000 (unpublished)  +  ARQ worker   │
 │  migrate oneshot · optional prometheus (off first-boot) │
 └───────────────────────────┬─────────────────────────────┘
                             │ .env URLs only
@@ -66,7 +66,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | 7P.3 Soft Qdrant boot | ✅ | API/worker start without hard AI gate |
 | 7P.4 R2 / storage contract | ✅ | [storage.md](deployment/storage.md) |
 | 7P.5 Deploy scripts + runbook | ✅ | [`scripts/deploy/`](../scripts/deploy/) · [runbook](deployment/runbook.md) |
-| 7P.6 `smoke_prod.py` + `/health` / `/health/ai` | ✅ | [`scripts/smoke_prod.py`](../scripts/smoke_prod.py) (local + **HTTP-IP prod PASS 2026-09-12**; HTTPS A7 still open) |
+| 7P.6 `smoke_prod.py` + `/health` / `/health/ai` | ✅ | [`scripts/smoke_prod.py`](../scripts/smoke_prod.py) (local + HTTP-IP 2026-09-12 + **HTTPS A7 PASS 2026-09-28**) |
 | 7P.7 CI (`pytest` + docker build) | ✅ | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) |
 | 7P.8 CD workflow (tag `v*` / `workflow_dispatch`) | ✅ | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (**live VPS success still required**) |
 | Hosted data plane provisioned (A1) | ✅ | Operator-confirmed; credentials on VPS `.env` only |
@@ -95,9 +95,8 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 **Do next:**
 
-1. Prefer Phase 2 secrets + one green CD run, or Phase 3 TLS when a domain is ready.
-2. Keep **HTTPS / A7** open until TLS smoke passes — HTTP-IP ≠ production-live.
-3. Prefer `IMAGE=ghcr.io/...` pull over building on 2 GB RAM for later rolls.
+1. Prefer Phase 2 secrets + one green CD run (A7 HTTPS is already proven).
+2. Prefer `IMAGE=ghcr.io/...` pull over building on 2 GB RAM for later rolls.
 
 **Skills this phase teaches:** EC2, security groups, SSH, Docker Compose on thin RAM, hosted dependency reachability, health as a gate.
 
@@ -109,7 +108,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 | Item | Status | Proof |
 |------|--------|-------|
-| Repo secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `SMOKE_BASE_URL` | ⬜ | GitHub → Settings → Secrets |
+| Repo secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `SMOKE_BASE_URL` | 🚧 | Set in GitHub UI: `SMOKE_BASE_URL=https://api.aisystem.world`, `VPS_HOST=16.192.166.178` (+ user/key). Blocker: `gh` CLI missing on apply laptop 2026-09-28 |
 | Optional: `SMOKE_EMAIL` / `SMOKE_PASSWORD`, `GHCR_TOKEN` | ⬜ | If private package / auth smoke |
 | Optional var: `VPS_APP_DIR` (default `/opt/dashnote`) | ⬜ | Matches real app dir on box |
 | `workflow_dispatch` **or** tag `v*` succeeds | ⬜ | Actions run green |
@@ -133,15 +132,15 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | Item | Status | Proof |
 |------|--------|-------|
 | Cloudflare zone for `aisystem.world` | ✅ | Operator: domain protected by Cloudflare |
-| DNS A `api` → VPS IP (proxied) | 🚧 | Create in Cloudflare DNS — not resolving yet from apply laptop |
-| SSL mode Flexible | 🚧 | Set after `api` record exists |
+| DNS A `api` → VPS IP (proxied) | ✅ | `api` → `16.192.166.178` Proxied |
+| SSL mode Full + origin `:443` | ✅ | Self-signed under `nginx/certs/` (Full; not Full strict) |
 | SG: 80 (and 443 if needed); **not** public 8000 | ✅ | Terraform-managed SG |
-| `CORS_ORIGINS` includes `https://aisystem.world` (not `*`) | 🚧 | VPS `.env` + restart; contract in `.env.production.example` |
-| `GET https://api.aisystem.world/health` → 200 | ⬜ | Blocked on DNS |
-| HTTPS `smoke_prod.py` exit 0 | ⬜ | Blocked on DNS |
-| Sync A7 in [goal.md](documentation/blueprint/goal.md) | ⬜ | Flip with HTTPS smoke |
+| `CORS_ORIGINS` includes `https://aisystem.world` (not `*`) | ✅ | VPS `.env` + api recreate; contract in `.env.production.example` |
+| `GET https://api.aisystem.world/health` → 200 | ✅ | 2026-09-28 |
+| HTTPS `smoke_prod.py` exit 0 | ✅ | HARD GATE PASS 2026-09-28 |
+| Sync A7 in [goal.md](documentation/blueprint/goal.md) | ✅ | Flipped with HTTPS smoke |
 
-**Do next:** add the `api` A record → Flexible → HTTPS health + smoke → CORS on VPS → CD `SMOKE_BASE_URL`. Apex FE hosting is a follow-on (not this VPS). Bedrock stays deferred.
+**Do next:** Phase 2 — wire GitHub deploy secrets (`SMOKE_BASE_URL=https://api.aisystem.world`, `VPS_HOST` = SSH IP) and one green `workflow_dispatch`. Apex FE hosting is a follow-on (not this VPS). Bedrock stays deferred.
 
 **Skills this phase teaches:** DNS, TLS termination, CORS for real origins, “production-live” vs first-boot claims.
 

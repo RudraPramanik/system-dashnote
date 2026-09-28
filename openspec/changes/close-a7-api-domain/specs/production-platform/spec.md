@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Production API is served at the aisystem HTTPS hostname
-Operators MUST publish the production API at `https://api.aisystem.world` using DNS that targets the thin VPS public address and browser TLS via Cloudflare while the origin continues to serve HTTP on port 80 for this change (Cloudflare Flexible). `GET https://api.aisystem.world/health` MUST return success, and `scripts/smoke_prod.py` with `SMOKE_BASE_URL=https://api.aisystem.world` MUST exit 0 before A7 / production-live MAY be claimed. HTTP-on-IP first-boot evidence MUST remain distinct and MUST NOT alone close A7.
+Operators MUST publish the production API at `https://api.aisystem.world` using DNS that targets the thin VPS public address and browser TLS via Cloudflare. Origin nginx MUST serve HTTPS on port 443 with a certificate acceptable to Cloudflare **Full** (self-signed MAY be used; Full strict MUST NOT be required for this change). Port 80 MAY remain open. `GET https://api.aisystem.world/health` MUST return success, and `scripts/smoke_prod.py` with `SMOKE_BASE_URL=https://api.aisystem.world` MUST exit 0 before A7 / production-live MAY be claimed. HTTP-on-IP first-boot evidence MUST remain distinct and MUST NOT alone close A7.
 
 #### Scenario: HTTPS health on api hostname
-- **GIVEN** Cloudflare DNS for `api.aisystem.world` points at the VPS and SSL mode allows Flexible origin HTTP
+- **GIVEN** Cloudflare DNS for `api.aisystem.world` points at the VPS and SSL mode is Full with origin `:443` reachable
 - **WHEN** an operator requests `GET https://api.aisystem.world/health`
 - **THEN** the response indicates hard health success
 - **AND** the claim for A7 MAY proceed only together with HTTPS smoke exit 0
@@ -51,7 +51,7 @@ When GitHub CD is configured for production, `SMOKE_BASE_URL` MUST be `https://a
 ## MODIFIED Requirements
 
 ### Requirement: Deploy scripts and runbook exist
-The repository MUST provide deploy helper scripts at `scripts/deploy/migrate.sh`, `scripts/deploy/up.sh`, and `scripts/deploy/health-check.sh`, plus an operator runbook at `docs/deployment/runbook.md`. Scripts MUST invoke `docker compose -f docker-compose.prod.yml` (hosted data plane; thin VPS compute), MUST use `set -euo pipefail` (or equivalent fail-fast), and MUST NOT embed secrets (credentials come from the VPS `.env` / compose `env_file`). The runbook MUST cover: prerequisites checklist, first-time VPS setup, every-release deploy sequence (migrate → up → health-check), rollback, TLS options (Cloudflare / Caddy / Certbot), and optional observability profile usage. For `aisystem.world`, the runbook MUST document the chosen Cloudflare Flexible path for `api.aisystem.world` (DNS A record, proxied, origin HTTP :80) and the HTTPS smoke commands that close A7. `health-check.sh` MUST verify hard health at the published edge (`http://127.0.0.1/health`) and exit non-zero on failure. When this deliverable is complete, `docs/documentation/production.md` MUST mark step 7P.5 as done.
+The repository MUST provide deploy helper scripts at `scripts/deploy/migrate.sh`, `scripts/deploy/up.sh`, and `scripts/deploy/health-check.sh`, plus an operator runbook at `docs/deployment/runbook.md`. Scripts MUST invoke `docker compose -f docker-compose.prod.yml` (hosted data plane; thin VPS compute), MUST use `set -euo pipefail` (or equivalent fail-fast), and MUST NOT embed secrets (credentials come from the VPS `.env` / compose `env_file`). The runbook MUST cover: prerequisites checklist, first-time VPS setup, every-release deploy sequence (migrate → up → health-check), rollback, TLS options (Cloudflare / Caddy / Certbot), and optional observability profile usage. For `aisystem.world`, the runbook MUST document the chosen Cloudflare **Full** + origin `:443` path for `api.aisystem.world` (DNS A record, proxied, self-signed origin cert OK for Full) and the HTTPS smoke commands that close A7. `health-check.sh` MUST verify hard health at the published edge (`http://127.0.0.1/health`) and exit non-zero on failure. When this deliverable is complete, `docs/documentation/production.md` MUST mark step 7P.5 as done.
 
 #### Scenario: Operator follows runbook after code update
 - **GIVEN** a VPS with production compose files and a filled `.env` for hosted services
@@ -77,7 +77,7 @@ The repository MUST provide deploy helper scripts at `scripts/deploy/migrate.sh`
 - **GIVEN** Slice 7P.5 is complete and this domain change is applied
 - **WHEN** an operator opens the TLS section of `docs/deployment/runbook.md`
 - **THEN** at least Cloudflare SSL, Caddy, and Certbot+nginx are listed as options
-- **AND** the Cloudflare Flexible path for `api.aisystem.world` is documented as the current production choice for A7
+- **AND** the Cloudflare Full + origin `:443` path for `api.aisystem.world` is documented as the current production choice for A7
 - **AND** HTTPS smoke against `https://api.aisystem.world` is documented
 
 #### Scenario: Tracker updated when deploy runbook closes

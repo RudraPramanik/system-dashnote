@@ -15,20 +15,20 @@ See `proposal.md` for why. The thin VPS already serves api/worker/nginx on HTTP 
 
 - Hosting or deploying the frontend (any provider).
 - Putting FE on the VPS or Vercel as part of this change.
-- Origin certificates / Cloudflare Full (strict) — optional later.
+- Origin certificates / Cloudflare Full (strict) — optional later (self-signed for Full non-strict is in scope when Flexible returns 521).
 - Terraform-managed DNS (Route53/Cloudflare provider).
 - Bedrock / LLM provider changes.
 - Rewriting `deploy.yml` triggers or compose topology.
 
 ## Decisions
 
-### D1 — Cloudflare Flexible for A7 now
+### D1 — Cloudflare Full + origin self-signed for A7
 
-Browser TLS terminates at Cloudflare; origin remains nginx HTTP `:80`. SSL mode **Flexible**.
+Browser TLS terminates at Cloudflare. Origin nginx publishes `:80` and `:443` with a **self-signed** cert under `nginx/certs/` (gitignored). SSL mode **Full** (not Full strict).
 
-**Why:** Matches current compose (443 commented). Fastest path to a public HTTPS API URL.
+**Why:** Zone returned Cloudflare **521** while origin was HTTP-only (Full without `:443`). Self-signed unblocks Full without Let’s Encrypt on a 2 GB box.
 
-**Alternatives:** Full + Caddy/Certbot on VPS (better crypto to origin; more work on 2 GB). DNS-only + LE on box (no CF proxy). Deferred.
+**Alternatives:** Flexible with origin HTTP-only (works only if SSL mode is Flexible). Full strict + Cloudflare origin CA / LE (deferred).
 
 ### D2 — DNS: A record `api` → current public IP
 
@@ -42,7 +42,7 @@ Set `CORS_ORIGINS=["https://aisystem.world"]` on the VPS (MAY also keep localhos
 
 | Doc | Role |
 |-----|------|
-| `docs/deployment/runbook.md` | Commands: DNS checklist, Flexible SSL, CORS, HTTPS smoke, CD secret values |
+| `docs/deployment/runbook.md` | Commands: DNS checklist, Full SSL + origin cert, CORS, HTTPS smoke, CD secret values |
 | `docs/deployment/edge-aisystem.md` (new) or runbook § | Ownership diagram: Cloudflare / EC2+SG (TF) / Compose |
 | `docs/devops-progress.md` | Phase 3 A7 → ✅ when proven; Phase 2 CD status |
 | `goal.md` | A7 row flips with proof URL |
@@ -53,21 +53,22 @@ Update operator secrets: `SMOKE_BASE_URL=https://api.aisystem.world`; `VPS_HOST`
 
 ## Risks / Trade-offs
 
-- **[Risk] Flexible is not end-to-end encryption** → Mitigation: document as interim; upgrade to Full later; never claim Full.
+- **[Risk] Full with self-signed is not Full strict** → Mitigation: document; upgrade to origin CA / LE later; never claim strict.
 - **[Risk] Cloudflare orange cloud breaks SSH if someone points SSH at the proxied hostname** → Mitigation: SSH only to raw IP; document that.
 - **[Risk] CORS set before FE exists** → Mitigation: harmless; FE change will use that origin.
 - **[Risk] CD fails on path/login** → Mitigation: Phase 2 checklist; fix without blocking A7 if HTTPS smoke already passed manually.
-- **[Risk] Wrong SSL mode (Full without origin cert)** → Mitigation: runbook says Flexible until origin cert exists.
+- **[Risk] CD wipe of VPS-only nginx TLS** → Mitigation: commit compose `443` publish + nginx SSL server; keep certs gitignored on box.
 
 ## Migration Plan
 
-1. Cloudflare DNS: A `api` → VPS IP, proxied; SSL Flexible.
-2. Wait for resolution; curl HTTPS health.
-3. Update VPS `.env` CORS; restart api/worker as needed.
-4. HTTPS smoke; flip A7 in progress + goal.md.
-5. Document edge ownership.
-6. Set GH secrets; optional `workflow_dispatch`.
-7. Rollback DNS: remove/disable `api` record or grey-cloud; CORS revert; A7 claims stay false.
+1. Cloudflare DNS: A `api` → VPS IP, proxied.
+2. Ensure SSL Full + origin `:443` (or Flexible if deliberately HTTP-only).
+3. Wait for resolution; curl HTTPS health.
+4. Update VPS `.env` CORS; restart api/worker as needed.
+5. HTTPS smoke; flip A7 in progress + goal.md.
+6. Document edge ownership.
+7. Set GH secrets; optional `workflow_dispatch`.
+8. Rollback DNS: remove/disable `api` record or grey-cloud; CORS revert; A7 claims stay false.
 
 ## Open Questions
 

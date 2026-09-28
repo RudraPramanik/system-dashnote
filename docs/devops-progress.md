@@ -22,7 +22,7 @@ Status glyphs: `✅` done · `⬜` todo · `🚧` in progress · `⛔` blocked (
 
 ## Current level (one-line status)
 
-**Phase 3 — HTTPS / A7 ✅.** `https://api.aisystem.world/health` → 200; HTTPS `smoke_prod.py` HARD GATE PASS (2026-09-28). Cloudflare Full + origin self-signed `:443` — see [`deployment/edge-aisystem.md`](deployment/edge-aisystem.md). **Next:** Phase 2 CD secrets + one green `workflow_dispatch`. Frontend stays off this VPS.
+**Phase 2–3 ✅.** A7 live at `https://api.aisystem.world`; CD green via `workflow_dispatch` ([run 36405607524](https://github.com/RudraPramanik/system-dashnote/actions/runs/36405607524), 2026-09-28). **Next:** apex FE host (not this VPS), then Bedrock. See [`deployment/edge-aisystem.md`](deployment/edge-aisystem.md).
 
 _Last reviewed: 2026-09-28_
 
@@ -71,7 +71,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | 7P.8 CD workflow (tag `v*` / `workflow_dispatch`) | ✅ | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (**live VPS success still required**) |
 | Hosted data plane provisioned (A1) | ✅ | Operator-confirmed; credentials on VPS `.env` only |
 
-**Do next:** Phase 0 artifacts are in place; Phase 1 HTTP first-boot is proven — move to Phase 2 (CD) and/or Phase 3 (HTTPS / A7).
+**Do next:** Phase 0–3 are proven (HTTP first-boot, HTTPS A7, CD). Prefer apex FE next; Bedrock after.
 
 **Skills this phase teaches:** env contracts, thin vs fat compose, soft vs hard health, CI without prod secrets.
 
@@ -95,7 +95,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 **Do next:**
 
-1. Prefer Phase 2 secrets + one green CD run (A7 HTTPS is already proven).
+1. Prefer apex FE hosting (CORS already lists `https://aisystem.world`).
 2. Prefer `IMAGE=ghcr.io/...` pull over building on 2 GB RAM for later rolls.
 
 **Skills this phase teaches:** EC2, security groups, SSH, Docker Compose on thin RAM, hosted dependency reachability, health as a gate.
@@ -108,18 +108,17 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 | Item | Status | Proof |
 |------|--------|-------|
-| Repo secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `SMOKE_BASE_URL` | 🚧 | Set in GitHub UI: `SMOKE_BASE_URL=https://api.aisystem.world`, `VPS_HOST=16.192.166.178` (+ user/key). Blocker: `gh` CLI missing on apply laptop 2026-09-28 |
-| Optional: `SMOKE_EMAIL` / `SMOKE_PASSWORD`, `GHCR_TOKEN` | ⬜ | If private package / auth smoke |
-| Optional var: `VPS_APP_DIR` (default `/opt/dashnote`) | ⬜ | Matches real app dir on box |
-| `workflow_dispatch` **or** tag `v*` succeeds | ⬜ | Actions run green |
-| Post-deploy health + smoke from Actions | ⬜ | Job log + smoke step |
-| Know how to roll back (redeploy previous image tag) | ⬜ | Tag noted |
+| Repo secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `SMOKE_BASE_URL` | ✅ | Set 2026-09-28; smoke URL `https://api.aisystem.world` |
+| Optional: `SMOKE_EMAIL` / `SMOKE_PASSWORD`, `GHCR_TOKEN` | ⬜ | Not required for first green run (public GHCR pull path) |
+| Optional var: `VPS_APP_DIR` (default `/opt/dashnote`) | ✅ | `/opt/dashnote` |
+| `workflow_dispatch` **or** tag `v*` succeeds | ✅ | [run 36405607524](https://github.com/RudraPramanik/system-dashnote/actions/runs/36405607524) green |
+| Post-deploy health + smoke from Actions | ✅ | SSH health-check + smoke hard gate PASS |
+| Know how to roll back (redeploy previous image tag) | ⬜ | Pin prior `IMAGE` tag / re-dispatch |
 
 **Do next:**
 
-1. Wire secrets after Phase 1 manual boot works (or in parallel if `.env` already solid).
-2. Run `workflow_dispatch` once; fix SSH/path/login before tagging releases.
-3. Keep **no auto-deploy on every `main` push** until you are bored of being safe.
+1. Prefer tagging releases (`v*`) once you trust dispatch; keep **no auto-deploy on every merge**.
+2. Apex FE hosting (CORS already ready) — then Bedrock.
 
 **Skills this phase teaches:** GHCR, deploy secrets vs app `.env`, SSH CD, migrate-before-roll, smoke as CD hard gate, rollback by image tag.
 
@@ -140,7 +139,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | HTTPS `smoke_prod.py` exit 0 | ✅ | HARD GATE PASS 2026-09-28 |
 | Sync A7 in [goal.md](documentation/blueprint/goal.md) | ✅ | Flipped with HTTPS smoke |
 
-**Do next:** Phase 2 — wire GitHub deploy secrets (`SMOKE_BASE_URL=https://api.aisystem.world`, `VPS_HOST` = SSH IP) and one green `workflow_dispatch`. Apex FE hosting is a follow-on (not this VPS). Bedrock stays deferred.
+**Do next:** Apex FE hosting is the follow-on (not this VPS). Bedrock stays deferred until FE path is honest.
 
 **Skills this phase teaches:** DNS, TLS termination, CORS for real origins, “production-live” vs first-boot claims.
 

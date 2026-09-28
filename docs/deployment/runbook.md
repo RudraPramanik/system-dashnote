@@ -2,7 +2,7 @@
 
 > **Progress tracker:** [`../devops-progress.md`](../devops-progress.md) — phase checklists (first-boot → CD → HTTPS → Bedrock) and skills ledger. This runbook owns commands only.  
 > **Edge as code:** [`terraform-a.md`](terraform-a.md) — Terraform Level A adopt/import gates. App deploy commands stay in this runbook.  
-> **Live API hostname:** [`edge-aisystem.md`](edge-aisystem.md) — `api.aisystem.world`, Cloudflare Flexible, ownership map.  
+> **Live API hostname:** [`edge-aisystem.md`](edge-aisystem.md) — `api.aisystem.world`, Cloudflare Full + origin `:443`, ownership map.  
 > Platform steps **7P.5** (scripts) + **7P.8** (CD gate). Compose file: `docker-compose.prod.yml` only.  
 > Storage contract: [`storage.md`](storage.md). Never commit a filled `.env` or `.env.production`.  
 > **First-boot (no domain):** HTTP on the VPS public IPv4 is enough to prove the thin stack. That is **not** A7, **not** production-live, **not** hire-ready.  

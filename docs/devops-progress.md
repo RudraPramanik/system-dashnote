@@ -71,7 +71,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 | 7P.8 CD workflow (tag `v*` / `workflow_dispatch`) | ✅ | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (**live VPS success still required**) |
 | Hosted data plane provisioned (A1) | ✅ | Operator-confirmed; credentials on VPS `.env` only |
 
-**Do next:** Phase 0 artifacts are in place; Phase 1 HTTP first-boot is proven — move to Phase 2 (CD) and/or Phase 3 (HTTPS / A7).
+**Do next:** Phase 0–3 are proven (HTTP first-boot, HTTPS A7, CD). Prefer apex FE next; Bedrock after.
 
 **Skills this phase teaches:** env contracts, thin vs fat compose, soft vs hard health, CI without prod secrets.
 
@@ -95,7 +95,7 @@ Laws: [deploy-low.md](documentation/deploy-low.md) · Compose: [`docker-compose.
 
 **Do next:**
 
-1. Prefer Phase 2 secrets + one green CD run (A7 HTTPS is already proven).
+1. Prefer apex FE hosting (CORS already lists `https://aisystem.world`).
 2. Prefer `IMAGE=ghcr.io/...` pull over building on 2 GB RAM for later rolls.
 
 **Skills this phase teaches:** EC2, security groups, SSH, Docker Compose on thin RAM, hosted dependency reachability, health as a gate.

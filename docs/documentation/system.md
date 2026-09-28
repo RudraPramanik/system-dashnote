@@ -168,7 +168,7 @@ Inbound email smoke (when integrations configured): `python scripts/smoke_inboun
 
 Two compose files — dev stack vs VPS profile. See `.env.production.example` for hosted URLs.
 
-**Ops runbooks (production / first-boot):** [devops-progress.md](../devops-progress.md) (phase tracker) · [deployment/runbook.md](../deployment/runbook.md) (commands) · [production.md](./production.md) (7P / topology). HTTP-on-IP first-boot is evidence for A4; **HTTPS is still required** for production-live (A7) — do not treat HTTP-IP smoke as the hire gate.
+**Ops runbooks (production / first-boot):** [devops-progress.md](../devops-progress.md) (phase tracker) · [deployment/runbook.md](../deployment/runbook.md) (commands) · [deployment/edge-aisystem.md](../deployment/edge-aisystem.md) (`api.aisystem.world`) · [production.md](./production.md) (7P / topology). HTTP-on-IP first-boot is A4 evidence; **A7 HTTPS** is live at `https://api.aisystem.world` (2026-09-28). CD is manual (`workflow_dispatch` / `v*` tags), not on every PR merge.
 
 **Local (full stack)** — `docker-compose.yml`:
 

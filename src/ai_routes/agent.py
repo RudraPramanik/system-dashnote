@@ -40,7 +40,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai.hitl import approval_event_from_interrupt, extract_interrupts
 from ai_routes.sse_heartbeat import iter_with_heartbeat
 from ai.memory.service import ThreadService
-from ai.tools.note_tools import db_session_var
+from ai.tools.note_tools import (
+    MUTATION_CHECKPOINTER_SSE_ERROR,
+    db_session_var,
+    is_checkpointer_blocked_tool_result,
+)
 from ai.workflows.workspace_assistant import get_workspace_assistant
 from ai_memory.repository import ThreadRepository
 from core.database.session import get_session
@@ -497,6 +501,7 @@ async def agent_chat_stream(
 
                 async def _sse_frames():
                     nonlocal steps
+                    mutation_blocked = False
                     async for event in graph.astream_events(
                         initial_state, config=config, version="v2"
                     ):
@@ -522,9 +527,14 @@ async def agent_chat_stream(
 
                         elif kind == "on_tool_end":
                             result = data.get("output", "")
+                            tool_name = event.get("name", "")
+                            if tool_name in {"create_note", "update_note"} and (
+                                is_checkpointer_blocked_tool_result(result)
+                            ):
+                                mutation_blocked = True
                             payload = {
                                 "type": "tool_end",
-                                "tool": event.get("name", ""),
+                                "tool": tool_name,
                                 "result": str(result)[:200],
                             }
                             yield f"data: {json.dumps(payload)}\n\n"
@@ -533,6 +543,20 @@ async def agent_chat_stream(
                             output = data.get("output", {})
                             if isinstance(output, dict):
                                 steps = int(output.get("steps_taken", 0))
+
+                    if mutation_blocked:
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {
+                                    "type": "error",
+                                    "message": MUTATION_CHECKPOINTER_SSE_ERROR,
+                                }
+                            )
+                            + "\n\n"
+                        )
+                        yield "data: [DONE]\n\n"
+                        return
 
                     snap = await graph.aget_state(config)
                     pending = extract_interrupts(snap)
@@ -576,11 +600,13 @@ async def agent_chat_stream(
 
         except Exception as e:
             logger.exception("Agent stream failed")
-            err_message = (
-                LLM_UNAVAILABLE_MESSAGE
-                if isinstance(e, LLMUnavailableError) or is_model_gone(e)
-                else "Agent stream failed. Try /ai/chat for direct RAG."
-            )
+            err_text = str(e).lower()
+            if isinstance(e, LLMUnavailableError) or is_model_gone(e):
+                err_message = LLM_UNAVAILABLE_MESSAGE
+            elif "checkpointer" in err_text:
+                err_message = MUTATION_CHECKPOINTER_SSE_ERROR
+            else:
+                err_message = "Agent stream failed. Try /ai/chat for direct RAG."
             error_payload = {
                 "type": "error",
                 "message": err_message,

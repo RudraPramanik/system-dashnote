@@ -45,6 +45,10 @@ async def test_health_ai_includes_llm_and_stays_soft():
             new_callable=AsyncMock,
             return_value={"reachable": False, "configured": True},
         ),
+        patch(
+            "core.health._probe_checkpointer",
+            return_value={"reachable": True, "configured": True},
+        ),
     ):
         settings.qdrant_enabled = True
         payload = await ai_health()
@@ -52,3 +56,35 @@ async def test_health_ai_includes_llm_and_stays_soft():
     assert payload["status"] == "degraded"
     assert payload["dependencies"]["llm"]["reachable"] is False
     assert payload["dependencies"]["qdrant"]["reachable"] is True
+    assert payload["dependencies"]["checkpointer"]["reachable"] is True
+
+
+@pytest.mark.asyncio
+async def test_health_ai_reports_checkpointer_soft():
+    with (
+        patch("core.health.settings") as settings,
+        patch(
+            "core.health._probe_qdrant",
+            new_callable=AsyncMock,
+            return_value={"reachable": True, "configured": True},
+        ),
+        patch(
+            "core.health._probe_llm",
+            new_callable=AsyncMock,
+            return_value={"reachable": True, "configured": True, "model": "x"},
+        ),
+        patch(
+            "core.health._probe_checkpointer",
+            return_value={
+                "reachable": False,
+                "configured": True,
+                "detail": "not initialized",
+            },
+        ),
+    ):
+        settings.qdrant_enabled = True
+        payload = await ai_health()
+
+    assert payload["status"] == "degraded"
+    assert payload["dependencies"]["checkpointer"]["reachable"] is False
+    assert payload["dependencies"]["llm"]["reachable"] is True

@@ -166,6 +166,22 @@ def test_mutation_fails_closed_without_checkpointer():
         err = note_tools._ensure_checkpointer_for_mutation()
         assert err is not None
         assert "checkpointer" in err.lower()
+        assert note_tools.is_checkpointer_blocked_tool_result(err) is True
+
+
+def test_is_checkpointer_blocked_tool_result_detects_blocked_message():
+    from ai.tools.note_tools import (
+        CHECKPOINTER_BLOCKED_MESSAGE,
+        is_checkpointer_blocked_tool_result,
+    )
+
+    assert is_checkpointer_blocked_tool_result(CHECKPOINTER_BLOCKED_MESSAGE) is True
+    wrapped = (
+        "content='Error: note mutations require human approval and a checkpointer. "
+        "Checkpointer is not initialized — mutation blocked.' name='create_note'"
+    )
+    assert is_checkpointer_blocked_tool_result(wrapped) is True
+    assert is_checkpointer_blocked_tool_result("Note created successfully. ID: 1") is False
 
 
 def test_retrieval_depth_payload():

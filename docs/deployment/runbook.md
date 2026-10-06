@@ -223,9 +223,25 @@ SMOKE_BASE_URL=https://api.example.com python scripts/smoke_prod.py
 |------------|---------|
 | `SMOKE_BASE_URL` / `--base-url` | API edge (default `http://127.0.0.1`) |
 | `SMOKE_EMAIL` + `SMOKE_PASSWORD` | Login instead of ephemeral register |
-| `--with-ai` / `SMOKE_SOFT_AI=1` | Soft checks only: `GET /health/ai`, optional file upload poll — **never** fails the hard exit |
+| `--with-ai` / `SMOKE_SOFT_AI=1` | Soft checks only: `GET /health/ai` (incl. checkpointer), agent create-note → `approval_required`, optional file upload poll — **never** fails the hard exit |
 
-Do **not** commit real credentials. Soft AI / Qdrant is **not** part of the deploy hard gate (`GET /health/ai` is informational).
+Do **not** commit real credentials. Soft AI / Qdrant / checkpointer is **not** part of the deploy hard gate (`GET /health/ai` is informational).
+
+### Agent checkpointer diagnosis (hosted)
+
+LangGraph HITL note mutations need a live checkpointer (psycopg3 against the same Postgres as `DATABASE_URL`). If the agent UI says mutations are blocked / stream errors after `create_note`:
+
+1. On the VPS: `docker compose -f docker-compose.prod.yml logs api 2>&1 | grep -i checkpointer`  
+   Look for `Checkpointer init failed` or `LangGraph checkpointer ready`.
+2. Confirm soft health: `curl -sS https://api.aisystem.world/health/ai | jq .dependencies.checkpointer`  
+   Expect `"reachable": true` when mutations should work. LLM/Qdrant can be ok while checkpointer is down.
+3. Ensure VPS `.env` `DATABASE_URL` works for **both** asyncpg and psycopg (Supabase: include SSL; API adapts `ssl` → `sslmode=require`). Do **not** overwrite a good VPS `.env` with a stale laptop `.env.production` that still has placeholders.
+4. Soft verify after redeploy:
+   ```bash
+   SMOKE_BASE_URL=https://api.aisystem.world python scripts/smoke_prod.py --with-ai
+   ```
+   Soft section should report `checkpointer ready` and ideally `approval_required` for the agent create-note step.
+5. Ship path: green PR CI (`.github/workflows/ci.yml`) → tag `v*` or Actions `workflow_dispatch` on `deploy.yml` → hard smoke PASS → soft AI verify above. Frontend (DashNotes) deploys separately on Vercel when client changes land.
 
 Broader local E2E (optional): `python scripts/e2e_docker_smoke.py`.
 

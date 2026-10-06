@@ -141,8 +141,11 @@ async def lifespan(app: FastAPI):
         logger.info("LangGraph checkpointer ready")
     except Exception as e:
         logger.error(
-            "Checkpointer init failed — agent features degraded",
-            extra={"error": str(e)},
+            "Checkpointer init failed — agent note mutations / HITL degraded; "
+            "/ai/chat and REST notes remain available. "
+            "Check DATABASE_URL for psycopg sslmode=require (Supabase). error=%s",
+            str(e)[:300],
+            extra={"error": str(e)[:300]},
         )
         # Non-fatal: /ai/chat continues working, /ai/agent degrades gracefully
 

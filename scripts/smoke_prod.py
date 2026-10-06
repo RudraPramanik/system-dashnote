@@ -20,6 +20,7 @@ Broader local E2E remains scripts/e2e_docker_smoke.py — do not replace it.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -122,10 +123,11 @@ def hard_content(client: httpx.Client, headers: dict[str, str], r: Results) -> b
     return True
 
 
-def soft_ai_health(client: httpx.Client, r: Results) -> None:
+def soft_ai_health(client: httpx.Client, r: Results) -> dict[str, Any]:
+    """Return parsed /health/ai body (may be empty). Soft-only."""
+    body: dict[str, Any] = {}
     try:
         resp = client.get("/health/ai")
-        body: dict[str, Any] = {}
         try:
             body = resp.json()
         except Exception:
@@ -135,8 +137,90 @@ def soft_ai_health(client: httpx.Client, r: Results) -> None:
             r.ok(f"GET /health/ai ({status_label})")
         else:
             r.skip("GET /health/ai", f"{resp.status_code} {resp.text[:160]}")
+            return body
+
+        deps = body.get("dependencies") if isinstance(body.get("dependencies"), dict) else {}
+        cp = deps.get("checkpointer") if isinstance(deps.get("checkpointer"), dict) else {}
+        if not cp:
+            r.skip("checkpointer soft", "dependencies.checkpointer missing from /health/ai")
+        elif cp.get("reachable"):
+            r.ok("checkpointer ready (soft)")
+        else:
+            detail = str(cp.get("detail") or "not reachable")[:120]
+            r.skip("checkpointer ready (soft)", detail)
     except Exception as exc:
         r.skip("GET /health/ai", str(exc))
+    return body
+
+
+def soft_agent_create_note_hitl(
+    client: httpx.Client, headers: dict[str, str], r: Results
+) -> None:
+    """
+    Soft: stream agent toward create-note; stop at approval_required (no approve).
+    Never fails the hard gate.
+    """
+    try:
+        with client.stream(
+            "POST",
+            "/ai/agent/stream",
+            headers=headers,
+            json={
+                "message": (
+                    "Create a note titled Smoke Agent HITL with body "
+                    "soft smoke — do not skip approval."
+                ),
+            },
+            timeout=90.0,
+        ) as resp:
+            if resp.status_code != 200:
+                r.skip(
+                    "POST /ai/agent/stream (create-note)",
+                    f"{resp.status_code}",
+                )
+                return
+
+            saw_approval = False
+            saw_error = False
+            error_msg = ""
+            buf = ""
+            for chunk in resp.iter_text():
+                buf += chunk
+                while "\n\n" in buf:
+                    frame, buf = buf.split("\n\n", 1)
+                    data_line = ""
+                    for line in frame.splitlines():
+                        if line.startswith("data:"):
+                            data_line = line[5:].strip()
+                    if not data_line or data_line == "[DONE]":
+                        continue
+                    try:
+                        payload = json.loads(data_line)
+                    except Exception:
+                        continue
+                    if not isinstance(payload, dict):
+                        continue
+                    ptype = payload.get("type")
+                    if ptype == "approval_required":
+                        saw_approval = True
+                    elif ptype == "error":
+                        saw_error = True
+                        error_msg = str(payload.get("message") or "")[:160]
+
+            if saw_approval:
+                r.ok("POST /ai/agent/stream → approval_required (soft)")
+            elif saw_error:
+                r.skip(
+                    "POST /ai/agent/stream → approval_required (soft)",
+                    error_msg or "SSE error",
+                )
+            else:
+                r.skip(
+                    "POST /ai/agent/stream → approval_required (soft)",
+                    "no approval_required or error in stream",
+                )
+    except Exception as exc:
+        r.skip("POST /ai/agent/stream (create-note)", str(exc)[:160])
 
 
 def soft_file_upload(client: httpx.Client, headers: dict[str, str], r: Results) -> None:
@@ -211,6 +295,7 @@ def main() -> int:
         if args.with_ai:
             print("\n  --- soft AI checks (non-blocking) ---\n")
             soft_ai_health(client, r)
+            soft_agent_create_note_hitl(client, headers, r)
             soft_file_upload(client, headers, r)
         else:
             r.skip("soft AI", "pass --with-ai or SMOKE_SOFT_AI=1 to enable")

@@ -1,8 +1,69 @@
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 _LANGFUSE_DEFAULT_HOST = "https://cloud.langfuse.com"
+
+
+def adapt_database_url_for_psycopg(database_url: str) -> str:
+    """
+    Adapt SQLAlchemy/asyncpg DATABASE_URL for psycopg3 (LangGraph checkpointer).
+
+    - Strip ``+asyncpg`` driver suffix
+    - Normalize ``postgres://`` → ``postgresql://``
+    - Map asyncpg-style ``ssl=require`` to libpq ``sslmode=require``
+    - Default ``sslmode=require`` for Supabase hosts when SSL is unspecified
+    """
+    url = (database_url or "").strip()
+    for prefix in ("postgresql+asyncpg://", "postgres+asyncpg://"):
+        if url.startswith(prefix):
+            url = "postgresql://" + url[len(prefix) :]
+            break
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+
+    parsed = urlparse(url)
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    kept: list[tuple[str, str]] = []
+    sslmode: str | None = None
+    for key, value in pairs:
+        lowered = key.lower()
+        if lowered == "sslmode":
+            sslmode = value
+            continue
+        if lowered == "ssl":
+            token = value.lower()
+            if token in {"require", "true", "1", "yes"}:
+                sslmode = sslmode or "require"
+            elif token in {"disable", "false", "0", "no"}:
+                sslmode = sslmode or "disable"
+            else:
+                sslmode = sslmode or value
+            continue
+        kept.append((key, value))
+
+    host = (parsed.hostname or "").lower()
+    if sslmode is None and (
+        "supabase.co" in host
+        or "supabase.com" in host
+        or "pooler.supabase" in host
+    ):
+        sslmode = "require"
+    if sslmode is not None:
+        kept.append(("sslmode", sslmode))
+
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            urlencode(kept),
+            parsed.fragment,
+        )
+    )
 
 
 class Settings(BaseSettings):
@@ -187,9 +248,9 @@ class Settings(BaseSettings):
     def psycopg_database_url(self) -> str:
         """
         DATABASE_URL adapted for psycopg3 (AsyncPostgresSaver).
-        Strips '+asyncpg' driver suffix — psycopg3 uses plain postgresql://.
+        Strips '+asyncpg', maps ssl→sslmode, defaults SSL for Supabase hosts.
         """
-        return self.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+        return adapt_database_url_for_psycopg(self.DATABASE_URL)
 
     @model_validator(mode="after")
     def validate_ai_config(self) -> "Settings":

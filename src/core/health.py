@@ -78,6 +78,21 @@ async def _probe_llm() -> dict[str, Any]:
         return {"reachable": False, "configured": True, "detail": str(exc)[:200]}
 
 
+def _probe_checkpointer() -> dict[str, Any]:
+    """Soft LangGraph checkpointer readiness — never raises."""
+    try:
+        from ai.memory.checkpointer import checkpointer_health
+
+        return checkpointer_health()
+    except Exception as exc:
+        logger.warning("Checkpointer soft health probe failed: %s", str(exc)[:200])
+        return {
+            "reachable": False,
+            "configured": True,
+            "detail": str(exc)[:200],
+        }
+
+
 @router.get("/health")
 async def deep_health(
     response: Response,
@@ -123,30 +138,38 @@ async def deep_health(
 
 @router.get("/health/ai")
 async def ai_health() -> dict[str, Any]:
-    """Soft AI/Qdrant/LLM readiness. Never required by hard deploy smoke or GET /health."""
+    """Soft AI/Qdrant/LLM/checkpointer readiness. Never required by hard deploy smoke or GET /health."""
     t0 = time.perf_counter()
     ts = datetime.now(timezone.utc).isoformat()
     llm = await _probe_llm()
+    checkpointer = _probe_checkpointer()
+    checkpointer_ok = bool(checkpointer.get("reachable"))
 
     if not settings.qdrant_enabled:
         llm_ok = bool(llm.get("reachable"))
+        soft_ok = llm_ok and checkpointer_ok
         return {
-            "status": "ok" if llm_ok else "degraded",
+            "status": "ok" if soft_ok else "degraded",
             "timestamp": ts,
             "latency_ms": round((time.perf_counter() - t0) * 1000, 3),
             "dependencies": {
                 "qdrant": {"reachable": False, "configured": False},
                 "llm": llm,
+                "checkpointer": checkpointer,
             },
         }
 
     qdrant = await _probe_qdrant()
     qdrant_ok = bool(qdrant.get("reachable"))
     llm_ok = bool(llm.get("reachable"))
-    status_label = "ok" if qdrant_ok and llm_ok else "degraded"
+    status_label = "ok" if qdrant_ok and llm_ok and checkpointer_ok else "degraded"
     return {
         "status": status_label,
         "timestamp": ts,
         "latency_ms": round((time.perf_counter() - t0) * 1000, 3),
-        "dependencies": {"qdrant": qdrant, "llm": llm},
+        "dependencies": {
+            "qdrant": qdrant,
+            "llm": llm,
+            "checkpointer": checkpointer,
+        },
     }

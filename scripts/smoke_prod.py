@@ -208,15 +208,15 @@ def soft_agent_create_note_hitl(
                         error_msg = str(payload.get("message") or "")[:160]
 
             if saw_approval:
-                r.ok("POST /ai/agent/stream → approval_required (soft)")
+                r.ok("POST /ai/agent/stream -> approval_required (soft)")
             elif saw_error:
                 r.skip(
-                    "POST /ai/agent/stream → approval_required (soft)",
+                    "POST /ai/agent/stream -> approval_required (soft)",
                     error_msg or "SSE error",
                 )
             else:
                 r.skip(
-                    "POST /ai/agent/stream → approval_required (soft)",
+                    "POST /ai/agent/stream -> approval_required (soft)",
                     "no approval_required or error in stream",
                 )
     except Exception as exc:

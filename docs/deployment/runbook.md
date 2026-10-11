@@ -202,6 +202,31 @@ docker compose -f docker-compose.prod.yml --profile observability up -d promethe
 
 Grafana stays off-VPS (e.g. Grafana Cloud remote_write). See compose comments on the `prometheus` service.
 
+### 6.1 Langfuse + LLM model lines on the VPS
+
+Product defaults prefer NVIDIA NIM Lightning, then Gemini Flash (see `.env.production.example`). Langfuse is soft: deploy succeeds without keys, but hosted traces need them.
+
+On the VPS compose `.env` (gitignored; never commit):
+
+1. Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL` (or `LANGFUSE_HOST`) to the cloud project.
+2. Set `LLM_MODEL=nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b` and `LLM_MODEL_FALLBACKS=gemini/gemini-2.5-flash` (or an explicit Super pin if you choose quality over speed).
+3. **Recreate** `api` and `worker` so env reloads (a plain restart can keep the old process cache):
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps api worker
+```
+
+4. Confirm soft AI health (does not gate deploy):
+
+```bash
+curl -sS https://api.aisystem.world/health/ai
+# expect langfuse.enabled=true, configured_model=Lightning (or your pin)
+```
+
+5. Send one chat on the hosted app; in Langfuse filter `environment=production`, service `dashnote-api`, parent `rag.answer` or `agent.turn`.
+
+**Credentials:** deploy uses GitHub Actions `VPS_*` SSH secrets and the host `.env`. `infra/tf.env` IAM lines are placeholders (`REPLACE_ME_…`) and are **not** deploy credentials. Do not put live AWS access keys in git.
+
 ## 7. Post-deploy smoke (7P.6)
 
 After `health-check.sh` (or against a public URL), run the lean hard gate:

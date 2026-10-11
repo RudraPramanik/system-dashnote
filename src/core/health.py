@@ -61,21 +61,47 @@ async def _probe_qdrant() -> dict[str, Any]:
         return {"reachable": False, "configured": True, "detail": str(exc)[:200]}
 
 
+def _llm_model_fields() -> dict[str, Any]:
+    """Configured primary vs the in-process cached candidate. No secrets."""
+    from shared.llm.fallback import cached_llm_model
+
+    return {
+        "configured_model": settings.LLM_MODEL,
+        "cached_model": cached_llm_model(),
+    }
+
+
+def _langfuse_dependency() -> dict[str, Any]:
+    """Whether tracing keys are set. Never includes key material."""
+    enabled = bool(settings.langfuse_enabled)
+    return {
+        "enabled": enabled,
+        "host": settings.effective_langfuse_host if enabled else "",
+    }
+
+
 async def _probe_llm() -> dict[str, Any]:
     """Soft LLM probe — never raises; never logs secrets."""
+    identity = _llm_model_fields()
     if not settings.ai_enabled:
-        return {"reachable": False, "configured": False}
+        return {"reachable": False, "configured": False, **identity}
 
     try:
         from shared.llm.fallback import resolve_llm_model
 
         model = await asyncio.wait_for(resolve_llm_model(timeout=12.0), timeout=14.0)
+        identity = _llm_model_fields()
         if model:
-            return {"reachable": True, "configured": True, "model": model}
-        return {"reachable": False, "configured": True}
+            return {"reachable": True, "configured": True, "model": model, **identity}
+        return {"reachable": False, "configured": True, **identity}
     except Exception as exc:
         logger.warning("LLM soft health probe failed: %s", str(exc)[:200])
-        return {"reachable": False, "configured": True, "detail": str(exc)[:200]}
+        return {
+            "reachable": False,
+            "configured": True,
+            "detail": str(exc)[:200],
+            **_llm_model_fields(),
+        }
 
 
 def _probe_checkpointer() -> dict[str, Any]:
@@ -156,6 +182,7 @@ async def ai_health() -> dict[str, Any]:
                 "qdrant": {"reachable": False, "configured": False},
                 "llm": llm,
                 "checkpointer": checkpointer,
+                "langfuse": _langfuse_dependency(),
             },
         }
 
@@ -171,5 +198,6 @@ async def ai_health() -> dict[str, Any]:
             "qdrant": qdrant,
             "llm": llm,
             "checkpointer": checkpointer,
+            "langfuse": _langfuse_dependency(),
         },
     }

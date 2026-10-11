@@ -37,8 +37,8 @@ Multi-tenant note **and file** embeddings: chunk → Redis cache → LiteLLM →
 | `QDRANT_URL` | `None` | Enables Qdrant when set; `qdrant_enabled` property |
 | `QDRANT_NOTES_COLLECTION` | `notes_chunks` | Note chunk vectors |
 | `QDRANT_FILES_COLLECTION` | `files_chunks` | File chunk vectors (Slice 7) |
-| `LLM_MODEL` | `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b` | Primary chat/agent/automation model (LiteLLM prefix) |
-| `LLM_MODEL_FALLBACKS` | `nvidia_nim/openai/gpt-oss-20b,gemini/gemini-2.5-flash` | Tried in order after HTTP 410 / model gone, HTTP 429 / rate-limit, **or** wall-clock timeout. Extra NIM id is a different free catalog model so Gemini quota is not the only hatch. Do not default Super 120B / Ultra 550B. |
+| `LLM_MODEL` | `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b` | Primary chat/agent/automation model (LiteLLM prefix). NIM free tiers are typically higher RPM (~40) than Gemini free. |
+| `LLM_MODEL_FALLBACKS` | `gemini/gemini-2.5-flash` | Tried after HTTP 410 / model gone, HTTP 429 / rate-limit, **or** wall-clock timeout. Do not default `gpt-oss-20b`, Super 120B, or Ultra 550B (operators MAY pin Super explicitly for quality). |
 | `LLM_TEMPERATURE` | `0.0` | Deterministic answers |
 | `LLM_MAX_TOKENS` | `2048` | Max completion tokens |
 | `LLM_MAX_RETRIES` | `4` | Tenacity attempts for completion calls (Slice 7.5) |

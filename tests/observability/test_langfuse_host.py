@@ -45,6 +45,23 @@ def test_host_wins_over_base_url_alias() -> None:
     assert s.effective_langfuse_host == "https://cloud.langfuse.com"
 
 
+def test_tracing_environment_override_and_debug_default() -> None:
+    explicit = _settings(public_key="pk-lf-test", secret_key="sk-lf-test")
+    explicit.DEBUG = True
+    explicit.LANGFUSE_TRACING_ENVIRONMENT = "staging"
+    assert explicit.effective_langfuse_environment == "staging"
+
+    prod = _settings(public_key="pk-lf-test", secret_key="sk-lf-test")
+    prod.DEBUG = False
+    prod.LANGFUSE_TRACING_ENVIRONMENT = ""
+    assert prod.effective_langfuse_environment == "production"
+
+    dev = _settings(public_key="pk-lf-test", secret_key="sk-lf-test")
+    dev.DEBUG = True
+    dev.LANGFUSE_TRACING_ENVIRONMENT = ""
+    assert dev.effective_langfuse_environment == "development"
+
+
 def test_base_url_alias_when_host_blank() -> None:
     s = _settings(
         public_key="pk-lf-test",
@@ -86,6 +103,7 @@ def test_client_uses_effective_host_no_network() -> None:
     kwargs = ctor.call_args.kwargs
     assert kwargs["host"] == "https://us.cloud.langfuse.com"
     assert kwargs["public_key"] == "pk-lf-test"
+    assert kwargs["environment"] == settings.effective_langfuse_environment
 
 
 def test_score_by_trace_id_uses_v3_create_score() -> None:

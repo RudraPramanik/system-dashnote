@@ -7,6 +7,7 @@ No FastAPI, SQLAlchemy, or domain modules.
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Optional
 
 from config import get_settings
@@ -45,14 +46,18 @@ def get_langfuse_client() -> Optional["Langfuse"]:
         from langfuse import Langfuse
 
         host = settings.effective_langfuse_host
+        environment = settings.effective_langfuse_environment
+        os.environ.setdefault("OTEL_SERVICE_NAME", "dashnote-api")
+        os.environ["LANGFUSE_TRACING_ENVIRONMENT"] = environment
         _client = Langfuse(
             public_key=settings.LANGFUSE_PUBLIC_KEY,
             secret_key=settings.LANGFUSE_SECRET_KEY,
             host=host,
+            environment=environment,
         )
         logger.info(
             "Langfuse client initialized",
-            extra={"host": host},
+            extra={"host": host, "environment": environment},
         )
     except Exception as exc:
         logger.warning(

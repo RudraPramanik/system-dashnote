@@ -35,6 +35,19 @@ def _reset_fallback():
     reset_fallback_state()
 
 
+def test_default_candidates_prefer_lightning_then_gemini():
+    from config import Settings
+
+    primary = Settings.model_fields["LLM_MODEL"].default
+    fallbacks = Settings.model_fields["LLM_MODEL_FALLBACKS"].default
+    assert primary == "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"
+    assert fallbacks == "gemini/gemini-2.5-flash"
+    assert "gpt-oss-20b" not in str(primary)
+    assert "gpt-oss-20b" not in str(fallbacks)
+    assert "120b" not in str(primary).lower()
+    assert "120b" not in str(fallbacks).lower()
+
+
 def test_is_model_gone_detects_410_text():
     assert is_model_gone(RuntimeError("Error code: 410 - end of life"))
     assert is_model_gone(RuntimeError("The model has reached its end of life"))

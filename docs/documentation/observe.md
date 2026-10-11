@@ -214,9 +214,11 @@ Replace `<TOKEN>` with a valid workspace JWT.
 
 ### Langfuse UI checklist
 
+Filter hosted chats with **environment `production`** (debug-on laptops are `development` unless `LANGFUSE_TRACING_ENVIRONMENT` is set) and service name **`dashnote-api`**. A shared Langfuse project can still contain traces from other apps; those rows will not carry this service name.
+
 After one `/ai/chat` and one `/ai/agent` call (with keys set):
 
-1. Chat: trace named **`rag.answer`**. Agent: parent **`agent.turn`** with nested **`rag.answer`** when search tools run.
+1. Chat: trace named **`rag.answer`**, ended, with a latency. Agent: parent **`agent.turn`** with nested **`rag.answer`** when search tools run.
 2. RAG child spans: **`retrieval`**, **`context_building`**, **`llm_generation`** (when chunks exist).
 3. Agent: generation-typed **`call_model`**; HITL shows **`hitl.interrupt`** (span and/or score).
 4. Optional JSON field **`trace_id`**. `POST /ai/feedback` with JWT + `thread_id` + thumbs/score attaches `user_feedback` when tracing is on (2xx `tracing=unavailable` when off).

@@ -51,7 +51,7 @@ from core.database.session import get_session
 from core.security.context import RequestContext
 from core.security.dependency import get_current_context
 from observability.metrics import inc_agent_interrupt
-from observability.tracing import current_trace_id, start_trace
+from observability.tracing import current_trace_id, mark_first_token, start_trace
 from shared.llm.fallback import (
     LLM_UNAVAILABLE_MESSAGE,
     LLMUnavailableError,
@@ -512,6 +512,8 @@ async def agent_chat_stream(
                             chunk = data.get("chunk", {})
                             content = _extract_stream_chunk_content(chunk)
                             if content:
+                                if not streamed_parts:
+                                    mark_first_token()
                                 streamed_parts.append(content)
                                 yield (
                                     f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"

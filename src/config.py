@@ -139,9 +139,7 @@ class Settings(BaseSettings):
     # LLM_MODEL_FALLBACKS walks additional LiteLLM ids after the primary
     # on HTTP 410 / model gone, HTTP 429 / rate-limit, and AGENT_TOOL_TIMEOUT.
     LLM_MODEL: str = "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"
-    LLM_MODEL_FALLBACKS: str = (
-        "nvidia_nim/openai/gpt-oss-20b,gemini/gemini-2.5-flash"
-    )
+    LLM_MODEL_FALLBACKS: str = "gemini/gemini-2.5-flash"
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2048
     LLM_MAX_RETRIES: int = 4
@@ -161,6 +159,8 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_HOST: str = ""
     LANGFUSE_BASE_URL: str = ""
+    # Blank → production when DEBUG is false, development when DEBUG is true.
+    LANGFUSE_TRACING_ENVIRONMENT: str = ""
 
     # ── AI Slice 5: Memory ──────────────────────────────────────────
     AI_THREAD_MESSAGE_LIMIT: int = 20   # recent messages loaded into context
@@ -243,6 +243,14 @@ class Settings(BaseSettings):
         if alias:
             return alias
         return _LANGFUSE_DEFAULT_HOST
+
+    @property
+    def effective_langfuse_environment(self) -> str:
+        """Explicit LANGFUSE_TRACING_ENVIRONMENT, else production/development from DEBUG."""
+        explicit = (self.LANGFUSE_TRACING_ENVIRONMENT or "").strip()
+        if explicit:
+            return explicit
+        return "development" if self.DEBUG else "production"
 
     @property
     def psycopg_database_url(self) -> str:

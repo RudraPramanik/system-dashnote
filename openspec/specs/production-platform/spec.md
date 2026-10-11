@@ -97,7 +97,7 @@ The system MUST provide `scripts/smoke_prod.py` that, against a configurable bas
 - **THEN** `docs/documentation/production.md` shows 7P.6 as complete
 
 ### Requirement: Soft AI health does not block hard health
-`GET /health` MUST continue to treat Postgres and Redis as hard dependencies and MUST NOT fail solely because Qdrant or LLM providers are unavailable. The system MUST provide `GET /health/ai` that reports AI/Qdrant readiness as soft status (reachable, degraded, or not configured) **and** a soft LLM dependency (reachable, degraded, or not configured). `GET /health/ai` MUST NOT be required for the deploy smoke hard gate unless an operator explicitly opts into soft checks. Soft Qdrant or LLM probe failures MUST NOT crash the API process.
+`GET /health` MUST continue to treat Postgres and Redis as hard dependencies and MUST NOT fail solely because Qdrant, LLM providers, or the LangGraph checkpointer are unavailable. The system MUST provide `GET /health/ai` that reports AI/Qdrant readiness as soft status (reachable, degraded, or not configured), a soft LLM dependency (reachable, degraded, or not configured), **and** soft LangGraph checkpointer readiness (ready, degraded/unavailable, or not configured). `GET /health/ai` MUST NOT be required for the deploy smoke hard gate unless an operator explicitly opts into soft checks. Soft Qdrant, LLM, or checkpointer probe failures MUST NOT crash the API process.
 
 #### Scenario: API up while Qdrant is down
 - **GIVEN** Postgres and Redis are reachable and Qdrant is unreachable
@@ -121,6 +121,33 @@ The system MUST provide `scripts/smoke_prod.py` that, against a configurable bas
 - **WHEN** a client calls `GET /health/ai`
 - **THEN** the response includes a soft LLM dependency status
 - **AND** a retired or unreachable LLM does not change the hard success criteria of `GET /health`
+
+#### Scenario: Soft AI health reports checkpointer separately
+- **GIVEN** the API is running
+- **WHEN** a client calls `GET /health/ai`
+- **THEN** the response includes soft LangGraph checkpointer readiness
+- **AND** a failed checkpointer init does not change the hard success criteria of `GET /health`
+- **AND** operators can distinguish “LLM reachable” from “agent mutations ready”
+
+### Requirement: Soft smoke can verify agent mutation readiness
+When soft AI checks are enabled (`--with-ai` / `SMOKE_SOFT_AI`), `scripts/smoke_prod.py` MUST report checkpointer readiness from soft AI health and MUST exercise an authenticated agent stream path that would mutate a note (or document an equivalent proof). Soft failures MUST NOT fail the CD hard gate. The runbook MUST document diagnosing checkpointer init failure on the VPS and verifying agent create-note after deploy. Hard gate behavior (health, auth, REST note create) MUST remain unchanged.
+
+#### Scenario: Soft AI smoke surfaces checkpointer status
+- **GIVEN** a reachable production API
+- **WHEN** an operator runs `scripts/smoke_prod.py --with-ai` against that base URL
+- **THEN** the soft section reports checkpointer readiness from `/health/ai` (or equivalent)
+- **AND** a missing checkpointer is reported as soft fail/warn, not as hard-gate failure
+
+#### Scenario: Soft AI smoke exercises agent mutation path
+- **GIVEN** soft AI checks are enabled and the checkpointer is ready
+- **WHEN** the soft smoke agent step runs with a valid JWT
+- **THEN** the agent stream reaches `approval_required` for a create-note style request, or another documented non-error HITL progress path
+- **AND** the hard gate still exits 0 based only on hard checks
+
+#### Scenario: Runbook covers checkpointer diagnosis and CD verify
+- **GIVEN** this change is applied
+- **WHEN** an operator opens the deploy/runbook docs for `api.aisystem.world`
+- **THEN** they can find steps to inspect checkpointer init logs, confirm `/health/ai` checkpointer status, and redeploy via CI then tag/`workflow_dispatch` CD
 
 ### Requirement: CI runs on pull requests without production secrets
 The repository MUST include a CI workflow that runs on pull requests (and pushes to the default branch as appropriate) executing pytest and a Docker image build. CI MUST NOT require production host credentials or live LLM/Qdrant secrets to pass.
@@ -299,3 +326,25 @@ When GitHub CD is configured for production, `SMOKE_BASE_URL` MUST be `https://a
 - **WHEN** they set `SMOKE_BASE_URL`
 - **THEN** the value is `https://api.aisystem.world`
 - **AND** the hard gate remains health, auth, and note create via `scripts/smoke_prod.py`
+
+### Requirement: Hosted AI env includes Langfuse and model lines
+The committed production env template and the operator runbook MUST name `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and either `LANGFUSE_HOST` or `LANGFUSE_BASE_URL`, plus `LLM_MODEL` and `LLM_MODEL_FALLBACKS`, as optional-but-recommended VPS `.env` entries for hosted AI. Filled values MUST remain in the gitignored VPS `.env` only. After those values change on the host, operators MUST recreate the `api` and `worker` containers (not only restart) so the Langfuse client and in-process LLM cache reload. Soft `GET /health/ai` MUST remain non-blocking for hard deploy smoke. Live AWS IAM access keys MUST NOT be committed under `infra/tf.env` or any other tracked path.
+
+#### Scenario: Template names Langfuse and model vars
+- **GIVEN** an operator opens `.env.production.example`
+- **WHEN** they look for AI observability and model settings
+- **THEN** they see Langfuse key and host/base-url placeholders
+- **AND** they see `LLM_MODEL` and `LLM_MODEL_FALLBACKS` placeholders or documented defaults
+- **AND** no live secret values appear in that file
+
+#### Scenario: Recreate after env change
+- **GIVEN** the VPS `.env` gained Langfuse keys or new model lines
+- **WHEN** the operator follows the runbook to apply them
+- **THEN** `api` and `worker` are recreated so the new env is loaded
+- **AND** `GET /health/ai` can report Langfuse enabled and the configured model without failing `GET /health`
+
+#### Scenario: IAM keys stay out of git
+- **GIVEN** an operator manages AWS credentials for the edge instance
+- **WHEN** they store access keys
+- **THEN** those keys MUST NOT be committed into the repository
+- **AND** `infra/tf.env` MUST NOT contain live access-key material

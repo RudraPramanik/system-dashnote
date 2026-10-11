@@ -202,6 +202,31 @@ docker compose -f docker-compose.prod.yml --profile observability up -d promethe
 
 Grafana stays off-VPS (e.g. Grafana Cloud remote_write). See compose comments on the `prometheus` service.
 
+### 6.1 Langfuse + LLM model lines on the VPS
+
+Product defaults prefer NVIDIA NIM Lightning, then Gemini Flash (see `.env.production.example`). Langfuse is soft: deploy succeeds without keys, but hosted traces need them.
+
+On the VPS compose `.env` (gitignored; never commit):
+
+1. Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL` (or `LANGFUSE_HOST`) to the cloud project.
+2. Set `LLM_MODEL=nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b` and `LLM_MODEL_FALLBACKS=gemini/gemini-2.5-flash` (or an explicit Super pin if you choose quality over speed).
+3. **Recreate** `api` and `worker` so env reloads (a plain restart can keep the old process cache):
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps api worker
+```
+
+4. Confirm soft AI health (does not gate deploy):
+
+```bash
+curl -sS https://api.aisystem.world/health/ai
+# expect langfuse.enabled=true, configured_model=Lightning (or your pin)
+```
+
+5. Send one chat on the hosted app; in Langfuse filter `environment=production`, service `dashnote-api`, parent `rag.answer` or `agent.turn`.
+
+**Credentials:** deploy uses GitHub Actions `VPS_*` SSH secrets and the host `.env`. `infra/tf.env` IAM lines are placeholders (`REPLACE_ME_…`) and are **not** deploy credentials. Do not put live AWS access keys in git.
+
 ## 7. Post-deploy smoke (7P.6)
 
 After `health-check.sh` (or against a public URL), run the lean hard gate:
@@ -223,9 +248,25 @@ SMOKE_BASE_URL=https://api.example.com python scripts/smoke_prod.py
 |------------|---------|
 | `SMOKE_BASE_URL` / `--base-url` | API edge (default `http://127.0.0.1`) |
 | `SMOKE_EMAIL` + `SMOKE_PASSWORD` | Login instead of ephemeral register |
-| `--with-ai` / `SMOKE_SOFT_AI=1` | Soft checks only: `GET /health/ai`, optional file upload poll — **never** fails the hard exit |
+| `--with-ai` / `SMOKE_SOFT_AI=1` | Soft checks only: `GET /health/ai` (incl. checkpointer), agent create-note → `approval_required`, optional file upload poll — **never** fails the hard exit |
 
-Do **not** commit real credentials. Soft AI / Qdrant is **not** part of the deploy hard gate (`GET /health/ai` is informational).
+Do **not** commit real credentials. Soft AI / Qdrant / checkpointer is **not** part of the deploy hard gate (`GET /health/ai` is informational).
+
+### Agent checkpointer diagnosis (hosted)
+
+LangGraph HITL note mutations need a live checkpointer (psycopg3 against the same Postgres as `DATABASE_URL`). If the agent UI says mutations are blocked / stream errors after `create_note`:
+
+1. On the VPS: `docker compose -f docker-compose.prod.yml logs api 2>&1 | grep -i checkpointer`  
+   Look for `Checkpointer init failed` or `LangGraph checkpointer ready`.
+2. Confirm soft health: `curl -sS https://api.aisystem.world/health/ai | jq .dependencies.checkpointer`  
+   Expect `"reachable": true` when mutations should work. LLM/Qdrant can be ok while checkpointer is down.
+3. Ensure VPS `.env` `DATABASE_URL` works for **both** asyncpg and psycopg (Supabase: include SSL; API adapts `ssl` → `sslmode=require`). Do **not** overwrite a good VPS `.env` with a stale laptop `.env.production` that still has placeholders.
+4. Soft verify after redeploy:
+   ```bash
+   SMOKE_BASE_URL=https://api.aisystem.world python scripts/smoke_prod.py --with-ai
+   ```
+   Soft section should report `checkpointer ready` and ideally `approval_required` for the agent create-note step.
+5. Ship path: green PR CI (`.github/workflows/ci.yml`) → tag `v*` or Actions `workflow_dispatch` on `deploy.yml` → hard smoke PASS → soft AI verify above. Frontend (DashNotes) deploys separately on Vercel when client changes land.
 
 Broader local E2E (optional): `python scripts/e2e_docker_smoke.py`.
 

@@ -10,6 +10,7 @@ import contextvars
 import logging
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Protocol
 
 from observability.langfuse_client import get_langfuse_client
@@ -22,6 +23,10 @@ _current_parent: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "observability_trace_parent",
     default=None,
 )
+_active_generation: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "observability_active_generation",
+    default=None,
+)
 _thread_traces: dict[str, str] = {}
 
 
@@ -32,12 +37,16 @@ class _TraceLike(Protocol):
 
 class _SpanLike(Protocol):
     def update(self, *, output: dict | None = None, **kwargs: Any) -> None: ...
+    def mark_first_token(self) -> None: ...
 
 
 class _NoOpSpan:
     """Stand-in span when Langfuse is disabled or tracing fails."""
 
     def update(self, *, output: dict | None = None, **kwargs: Any) -> None:
+        return None
+
+    def mark_first_token(self) -> None:
         return None
 
 
@@ -65,9 +74,11 @@ def _obs_ids(observation: Any, *, fallback_trace_id: str | None = None) -> tuple
 
 
 class _LangfuseSpanHandle:
-    def __init__(self, observation: Any) -> None:
+    def __init__(self, observation: Any, *, is_generation: bool = False) -> None:
         self._obs = observation
         self._output: dict[str, Any] = {}
+        self._is_generation = is_generation
+        self._completion_start_time: datetime | None = None
 
     def update(self, *, output: dict | None = None, **kwargs: Any) -> None:
         try:
@@ -78,13 +89,23 @@ class _LangfuseSpanHandle:
         except Exception:
             logger.debug("Langfuse span update failed", exc_info=True)
 
+    def mark_first_token(self) -> None:
+        if self._is_generation and self._completion_start_time is None:
+            self._completion_start_time = datetime.now(timezone.utc)
+
     def _finalize(self, latency_ms: float) -> None:
         try:
             merged = {**self._output, "latency_ms": latency_ms}
-            self._obs.update(output=merged)
+            update_kwargs: dict[str, Any] = {"output": merged}
+            if self._is_generation and self._completion_start_time is not None:
+                update_kwargs["completion_start_time"] = self._completion_start_time
+            self._obs.update(**update_kwargs)
+        except Exception:
+            logger.debug("Langfuse span update failed", exc_info=True)
+        try:
             self._obs.end()
         except Exception:
-            logger.debug("Langfuse span finalize failed", exc_info=True)
+            logger.debug("Langfuse span end failed", exc_info=True)
 
 
 class _LangfuseTraceHandle:
@@ -98,8 +119,10 @@ class _LangfuseTraceHandle:
 
     def span(self, name: str, input: dict | None = None) -> _SpanLike:
         try:
-            child = self._obs.start_observation(name=name, input=input or {})
-            return _LangfuseSpanHandle(child)
+            child = _start_child_observation(self, name, input or {})
+            if child is None:
+                return _NoOpSpan()
+            return _LangfuseSpanHandle(child, is_generation=name in _GENERATION_NAMES)
         except Exception:
             logger.debug("Langfuse trace.span failed", exc_info=True)
             return _NoOpSpan()
@@ -128,7 +151,21 @@ def _start_child_observation(parent: Any, name: str, input_data: dict) -> Any | 
         model = input_data.get("model")
         if model:
             kwargs["model"] = model
+    else:
+        kwargs["as_type"] = "span"
     return obs.start_observation(**kwargs)
+
+
+def mark_first_token(target: Any | None = None) -> None:
+    """Record time-to-first-token on the active generation span. Never raises."""
+    handle = target if target is not None else _active_generation.get()
+    marker = getattr(handle, "mark_first_token", None)
+    if not callable(marker):
+        return
+    try:
+        marker()
+    except Exception:
+        logger.debug("mark_first_token failed", exc_info=True)
 
 
 def current_parent() -> Any:
@@ -202,7 +239,15 @@ async def start_trace(name: str, metadata: dict) -> AsyncIterator[_TraceLike]:
                     model = metadata.get("model")
                     if model:
                         start_kwargs["model"] = model
+                else:
+                    start_kwargs["as_type"] = "span"
                 trace_obs = client.start_observation(**start_kwargs)
+                updater = getattr(trace_obs, "update_trace", None)
+                if callable(updater):
+                    try:
+                        updater(name=name, input=metadata, metadata=metadata)
+                    except Exception:
+                        logger.debug("update_trace failed", exc_info=True)
                 handle = _LangfuseTraceHandle(trace_obs)
                 is_root = True
     except Exception:
@@ -252,11 +297,17 @@ async def rag_span(
         try:
             span_obs = _start_child_observation(parent, name, input_data)
             if span_obs is not None:
-                handle = _LangfuseSpanHandle(span_obs)
+                handle = _LangfuseSpanHandle(
+                    span_obs,
+                    is_generation=name in _GENERATION_NAMES,
+                )
         except Exception:
             logger.debug("rag_span setup failed", exc_info=True)
             handle = _NoOpSpan()
 
+    gen_token = None
+    if name in _GENERATION_NAMES:
+        gen_token = _active_generation.set(handle)
     try:
         yield handle
     finally:
@@ -266,9 +317,14 @@ async def rag_span(
         elif span_obs is not None:
             try:
                 span_obs.update(output={"latency_ms": latency_ms})
-                span_obs.end()
             except Exception:
                 logger.debug("rag_span finalize failed", exc_info=True)
+            try:
+                span_obs.end()
+            except Exception:
+                logger.debug("rag_span end failed", exc_info=True)
+        if gen_token is not None:
+            _active_generation.reset(gen_token)
 
 
 span = rag_span

@@ -7,7 +7,7 @@ Hosted NIM ids are retired without a DashNote code change (HTTP 410). Do **not**
 ## `.env` (hybrid — recommended)
 
 ```env
-# LLM → NVIDIA NIM (primary) then fallbacks
+# LLM → Lightning NIM primary (~40 RPM), Gemini when NIM is rate-limited
 NVIDIA_NIM_API_KEY=nvapi-...
 NVIDIA_NIM_API_BASE=https://integrate.api.nvidia.com/v1
 LLM_MODEL=nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b
@@ -42,9 +42,9 @@ Pinged working from this stack:
 
 | Model | LiteLLM id | Use |
 |-------|------------|-----|
-| Nemotron 3.5 Lightning | `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b` | **Default primary** — RAG, agent, automation |
-| Gemini 2.5 Flash | `gemini/gemini-2.5-flash` | Default fallback (needs `GEMINI_API_KEY`) |
-| Nemotron 3 Super | `nvidia_nim/nvidia/nemotron-3-super-120b-a12b` | Heavy; **not** a default hop (can hang) |
+| Nemotron 3.5 Lightning | `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b` | **Default primary** — faster small NIM; typical free ~40 RPM |
+| Gemini 2.5 Flash | `gemini/gemini-2.5-flash` | Default fallback when NIM is 429/gone/timeout |
+| Nemotron 3 Super | `nvidia_nim/nvidia/nemotron-3-super-120b-a12b` | Higher quality, slower; **not** a default hop (operators MAY pin) |
 | Nemotron 3 Ultra | `nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b` | Heavy; optional |
 
 A model can appear in `GET /v1/models` and still 404 for this account. Always ping before documenting as default.
@@ -57,6 +57,10 @@ See upstream docs at [build.nvidia.com](https://build.nvidia.com/). Raw OpenAI S
 
 ## After changing `.env`
 
+Local:
+
 ```powershell
 docker compose up -d --build api worker
 ```
+
+Hosted (`aisystem.world`): set `LLM_MODEL`, `LLM_MODEL_FALLBACKS`, and Langfuse keys on the VPS compose `.env` (do not commit that file), then recreate `api` and `worker` so the in-process model cache and Langfuse client reload. See `docs/deployment/runbook.md` §6.1. A restart that keeps the old container env will keep serving the previously cached id. `GET /health/ai` shows `configured_model`, `cached_model`, and `langfuse.enabled` separately. The L2 quality-lab judge stays `gpt-oss-20b`; that id is not a product default.

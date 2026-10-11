@@ -633,6 +633,7 @@ class RagService:
                     last_chunk = chunk
                     delta = chunk.choices[0].delta.content
                     if delta:
+                        span.mark_first_token()
                         streamed_answer_parts.append(delta)
                         yield StreamToken(content=delta)
 

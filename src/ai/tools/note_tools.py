@@ -83,6 +83,30 @@ async def _search_notes(
         return f"Search failed: {str(e)}"
 
 
+CHECKPOINTER_BLOCKED_MESSAGE = (
+    "Error: note mutations require human approval and a checkpointer. "
+    "Checkpointer is not initialized — mutation blocked."
+)
+
+MUTATION_CHECKPOINTER_SSE_ERROR = (
+    "Agent note mutations unavailable: LangGraph checkpointer is not initialized. "
+    "REST note create still works; try Chat or fix checkpointer init on the API."
+)
+
+
+def is_checkpointer_blocked_tool_result(result: object) -> bool:
+    """True when a mutation tool result indicates checkpointer/HITL unavailability."""
+    text = str(result or "").lower()
+    if "checkpointer" not in text:
+        return False
+    return (
+        "not initialized" in text
+        or "mutation blocked" in text
+        or "unavailable" in text
+        or "require human approval" in text
+    )
+
+
 def _ensure_checkpointer_for_mutation() -> str | None:
     """
     Fail closed: mutations require a live checkpointer so HITL can resume.
@@ -93,10 +117,7 @@ def _ensure_checkpointer_for_mutation() -> str | None:
 
         get_graph_checkpointer()
     except RuntimeError:
-        return (
-            "Error: note mutations require human approval and a checkpointer. "
-            "Checkpointer is not initialized — mutation blocked."
-        )
+        return CHECKPOINTER_BLOCKED_MESSAGE
     except Exception as e:  # noqa: BLE001
         logger.error("checkpointer probe failed", extra={"error": str(e)})
         return "Error: note mutations unavailable (checkpointer error)."

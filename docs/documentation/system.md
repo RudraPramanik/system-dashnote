@@ -12,6 +12,40 @@ Multi-tenant **Notes backend**: **FastAPI + async SQLAlchemy**. JWT auth builds 
 
 All tenant-scoped data flows through repositories filtered by `workspace_id`. JWT details: [auth.md](./auth.md).
 
+### Production platform (as of 2026-09-28)
+
+Thin **AWS EC2** compute + hosted data plane. App code is unchanged between local Compose and prod; only env URLs and compose file differ.
+
+```
+Browser / FE
+   │  HTTPS
+   ▼
+Cloudflare (DNS + browser TLS; SSL mode Full)
+   │  HTTPS :443 → origin (self-signed OK for Full, not Full strict)
+   ▼
+EC2 t3.small (Terraform Level A: instance + SG)
+   nginx :80/:443  →  api :8000 (unpublished)  +  ARQ worker  +  migrate oneshot
+   │
+   └── .env URLs only ──► Hosted Postgres · Redis (cache + ARQ) · Qdrant Cloud · R2
+                          LLM via LiteLLM (NIM / Gemini today; Bedrock deferred)
+```
+
+| Surface | Status | Notes |
+|---------|--------|-------|
+| `https://api.aisystem.world` | **Live (A7)** | Health 200 + `smoke_prod.py` HARD GATE PASS |
+| HTTP-on-IP first-boot | Proven (A4) | Operator evidence; not the stranger-facing demo URL |
+| CD | **Green** | `workflow_dispatch` / tags `v*` → GHCR → SSH migrate/roll → smoke; **not** on every merge |
+| Terraform Level A | **Live** | EC2 + SG (+ optional EIP) in `infra/`; remote state. Level B/C not started |
+| Apex FE (`aisystem.world`) | **Not this VPS** | CORS already allows `https://aisystem.world`; host elsewhere |
+| Bedrock | Deferred | Keep LangGraph; swap model provider via LiteLLM after FE path is honest |
+
+| On VPS | Off VPS (hosted) |
+|--------|------------------|
+| `nginx`, `api`, `worker`, `migrate`; optional `prometheus` (`--profile observability`, off by default) | Postgres (Supabase pooler), Redis (Upstash cache + Redis Cloud ARQ), Qdrant Cloud, R2 |
+| Secrets in VPS `.env` + GitHub deploy secrets | Never commit prod credentials |
+
+**Ops sources of truth:** [devops-progress.md](../devops-progress.md) (phase / next) · [deployment/runbook.md](../deployment/runbook.md) (commands) · [deployment/edge-aisystem.md](../deployment/edge-aisystem.md) (Cloudflare edge) · [deployment/terraform-a.md](../deployment/terraform-a.md) (IaC) · [production.md](./production.md) (7P engineering) · [deployment/storage.md](../deployment/storage.md) (R2).
+
 ### Entry point: `src/main.py`
 
 Registers routers and global dependencies:
@@ -57,7 +91,10 @@ Returns `timestamp`, `latency_ms`, `dependencies`. Qdrant/LLM never fail hard `/
 
 ### Rate limiting (Nginx + FastAPI)
 
-**Layer 1 — Nginx** (`nginx/default.conf`): host **80** → `api:8000`; `limit_req` 10r/s burst 20; dedicated `location /ai/` with `proxy_buffering off` and 180s read/send timeouts; sets `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Request-ID`.
+**Layer 1 — Nginx** (`nginx/default.conf`): proxies to `api:8000` (Docker DNS `resolve` so recreates do not stale-502). `limit_req` 10r/s burst 20; dedicated `location /ai/` with `proxy_buffering off` and 180s read/send timeouts; sets `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Request-ID`.
+
+- **Local / HTTP:** `listen 80`
+- **Prod origin TLS:** also `listen 443 ssl` for `api.aisystem.world` — certs under `nginx/certs/` (gitignored). Cloudflare Full terminates browser TLS; origin self-signed is enough for Full, not Full strict. See [edge-aisystem.md](../deployment/edge-aisystem.md).
 
 **Layer 2 — FastAPI** (`core/security/rate_limit.py`): Redis fixed-window counters; keyed by `user_id` (valid JWT) or client IP. Global **100/min**; `POST /auth/login` **5/min**. **429** + `Retry-After`. Fail-open when Redis unset.
 
@@ -164,11 +201,9 @@ Inbound email smoke (when integrations configured): `python scripts/smoke_inboun
 
 `pytest.ini`: `pythonpath = src`, `asyncio_mode = auto`. Windows dev: conftest stubs `magic` if libmagic missing; Docker uses `libmagic1`.
 
-### Docker Compose
+### Docker Compose & deploy
 
-Two compose files — dev stack vs VPS profile. See `.env.production.example` for hosted URLs.
-
-**Ops runbooks (production / first-boot):** [devops-progress.md](../devops-progress.md) (phase tracker) · [deployment/runbook.md](../deployment/runbook.md) (commands) · [deployment/edge-aisystem.md](../deployment/edge-aisystem.md) (`api.aisystem.world`) · [production.md](./production.md) (7P / topology). HTTP-on-IP first-boot is A4 evidence; **A7 HTTPS** is live at `https://api.aisystem.world` (2026-09-28). CD is manual (`workflow_dispatch` / `v*` tags), not on every PR merge.
+Two compose files — local full stack vs thin VPS. Hosted URL template: `.env.production.example`. Laws: [deploy-low.md](./deploy-low.md). Status / next: [devops-progress.md](../devops-progress.md).
 
 **Local (full stack)** — `docker-compose.yml`:
 
@@ -182,23 +217,30 @@ docker compose down -v          # reset volumes
 docker compose run --rm migrate # migrations only
 ```
 
-**Production (VPS — hosted db/redis/qdrant in `.env`)** — `docker-compose.prod.yml`:
+**Production (VPS)** — `docker-compose.prod.yml` only on the box (never full local compose):
 
 ```powershell
 # Prefer IMAGE=ghcr.io/<owner>/<repo>:<tag> pull on thin VPS (avoids on-box build)
 docker compose -f docker-compose.prod.yml run --rm migrate
 docker compose -f docker-compose.prod.yml up -d
-# Optional metrics → Grafana Cloud:
+# Optional metrics → Grafana Cloud remote_write:
 docker compose -f docker-compose.prod.yml --profile observability up -d
+
+# Production-live smoke (A7):
+curl.exe -sS https://api.aisystem.world/health
+$env:SMOKE_BASE_URL="https://api.aisystem.world"; python scripts/smoke_prod.py
 ```
 
-**Dev services:** `nginx` (:80), `api` (:8000 direct), `db` (`postgres:16-alpine`), `redis` (:6379), `worker` (ARQ embed + automation jobs), `qdrant` (:6333), `prometheus` (:9090), `migrate` (one-shot Alembic). **No** local Grafana container.
+| Profile | Services | Notes |
+|---------|----------|-------|
+| **Dev** | `nginx` (:80), `api` (:8000 direct), `db`, `redis`, `worker`, `qdrant`, `prometheus` (:9090), `migrate` | Compose overrides force local `DATABASE_URL` / Redis / Qdrant. `local_storage` volume for `STORAGE_BACKEND=local`. No Grafana container. |
+| **Prod** | `nginx` (**:80 + :443**), `api` (expose 8000 only), `worker` (after api healthy), `migrate` (oneshot), optional `prometheus` | No `db` / `redis` / `qdrant` containers. `env_file: .env` + `DEBUG=false` only. `STORAGE_BACKEND=r2` (no shared volume). Set `IMAGE=` for GHCR pull; unset builds from local Dockerfile. |
 
-**Prod services:** `nginx` (:80), `api` (expose 8000 only — nginx fronts traffic; internal `/health` healthcheck), `worker` (`depends_on` api `service_healthy`), `migrate` (run separately), optional `prometheus` (`--profile observability`, off on first boot). No local `db`, `redis`, or `qdrant` containers. Set `IMAGE=` for registry pull; unset `IMAGE` builds from local Dockerfile.
+**CD path (proven):** `.github/workflows/deploy.yml` — build/push GHCR → SSH (`/opt/dashnote`) migrate → compose up → health + `smoke_prod.py`. Triggers: `workflow_dispatch` or tag `v*` only. Secrets: `VPS_HOST` (SSH IP, not proxied hostname), `VPS_USER`, `VPS_SSH_KEY`, `SMOKE_BASE_URL=https://api.aisystem.world`. App secrets stay on the VPS `.env`.
 
-**Local dev overrides (Compose):** `api` and `worker` get explicit `DATABASE_URL` (local Postgres, not `.env` remote). Both mount `local_storage` for `STORAGE_BACKEND=local`. Worker imports all ORM models at startup (same pattern as `alembic/env.py`). Production compose uses `env_file: .env` only (plus `DEBUG=false`); no shared storage volume — use `STORAGE_BACKEND=r2`.
+**Infra (Level A):** `infra/` adopts existing EC2 + security group (22/80/443; **never** public 8000). Does not deploy the app or create Postgres/Redis/Qdrant/R2. See [terraform-a.md](../deployment/terraform-a.md).
 
-Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recreating `api`, restart `nginx` if `/health` returns 502.
+Prefer **`http://127.0.0.1/`** locally for the full Nginx proxy path. Prefer **`https://api.aisystem.world/`** in prod. After recreating `api`, restart `nginx` if `/health` returns 502.
 
 **File upload smoke test:** register → `POST /files/upload` multipart (`file`, `is_private`, optional `description`). Expect **200** with `id`, `mime_type`, `download_url`. After ~45s, worker should populate `extracted_text`, `summary`, `tags` in DB and index vectors to `files_chunks`.
 
@@ -210,10 +252,17 @@ Prefer **`http://127.0.0.1/`** (port 80) for full Nginx proxy path. After recrea
 
 | Tier | Services | Deploy gate |
 |------|----------|-------------|
-| **Hard** | Postgres, Redis | `/health` must return 200 |
-| **Soft** | Qdrant, LLM providers | App boots; AI/automation degrades; probe via `/health/ai` |
+| **Hard** | Postgres (Supabase), Redis (`REDIS_URL` cache + `ARQ_REDIS_URL` queue) | `/health` must return 200 |
+| **Soft** | Qdrant Cloud, LLM providers (LiteLLM → NIM / Gemini) | App boots; AI/automation degrades; probe via `/health/ai` |
 | **Optional** | Langfuse, LangSmith, Grafana Cloud remote_write | Never block startup or CD |
 
-**Dev (full stack):** `docker compose up` — includes `db`, `redis`, `qdrant`, `api`, `worker`, `nginx`, `prometheus` on the local machine.
+| Concern | Production choice |
+|---------|-------------------|
+| Compute | AWS EC2 `t3.small` (~2 GB) — Terraform Level A |
+| Edge | Cloudflare → `api.aisystem.world` (Full + origin `:443`) |
+| Files | Cloudflare R2 (`STORAGE_BACKEND=r2`) |
+| Vectors | Qdrant Cloud (`notes_chunks`, `files_chunks`) |
+| CORS | `https://aisystem.world` (+ local FE origins in `.env`); never `*` in prod |
 
-**Prod (VPS / hosted services):** `docker compose -f docker-compose.prod.yml up` — `nginx`, `api`, `worker`, `migrate`, optional `prometheus` only; Postgres, Redis, and Qdrant come from `.env` (see `.env.production.example`).
+**Dev:** `docker compose up` — full stack on the laptop.  
+**Prod:** `docker compose -f docker-compose.prod.yml up` — thin VPS; hosted URLs from `.env` only (see `.env.production.example`).

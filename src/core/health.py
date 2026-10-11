@@ -61,21 +61,62 @@ async def _probe_qdrant() -> dict[str, Any]:
         return {"reachable": False, "configured": True, "detail": str(exc)[:200]}
 
 
+def _llm_model_fields() -> dict[str, Any]:
+    """Configured primary vs the in-process cached candidate. No secrets."""
+    from shared.llm.fallback import cached_llm_model
+
+    return {
+        "configured_model": settings.LLM_MODEL,
+        "cached_model": cached_llm_model(),
+    }
+
+
+def _langfuse_dependency() -> dict[str, Any]:
+    """Whether tracing keys are set. Never includes key material."""
+    enabled = bool(settings.langfuse_enabled)
+    return {
+        "enabled": enabled,
+        "host": settings.effective_langfuse_host if enabled else "",
+    }
+
+
 async def _probe_llm() -> dict[str, Any]:
     """Soft LLM probe — never raises; never logs secrets."""
+    identity = _llm_model_fields()
     if not settings.ai_enabled:
-        return {"reachable": False, "configured": False}
+        return {"reachable": False, "configured": False, **identity}
 
     try:
         from shared.llm.fallback import resolve_llm_model
 
         model = await asyncio.wait_for(resolve_llm_model(timeout=12.0), timeout=14.0)
+        identity = _llm_model_fields()
         if model:
-            return {"reachable": True, "configured": True, "model": model}
-        return {"reachable": False, "configured": True}
+            return {"reachable": True, "configured": True, "model": model, **identity}
+        return {"reachable": False, "configured": True, **identity}
     except Exception as exc:
         logger.warning("LLM soft health probe failed: %s", str(exc)[:200])
-        return {"reachable": False, "configured": True, "detail": str(exc)[:200]}
+        return {
+            "reachable": False,
+            "configured": True,
+            "detail": str(exc)[:200],
+            **_llm_model_fields(),
+        }
+
+
+def _probe_checkpointer() -> dict[str, Any]:
+    """Soft LangGraph checkpointer readiness — never raises."""
+    try:
+        from ai.memory.checkpointer import checkpointer_health
+
+        return checkpointer_health()
+    except Exception as exc:
+        logger.warning("Checkpointer soft health probe failed: %s", str(exc)[:200])
+        return {
+            "reachable": False,
+            "configured": True,
+            "detail": str(exc)[:200],
+        }
 
 
 @router.get("/health")
@@ -123,30 +164,40 @@ async def deep_health(
 
 @router.get("/health/ai")
 async def ai_health() -> dict[str, Any]:
-    """Soft AI/Qdrant/LLM readiness. Never required by hard deploy smoke or GET /health."""
+    """Soft AI/Qdrant/LLM/checkpointer readiness. Never required by hard deploy smoke or GET /health."""
     t0 = time.perf_counter()
     ts = datetime.now(timezone.utc).isoformat()
     llm = await _probe_llm()
+    checkpointer = _probe_checkpointer()
+    checkpointer_ok = bool(checkpointer.get("reachable"))
 
     if not settings.qdrant_enabled:
         llm_ok = bool(llm.get("reachable"))
+        soft_ok = llm_ok and checkpointer_ok
         return {
-            "status": "ok" if llm_ok else "degraded",
+            "status": "ok" if soft_ok else "degraded",
             "timestamp": ts,
             "latency_ms": round((time.perf_counter() - t0) * 1000, 3),
             "dependencies": {
                 "qdrant": {"reachable": False, "configured": False},
                 "llm": llm,
+                "checkpointer": checkpointer,
+                "langfuse": _langfuse_dependency(),
             },
         }
 
     qdrant = await _probe_qdrant()
     qdrant_ok = bool(qdrant.get("reachable"))
     llm_ok = bool(llm.get("reachable"))
-    status_label = "ok" if qdrant_ok and llm_ok else "degraded"
+    status_label = "ok" if qdrant_ok and llm_ok and checkpointer_ok else "degraded"
     return {
         "status": status_label,
         "timestamp": ts,
         "latency_ms": round((time.perf_counter() - t0) * 1000, 3),
-        "dependencies": {"qdrant": qdrant, "llm": llm},
+        "dependencies": {
+            "qdrant": qdrant,
+            "llm": llm,
+            "checkpointer": checkpointer,
+            "langfuse": _langfuse_dependency(),
+        },
     }

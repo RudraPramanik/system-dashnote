@@ -51,6 +51,7 @@ nginx → api :8000 (unpublished) + ARQ worker
 5. VPS `.env`: `CORS_ORIGINS` includes `https://aisystem.world`, never `*`.
 6. Restart api; HTTPS smoke: `SMOKE_BASE_URL=https://api.aisystem.world python scripts/smoke_prod.py`
 7. CD: set GitHub `SMOKE_BASE_URL` to that HTTPS URL; keep `VPS_HOST` as the SSH IP.
+8. Agent HITL: `curl -sS https://api.aisystem.world/health/ai` must show `dependencies.checkpointer.reachable: true` before treating hosted agent create-note as healthy (see runbook §7 checkpointer diagnosis). Soft: `python scripts/smoke_prod.py --with-ai`.
 
 ## Proof (2026-09-28)
 

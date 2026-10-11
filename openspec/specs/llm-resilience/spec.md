@@ -92,29 +92,46 @@ When a completion (stream or non-stream) fails because the current candidate is 
 - **WHEN** a client calls `POST /ai/agent` or `POST /ai/agent/stream` with a valid JWT
 - **THEN** the agent uses the later candidate instead of failing on the first 429
 
-### Requirement: Default candidates prefer a live small model then Gemini
-Documented and example defaults MUST list a currently live small NVIDIA NIM id first (Nemotron 3.5 Lightning class, or Gemini Flash if that NIM id is gone for the operator). `LLM_MODEL_FALLBACKS` MUST include at least one additional currently-live NVIDIA NIM free/catalog id distinct from the primary, then `gemini/gemini-2.5-flash` when a Gemini key is configured, so Gemini quota can be skipped in favor of another NIM model. Default `LLM_MODEL_FALLBACKS` MUST NOT include Nemotron Super 120B or Ultra 550B as a hop. Operators MAY still set those ids explicitly. Completions MUST NOT enable unbounded hidden reasoning traces that ignore `LLM_MAX_TOKENS`.
+### Requirement: Default candidates prefer Lightning NIM then Gemini
+Documented code defaults and example env files MUST set `LLM_MODEL` to `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b`. `LLM_MODEL_FALLBACKS` MUST list `gemini/gemini-2.5-flash` when a Gemini key is expected, and MUST NOT list `nvidia_nim/openai/gpt-oss-20b`, Nemotron Super 120B, or Ultra 550B. Operators MAY still pin Super 120B, Ultra, or `gpt-oss-20b` explicitly. Completions MUST NOT enable unbounded hidden reasoning traces that ignore `LLM_MAX_TOKENS`. Chat and agent routes MUST both remain. Gone, timeout, and rate-limit walks MUST keep their existing order and error frames. Documentation MUST note that NIM free tiers are typically higher RPM than Gemini free tiers, so product defaults prefer the small NIM id for routine chat.
 
-#### Scenario: Example env does not pin dead nano or 120B as the safety net
-- **GIVEN** an operator copies `.env.example` without overriding model ids
+#### Scenario: Example env prefers Lightning then Gemini
+- **GIVEN** an operator copies `.env.example` or `.env.production.example` without overriding model ids
 - **WHEN** they inspect `LLM_MODEL` and `LLM_MODEL_FALLBACKS`
-- **THEN** the primary MUST NOT be the retired Nemotron 3 Nano id
-- **AND** Super 120B MUST NOT appear as the first fallback
-- **AND** Gemini Flash MUST appear in the candidate list
-- **AND** `LLM_MODEL_FALLBACKS` MUST include a NVIDIA NIM id different from the primary
+- **THEN** the primary is `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b`
+- **AND** the fallback includes `gemini/gemini-2.5-flash`
+- **AND** `gpt-oss-20b` does not appear
+- **AND** Super 120B does not appear
 
-#### Scenario: Operator may still pin a heavy NIM
-- **GIVEN** an operator sets `LLM_MODEL` to a 120B id on purpose
-- **WHEN** that id is live
-- **THEN** the system MUST still honor that explicit setting
+#### Scenario: Operator may still pin Super for quality
+- **GIVEN** an operator sets `LLM_MODEL` to `nvidia_nim/nvidia/nemotron-3-super-120b-a12b`
+- **AND** `LLM_MODEL_FALLBACKS` includes Gemini Flash
+- **WHEN** that Super id is live
+- **THEN** the system MUST honor the explicit Super primary
 - **AND** the wall-clock abort, model-gone, and rate-limit fallback rules still apply
 
-#### Scenario: Operator can swap a different free NIM when Gemini is quota-blocked
-- **GIVEN** Gemini Flash is rate-limited
-- **AND** documented fallbacks include another live NVIDIA NIM free/catalog id
+#### Scenario: NIM rate-limit walks to Gemini
+- **GIVEN** Lightning returns HTTP 429 or a rate-limit error
+- **AND** Gemini Flash is live
 - **WHEN** a completion walks candidates
-- **THEN** that NVIDIA NIM id is eligible before the process fails closed
-- **AND** the operator is not required to wait for Gemini quota to reset
+- **THEN** the request completes using Gemini Flash
+- **AND** the rate-limited NIM id is not sticky as the cached primary
+
+### Requirement: Soft health shows configured and cached models
+`GET /health/ai` MUST report the configured `LLM_MODEL` and, when a candidate has been resolved, the cached model that the next completion will try first. The two values MUST stay distinct fields so an operator can see when a fallback has stuck. The probe MUST NOT print provider keys. `GET /health` MUST remain limited to Postgres and Redis. A failed LLM probe MUST NOT take the API process down.
+
+#### Scenario: Cached fallback is visible
+- **GIVEN** the configured primary is Gemini Flash
+- **AND** the process has cached a different live fallback
+- **WHEN** a client calls `GET /health/ai`
+- **THEN** the body includes the configured primary and the cached model as separate fields
+- **AND** `GET /health` is unaffected
+
+#### Scenario: No cache yet
+- **GIVEN** no candidate has been resolved in this process
+- **WHEN** a client calls `GET /health/ai`
+- **THEN** the configured primary is still reported
+- **AND** the cached model is absent or null
 
 ### Requirement: Quiet AI streams stay alive then fail visibly
 `POST /ai/chat/stream` and `POST /ai/agent/stream` served through the Compose nginx edge MUST keep the SSE connection from being cut solely because no tokens arrived yet within a typical 60s proxy default. The stream MUST emit keep-alive traffic until a `token`, `error`, `done`, or `approval_required` frame (agent) is produced, or until the wall-clock policy yields an `error` frame. Chat and agent routes MUST both remain.

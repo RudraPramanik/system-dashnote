@@ -74,9 +74,26 @@ async def init_checkpointer() -> None:
         )
 
     except Exception as e:
+        # Redact credentials; keep host/port/sslmode for ops diagnosis
+        redacted = settings.psycopg_database_url
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(redacted)
+            host = parsed.hostname or "?"
+            port = parsed.port or ""
+            query = parsed.query or ""
+            redacted = f"postgresql://***@{host}:{port}/?{query}" if port else (
+                f"postgresql://***@{host}/?{query}"
+            )
+        except Exception:
+            redacted = "postgresql://***"
         logger.error(
-            "Checkpointer initialization failed",
-            extra={"error": str(e)},
+            "Checkpointer initialization failed — agent HITL mutations unavailable. "
+            "Verify psycopg URL SSL (sslmode=require for Supabase). url=%s error=%s",
+            redacted,
+            str(e)[:300],
+            extra={"error": str(e)[:300]},
         )
         # Non-fatal: agent features unavailable but RAG chat continues
         _checkpointer = None
@@ -108,3 +125,24 @@ def get_graph_checkpointer():
             "Ensure init_checkpointer() runs in FastAPI lifespan startup."
         )
     return _checkpointer
+
+
+def is_checkpointer_ready() -> bool:
+    """True when AsyncPostgresSaver was initialized successfully in this process."""
+    return _checkpointer is not None
+
+
+def checkpointer_health() -> dict:
+    """
+    Soft readiness payload for GET /health/ai.
+
+    ``configured`` is always True when the API includes checkpointer support;
+    ``reachable`` reflects whether init succeeded in this process.
+    """
+    if _checkpointer is None:
+        return {
+            "reachable": False,
+            "configured": True,
+            "detail": "not initialized",
+        }
+    return {"reachable": True, "configured": True}

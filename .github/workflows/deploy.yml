@@ -91,19 +91,31 @@ jobs:
             fi
             # Sync compose/scripts from production (certs and .env stay local / gitignored).
             if [ -d .git ]; then
+              # Keep TLS nginx conf across pull; stash other local tracked edits.
+              if [ -f nginx/default.conf ]; then
+                cp -a nginx/default.conf /tmp/dashnote-nginx-default.conf.bak
+              fi
+              git stash push -m "cd-pre-pull" --quiet -- alembic docker-compose.prod.yml scripts/deploy nginx/default.conf 2>/dev/null || true
               git fetch origin production
-              git checkout production
+              git checkout -f production
               git pull --ff-only origin production
+              if [ -f /tmp/dashnote-nginx-default.conf.bak ] && grep -q ssl_certificate /tmp/dashnote-nginx-default.conf.bak; then
+                cp /tmp/dashnote-nginx-default.conf.bak nginx/default.conf
+              fi
             fi
             # Pick up on-box DB flags without sourcing the whole .env (values may contain quotes).
+            ONBOX_DB=""
+            COMPOSE_PROFILES=""
             if [ -f .env ]; then
-              ONBOX_DB="$(grep -E '^ONBOX_DB=' .env | tail -n1 | cut -d= -f2- || true)"
-              COMPOSE_PROFILES="$(grep -E '^COMPOSE_PROFILES=' .env | tail -n1 | cut -d= -f2- || true)"
-              export ONBOX_DB COMPOSE_PROFILES
+              ONBOX_DB="$(grep -E '^ONBOX_DB=' .env | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
+              COMPOSE_PROFILES="$(grep -E '^COMPOSE_PROFILES=' .env | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
             fi
+            export ONBOX_DB COMPOSE_PROFILES
             export IMAGE
+            echo "CD deploy IMAGE=${IMAGE} ONBOX_DB=${ONBOX_DB} COMPOSE_PROFILES=${COMPOSE_PROFILES}"
             docker pull "${IMAGE}"
             # Compose substitutes IMAGE= into api/worker/migrate
+            touch .env
             if grep -q '^IMAGE=' .env 2>/dev/null; then
               sed -i "s|^IMAGE=.*|IMAGE=${IMAGE}|" .env
             else
@@ -111,6 +123,9 @@ jobs:
             fi
             chmod +x scripts/deploy/*.sh
             ./scripts/deploy/migrate.sh
+            ./scripts/deploy/up.sh
+            # Ensure api/worker actually run the pulled tag (not a stale local tag).
+            docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps api
             ./scripts/deploy/up.sh
             ./scripts/deploy/health-check.sh
 

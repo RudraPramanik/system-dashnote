@@ -89,8 +89,26 @@ jobs:
             if [ -n "${GHCR_TOKEN:-}" ]; then
               echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
             fi
+            # Sync compose/scripts from production (certs and .env stay local / gitignored).
+            if [ -d .git ]; then
+              git fetch origin production
+              git checkout production
+              git pull --ff-only origin production
+            fi
+            # Pick up on-box DB flags without sourcing the whole .env (values may contain quotes).
+            if [ -f .env ]; then
+              ONBOX_DB="$(grep -E '^ONBOX_DB=' .env | tail -n1 | cut -d= -f2- || true)"
+              COMPOSE_PROFILES="$(grep -E '^COMPOSE_PROFILES=' .env | tail -n1 | cut -d= -f2- || true)"
+              export ONBOX_DB COMPOSE_PROFILES
+            fi
             export IMAGE
             docker pull "${IMAGE}"
+            # Compose substitutes IMAGE= into api/worker/migrate
+            if grep -q '^IMAGE=' .env 2>/dev/null; then
+              sed -i "s|^IMAGE=.*|IMAGE=${IMAGE}|" .env
+            else
+              echo "IMAGE=${IMAGE}" >> .env
+            fi
             chmod +x scripts/deploy/*.sh
             ./scripts/deploy/migrate.sh
             ./scripts/deploy/up.sh

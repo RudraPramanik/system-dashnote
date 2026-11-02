@@ -7,15 +7,22 @@ reset on fixed boundaries without SCAN.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from core.redis.deps import get_redis_connection
 from core.security.context import RequestContext
 from core.security.dependency import get_optional_current_context
+
+logger = logging.getLogger(__name__)
+
+# Hard/soft health must not depend on rate-limit counters (Docker probes).
+_GLOBAL_RATE_LIMIT_SKIP_PATHS = frozenset({"/health", "/health/ai"})
 
 
 def _client_host(request: Request) -> str:
@@ -61,19 +68,30 @@ class RateLimiter:
 
         identity = build_rate_limit_identity(ctx, request)
         key = self._redis_key(identity)
-        current = await redis.incr(key)
-        if current == 1:
-            await redis.expire(key, self.window_seconds * 2)
+        try:
+            current = await redis.incr(key)
+            if current == 1:
+                await redis.expire(key, self.window_seconds * 2)
 
-        if current > self.limit:
-            ttl = await redis.ttl(key)
-            retry_after = (
-                max(1, ttl) if ttl is not None and ttl > 0 else self.window_seconds
-            )
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Rate limit exceeded",
-                headers={"Retry-After": str(retry_after)},
+            if current > self.limit:
+                ttl = await redis.ttl(key)
+                retry_after = (
+                    max(1, ttl) if ttl is not None and ttl > 0 else self.window_seconds
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Rate limit exceeded",
+                    headers={"Retry-After": str(retry_after)},
+                )
+        except HTTPException:
+            raise
+        except RedisError as exc:
+            # Fail open: provider quota / connection errors must not 500 the API.
+            logger.warning(
+                "Rate limit Redis error (fail open) scope=%s path=%s: %s",
+                self.scope,
+                request.url.path,
+                str(exc)[:200],
             )
 
 
@@ -89,6 +107,8 @@ async def enforce_global_rate_limit(
     ctx: Annotated[RequestContext | None, Depends(get_optional_current_context)],
     redis: Annotated[Redis | None, Depends(get_redis_connection)],
 ) -> None:
+    if request.url.path in _GLOBAL_RATE_LIMIT_SKIP_PATHS:
+        return
     await _global_limiter.check(redis, request, ctx)
 
 

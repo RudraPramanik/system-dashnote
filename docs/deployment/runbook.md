@@ -356,6 +356,44 @@ docker compose -f docker-compose.prod.yml config
 
 Ensure shell scripts keep **LF** line endings (see `.gitattributes` for `scripts/deploy/*.sh`). After clone on Linux: `chmod +x scripts/deploy/*.sh`.
 
+## 8. CD deploy (image + compose sync)
+
+Production CD: `.github/workflows/deploy.yml` on `workflow_dispatch` or tag `v*`.
+
+1. Merge/push to `production` (compose + `scripts/deploy/*` must be on that branch).
+2. Actions → **deploy** → Run workflow (optional image tag).
+3. Job builds/pushes GHCR, SSH: `git pull` on `/opt/dashnote`, sets `IMAGE=` in `.env`, `migrate.sh` → `up.sh` → `health-check.sh`, then runner `smoke_prod.py`.
+
+On-box Postgres recovery: set `ONBOX_DB=1` (and `POSTGRES_*` matching `DATABASE_URL`) in the VPS `.env` so deploy starts profile `onbox-db`. Prefer moving back to hosted Postgres when a project is available. Volume `dashnote_pgdata` is external — do not delete it casually.
+
+If VPS `git pull` fails on local edits, stash or back up `nginx/certs` / `.env` first; never commit secrets.
+
+## 9. Hosted Redis cutover (Redis Cloud)
+
+Production recovery default: **one Redis Cloud database** for both cache/rate-limit and ARQ (`BLPOP`). Free Essentials is typically **30 MB / 30 connections / 100 ops/sec** — stop worker crash-loops before pointing traffic at a new DB. Do **not** commit secrets; never paste DSNs into git.
+
+**Not for this cutover:** Layerbase Free (hibernates after idle; free plan expects weekly sleep — conflicts with worker + 30s healthcheck). Momento / Vercel KV are not ARQ backends. No extra keep-alive is required for Redis Cloud’s “inactive after ~14 days” rule beyond normal `/health` while the stack is up.
+
+```bash
+# On VPS — halt the ARQ restart storm first
+cd /opt/dashnote   # or your compose root
+docker compose -f docker-compose.prod.yml stop worker
+
+# Edit .env only (gitignored). Same DSN for both when using one free Redis Cloud DB:
+# REDIS_URL=redis://default:<PASSWORD>@<host>.db.redis.io:<port>
+# ARQ_REDIS_URL=redis://default:<PASSWORD>@<host>.db.redis.io:<port>
+# Verify redis:// vs rediss:// with a one-shot PING from the VPS before recreate.
+
+docker compose -f docker-compose.prod.yml up -d api worker
+# Prefer an image that fail-opens on Redis rate-limit errors (see core.security.rate_limit).
+
+curl -sS https://api.aisystem.world/health
+# Redis dependency should ping when the DSN is correct.
+# If status is still unavailable, diagnose Postgres/Supabase tenant separately — Redis alone is not enough.
+```
+
+App settings remain `REDIS_URL` / `ARQ_REDIS_URL` only. Operator notepad fields (`REDIS_PUBLIC_ENDPOINT`, `LAYERBASE_*`, etc.) are not runtime env keys.
+
 ## Failure-mode notes (demo / ops talk track)
 
 | Symptom | Likely cause | What to do / say |
@@ -364,6 +402,7 @@ Ensure shell scripts keep **LF** line endings (see `.gitattributes` for `scripts
 | `503` on `/ai/chat*` or `/ai/agent*` | LLM provider down / keys / rate limit | Message is user-safe; retry; FE shows AI-unavailable copy; use `/health` (hard) vs AI soft deps |
 | Search misses a note just created | Embed lag (ARQ worker queue) | Wait `wait_embed_sec`-class delay; worker healthy; Qdrant soft boot does not block API but search needs indexer |
 | Agent returns `approval_required` | HITL before `create_note` / `update_note` | Call `POST /ai/agent/resume` or `/ai/agent/reject` with same `thread_id`; FE polish optional — see `scripts/smoke_hitl.py` |
+| `/health` returns **500** with Redis “rate-limited” in logs | Global limiter used to fail closed on Redis errors; or Upstash quota + healthcheck/worker storm | Stop worker; cut over to Redis Cloud (§9); deploy fail-open limiter; `/health` / `/health/ai` skip global limiter |
 
 Also linked from [`../interview-talk-track.md`](../interview-talk-track.md).
 

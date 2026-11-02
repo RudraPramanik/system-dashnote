@@ -41,8 +41,10 @@ EC2 t3.small (Terraform Level A: instance + SG)
 
 | On VPS | Off VPS (hosted) |
 |--------|------------------|
-| `nginx`, `api`, `worker`, `migrate`; optional `prometheus` (`--profile observability`, off by default) | Postgres (Supabase pooler), Redis (Upstash cache + Redis Cloud ARQ), Qdrant Cloud, R2 |
+| `nginx`, `api`, `worker`, `migrate`; optional `prometheus` (`--profile observability`, off by default) | Postgres (Supabase pooler), Redis (**Redis Cloud** for cache + ARQ on the same DB by default), Qdrant Cloud, R2 |
 | Secrets in VPS `.env` + GitHub deploy secrets | Never commit prod credentials |
+
+**Hosted Redis notes:** Prefer Redis Cloud (real Redis, `BLPOP` for ARQ). Same DSN in `REDIS_URL` and `ARQ_REDIS_URL` is OK on the free Essentials plan (one free DB). Layerbase Free is deferred for always-on production (hibernation / mandatory idle sleep vs worker + healthcheck). Momento and Vercel KV are not ARQ backends. See [deployment/runbook.md](../deployment/runbook.md) §8 for cutover.
 
 **Ops sources of truth:** [devops-progress.md](../devops-progress.md) (phase / next) · [deployment/runbook.md](../deployment/runbook.md) (commands) · [deployment/edge-aisystem.md](../deployment/edge-aisystem.md) (Cloudflare edge) · [deployment/terraform-a.md](../deployment/terraform-a.md) (IaC) · [production.md](./production.md) (7P engineering) · [deployment/storage.md](../deployment/storage.md) (R2).
 
@@ -91,10 +93,10 @@ Returns `timestamp`, `latency_ms`, `dependencies`. Qdrant/LLM never fail hard `/
 
 ### Rate limiting (Nginx + FastAPI)
 
-**Layer 1 — Nginx** (`nginx/default.conf`): proxies to `api:8000` (Docker DNS `resolve` so recreates do not stale-502). `limit_req` 10r/s burst 20; dedicated `location /ai/` with `proxy_buffering off` and 180s read/send timeouts; sets `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Request-ID`.
+**Layer 1 — Nginx**: proxies to `api:8000` (Docker DNS `resolve` so recreates do not stale-502). `limit_req` 10r/s burst 20; dedicated `location /ai/` with `proxy_buffering off` and 180s read/send timeouts; sets `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Request-ID`.
 
-- **Local / HTTP:** `listen 80`
-- **Prod origin TLS:** also `listen 443 ssl` for `api.aisystem.world` — certs under `nginx/certs/` (gitignored). Cloudflare Full terminates browser TLS; origin self-signed is enough for Full, not Full strict. See [edge-aisystem.md](../deployment/edge-aisystem.md).
+- **Local Compose** (`docker-compose.yml`): mounts `nginx/local.conf` — **HTTP `:80` only**, no TLS certs required.
+- **Prod Compose** (`docker-compose.prod.yml`): mounts `nginx/default.conf` plus `nginx/certs/` — HTTP `:80` and `listen 443 ssl` for `api.aisystem.world` (certs gitignored). Cloudflare Full terminates browser TLS; origin self-signed is enough for Full, not Full strict. See [edge-aisystem.md](../deployment/edge-aisystem.md).
 
 **Layer 2 — FastAPI** (`core/security/rate_limit.py`): Redis fixed-window counters; keyed by `user_id` (valid JWT) or client IP. Global **100/min**; `POST /auth/login` **5/min**. **429** + `Retry-After`. Fail-open when Redis unset.
 

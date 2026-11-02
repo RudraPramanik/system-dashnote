@@ -1,12 +1,41 @@
-# Production compose — requires .env with hosted service URLs
+# Production compose — thin VPS compute + hosted data plane when possible.
 # Usage: docker compose -f docker-compose.prod.yml up -d
 # Local dev: docker compose up -d  (default docker-compose.yml)
 #
 # IMAGE (CD / registry): set IMAGE=ghcr.io/<owner>/<repo>:<tag> so migrate/api/worker
 # pull a pre-built image (no on-VPS rebuild). When IMAGE is unset, compose builds from
 # the local Dockerfile via the build: blocks below. Do not rename to DASHNOTE_IMAGE.
+#
+# Postgres: optional on-box recovery DB (profile `onbox-db`). Prefer hosted Supabase/Neon
+# when available. Enable with COMPOSE_PROFILES=onbox-db or --profile onbox-db.
+# When on-box: DATABASE_URL must use host `postgres` (service name) and match
+# POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB below.
 
 services:
+  postgres:
+    profiles: ["onbox-db"]
+    image: postgres:16-alpine
+    container_name: dashnote-postgres
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dashuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: ${POSTGRES_DB:-dashnotes}
+    volumes:
+      - dashnote_pgdata:/var/lib/postgresql/data
+    # Not published — only reachable on the compose network
+    expose:
+      - "5432"
+    mem_limit: 384m
+    memswap_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   migrate:
     image: ${IMAGE:-dashnote-api:latest}
     build:
@@ -15,7 +44,7 @@ services:
     env_file: .env
     command: ["alembic", "upgrade", "head"]
     restart: "no"
-    # No depends_on local db — DATABASE_URL comes from .env (hosted Postgres)
+    # DATABASE_URL from .env (hosted or on-box postgres hostname)
 
   api:
     image: ${IMAGE:-dashnote-api:latest}
@@ -79,3 +108,7 @@ services:
 
 volumes:
   prometheus_data:
+  # External so a manually created recovery volume keeps data across compose adoption
+  dashnote_pgdata:
+    external: true
+    name: dashnote_pgdata

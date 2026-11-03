@@ -13,5 +13,5 @@
 ## 3. Verify and release
 
 - [x] 3.1 Run focused pytest for fallback defaults and health model fields.
-- [ ] 3.2 Commit the tracing Langfuse fixes plus this NIM-first flip (no `.env`, no `tf.env` secrets). Push and open/merge PR or land on `production` per repo practice.
-- [ ] 3.3 Trigger CD (`workflow_dispatch` or `v*` tag). After deploy, apply VPS env recreate if keys/models were missing, then smoke `GET /health`, `GET /health/ai`, and one hosted chat.
+- [x] 3.2 Commit the tracing Langfuse fixes plus this NIM-first flip (no `.env`, no `tf.env` secrets). Push and open/merge PR or land on `production` per repo practice.
+- [x] 3.3 Trigger CD (`workflow_dispatch` or `v*` tag). After deploy, apply VPS env recreate if keys/models were missing, then smoke `GET /health`, `GET /health/ai`, and one hosted chat.

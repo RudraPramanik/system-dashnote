@@ -93,3 +93,34 @@ The DashNotes agent view MUST handle SSE `type: "approval_required"` (fields `to
 - **GIVEN** an agent turn that only searches or summarizes
 - **WHEN** those tools complete
 - **THEN** the UI MUST NOT require Approve or Reject for that turn
+
+### Requirement: Live checkpointer required for mutation HITL
+Agent note mutations (`create_note`, `update_note`) MUST require a live LangGraph checkpointer so interrupt/resume can persist across the stream boundary. When the checkpointer is not initialized, those mutation tools MUST NOT persist workspace side effects. Search and summarize tools MUST remain usable without a checkpointer. Direct REST note create (`POST /notes/`) MUST NOT depend on the checkpointer.
+
+#### Scenario: Mutation blocked when checkpointer is down
+- **GIVEN** the API process does not have an initialized LangGraph checkpointer
+- **WHEN** an authenticated agent turn invokes `create_note` or `update_note`
+- **THEN** no note create/update side effect is persisted
+- **AND** the client receives a failure signal that identifies checkpointer / mutation unavailability (tool result and/or SSE `type: "error"`)
+
+#### Scenario: Search still works without checkpointer
+- **GIVEN** the checkpointer is not initialized
+- **AND** LLM and retrieval dependencies are otherwise healthy
+- **WHEN** an authenticated agent turn only searches or summarizes
+- **THEN** those tools MAY complete without requiring HITL approval
+- **AND** REST `POST /notes/` MUST still succeed independently
+
+#### Scenario: Hosted checkpointer enables HITL create path
+- **GIVEN** production (or local) API has successfully initialized the checkpointer against Postgres
+- **WHEN** an authenticated agent stream requests creating a note
+- **THEN** the stream MUST emit `approval_required` (or complete via the documented approve path) rather than a checkpointer-blocked mutation error
+- **AND** no note MUST be persisted until an authorized resume approves it
+
+### Requirement: Checkpointer failure is not a silent stream crash
+When a mutation is blocked because the checkpointer is unavailable, the streaming agent surface MUST surface that condition clearly before close. The stream MUST NOT imply that a note was created. A generic “agent stream failed” message alone is insufficient when the underlying cause is missing checkpointer readiness.
+
+#### Scenario: Client sees blocked mutation not fake success
+- **GIVEN** an agent stream that attempted `create_note` while the checkpointer was unavailable
+- **WHEN** the client consumes SSE frames through `[DONE]`
+- **THEN** it MUST observe an error or blocked-mutation signal
+- **AND** MUST NOT receive only a success-looking mutation completion without an error

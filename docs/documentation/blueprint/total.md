@@ -134,7 +134,8 @@ Slice 7.5 LLM hardening       Shared retry/structured LLM layer. ✅ Complete �
 Slice 7P  Platform            Prod compose, env contract, CI/CD, VPS deploy. See slice-platform.md.
 Slice 8X  Ship path           Deploy-first detail under Blueprint 8: CI → finish 7P → FE → evals → HITL. **Default:** [`../blueprint8.md`](../blueprint8.md) · Index: slice8_X.md · detail: slice8_ci.md, slice8_eval.md, slice8_hitl.md
 Slice 8   GraphRAG (optional) Neo4j relationship intelligence. Only if needed — intro in blueprint8; not job-gate.
-Slice 9   Multi-agent (later) Supervisor + specialized agents. Late stage only.
+Slice 9   Multi-agent (later) Supervisor + specialized agents. Late stage only. Not Blueprint 9.
+Slice 9H  Harness hardening   Trust, budgets, degrade on the current assistant. **Not Slice 9.** [`../blueprint9.md`](../blueprint9.md) · slice9_H.md. Does not change Blueprint 8 Tier 0 or chat-versus-agent coexistence.
 Slice 10  Observability       LangSmith active. Cost tracking. Usage dashboard.
 Slice 11  Scale               Caching, model routing, worker scaling.
 ```

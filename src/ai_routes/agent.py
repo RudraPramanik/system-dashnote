@@ -21,7 +21,7 @@ HITL SSE contract:
 Security:
   workspace_id from JWT only — never from request body.
   ctx frozen to primitives before any async operation.
-  db_session_var set before graph invocation for mutation tools.
+  db_session_var + harness_context_var set before graph invocation.
   Resume/reject re-validate thread + checkpoint workspace ownership.
 """
 from __future__ import annotations
@@ -37,6 +37,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai.harness.context import HarnessContext, harness_context_var
 from ai.hitl import approval_event_from_interrupt, extract_interrupts
 from ai_routes.sse_heartbeat import iter_with_heartbeat
 from ai.memory.service import ThreadService
@@ -137,6 +138,22 @@ def _agent_trace_meta(
 
 def _mark_approval_required() -> None:
     inc_agent_interrupt()
+
+
+def _bind_harness_context(
+    *,
+    workspace_id: str,
+    user_id: str,
+    role: str,
+):
+    """Freeze JWT tenant into HarnessContext for tool wrappers (9H.1)."""
+    return harness_context_var.set(
+        HarnessContext(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role=role,
+        )
+    )
 
 
 async def _resolve_thread_id(
@@ -343,6 +360,9 @@ async def agent_chat(
         ) from e
 
     token = db_session_var.set(db)
+    harness_token = _bind_harness_context(
+        workspace_id=workspace_id, user_id=user_id, role=role
+    )
 
     try:
         async with start_trace(
@@ -435,6 +455,7 @@ async def agent_chat(
                 trace_id=current_trace_id(trace),
             )
     finally:
+        harness_context_var.reset(harness_token)
         db_session_var.reset(token)
 
 
@@ -473,6 +494,9 @@ async def agent_chat_stream(
 
     async def generate():
         token = db_session_var.set(db)
+        harness_token = _bind_harness_context(
+            workspace_id=workspace_id, user_id=user_id, role=role
+        )
         try:
             async with start_trace(
                 "agent.turn",
@@ -616,6 +640,7 @@ async def agent_chat_stream(
             yield f"data: {json.dumps(error_payload)}\n\n"
             yield "data: [DONE]\n\n"
         finally:
+            harness_context_var.reset(harness_token)
             db_session_var.reset(token)
 
     return StreamingResponse(
@@ -648,6 +673,9 @@ async def agent_resume(
     )
 
     token = db_session_var.set(db)
+    harness_token = _bind_harness_context(
+        workspace_id=workspace_id, user_id=user_id, role=role
+    )
     try:
         async with start_trace(
             "agent.turn",
@@ -710,6 +738,7 @@ async def agent_resume(
                 trace_id=current_trace_id(trace),
             )
     finally:
+        harness_context_var.reset(harness_token)
         db_session_var.reset(token)
 
 
@@ -732,6 +761,9 @@ async def agent_reject(
     )
 
     token = db_session_var.set(db)
+    harness_token = _bind_harness_context(
+        workspace_id=workspace_id, user_id=user_id, role=role
+    )
     try:
         async with start_trace(
             "agent.turn",
@@ -789,4 +821,5 @@ async def agent_reject(
                 trace_id=current_trace_id(trace),
             )
     finally:
+        harness_context_var.reset(harness_token)
         db_session_var.reset(token)

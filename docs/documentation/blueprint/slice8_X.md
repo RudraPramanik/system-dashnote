@@ -5,6 +5,7 @@
 > **When to run:** After Slices **0–7.5** and platform **7P.0–7P.3** are complete.  
 > **Goal (chosen):** Public production demo sooner — thin CI, finish VPS CD, minimum frontend, then golden evals (prefer live `--base-url`), then HITL on `/ai/agent*`.  
 > **Not Slice 8 / 9:** Slice **8** = optional GraphRAG. Slice **9** = multi-agent (later). **8X** is the parallel ship path.  
+> **Not 9H:** Harness hardening is [`slice9_H.md`](slice9_H.md) under [`../blueprint9.md`](../blueprint9.md). Phase IDs **9H.*** are not multi-agent Slice 9. Blueprint 8 stays the ship default; 9H does not change Tier 0 order or chat-versus-agent coexistence.  
 > **Detail blueprints:** one Composer session ≈ one substep inside these files. Phase IDs (8X.1–8X.5) name the work packages; **calendar order** follows the locked sequence below (IDs are not chronological).
 
 | Phase ID | Work package | Detail blueprint | Calendar position (chosen) |

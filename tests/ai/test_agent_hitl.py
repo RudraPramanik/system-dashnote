@@ -25,9 +25,6 @@ from ai.hitl import (
 class _CreateArgs(BaseModel):
     title: str = Field(...)
     content: str = Field(...)
-    workspace_id: str = Field(...)
-    user_id: str = Field(...)
-    role: str = Field(...)
 
 
 def test_build_approval_payload_locked_keys():
@@ -66,13 +63,7 @@ async def test_interrupt_before_side_effect_and_approve_reject():
     """Mutation tool interrupts before side effect; approve commits, reject does not."""
     created: list[str] = []
 
-    async def _create_note(
-        title: str,
-        content: str,
-        workspace_id: str,
-        user_id: str,
-        role: str,
-    ) -> str:
+    async def _create_note(title: str, content: str) -> str:
         decision = interrupt(
             build_approval_payload(
                 tool="create_note",
@@ -106,9 +97,6 @@ async def test_interrupt_before_side_effect_and_approve_reject():
                             "args": {
                                 "title": "Hello",
                                 "content": "Body",
-                                "workspace_id": "w1",
-                                "user_id": "u1",
-                                "role": "owner",
                             },
                             "id": "c1",
                         }

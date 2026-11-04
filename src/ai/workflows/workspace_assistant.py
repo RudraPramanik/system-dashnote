@@ -55,8 +55,8 @@ and create or update notes inside the user's workspace. Use them when the
 user explicitly asks you to.
 
 Critical rules:
-1. ALWAYS pass workspace_id, user_id, and role exactly as they appear in your
-   system context. Never modify, omit, or fabricate these values.
+1. Do NOT pass workspace_id, user_id, or role to tools — the server binds
+   tenant identity. Only pass business arguments (query, title, content, note id).
 2. Use search_notes before answering questions about workspace notes or files.
 3. Use create_note only when explicitly asked to create or save a note.
 4. Use update_note only when explicitly asked to modify an existing note.
@@ -142,14 +142,13 @@ async def call_model(state: AgentState) -> dict[str, Any]:
         for tool in tools
     ]
 
-    # Build system message with tenant context injected
+    # Session context is informational only — tools bind tenant from HarnessContext.
     system_content = (
         f"{WORKSPACE_ASSISTANT_PROMPT}\n\n"
-        f"Current session context:\n"
+        f"Current session (server-bound; do not pass these as tool arguments):\n"
         f"  workspace_id: {state['workspace_id']}\n"
         f"  user_id: {state['user_id']}\n"
         f"  role: {state['role']}\n"
-        "Always use these exact values in every tool call."
     )
 
     # Build messages array: system + conversation history
@@ -227,10 +226,23 @@ async def execute_tools(state: AgentState) -> dict[str, Any]:
 
     DB session for mutation tools is injected by agent routes via
     db_session_var before graph invoke — do not clear it here.
+    HarnessContext is set from trusted graph state (JWT-frozen at invoke).
     create_note / update_note call LangGraph interrupt() before side effects.
     """
-    tool_node = ToolNode(get_note_tools())
-    return await tool_node.ainvoke(state)
+    from ai.harness.context import HarnessContext, harness_context_var
+
+    token = harness_context_var.set(
+        HarnessContext(
+            workspace_id=str(state["workspace_id"]),
+            user_id=str(state["user_id"]),
+            role=str(state["role"]),
+        )
+    )
+    try:
+        tool_node = ToolNode(get_note_tools())
+        return await tool_node.ainvoke(state)
+    finally:
+        harness_context_var.reset(token)
 
 
 def should_continue(state: AgentState) -> str:

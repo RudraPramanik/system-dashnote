@@ -14,8 +14,11 @@
 | Eval harness (8X.2) | [`blueprint/slice8_eval.md`](blueprint/slice8_eval.md) |
 | HITL API-first (8X.3) | [`blueprint/slice8_hitl.md`](blueprint/slice8_hitl.md) |
 | Full slice map | [`blueprint/total.md`](blueprint/total.md) |
+| Harness hardening (after Alive) | [`blueprint9.md`](blueprint9.md) — phase IDs **9H.*** are not multi-agent Slice 9 |
 
 **Not this file:** optional GraphRAG productization (Slice 8 in `total.md`) and multi-agent supervisor (Slice 9) are **out of the default path** — see §GraphRAG intro and §Non-goals.
+
+**Successor, not a replacement:** after the product is alive, harness hardening follows [`blueprint9.md`](blueprint9.md) (index [`blueprint/slice9_H.md`](blueprint/slice9_H.md)). **9H** is trust, policy, budgets, degrade, and fixture goldens. It is not Slice 9 multi-agent. Tier 0 order and chat-versus-agent coexistence in this file do not change.
 
 ---
 

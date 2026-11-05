@@ -14,6 +14,11 @@ Tenant bind (9H.1):
   workspace_id / user_id / role come from HarnessContext only.
   Model tool schemas omit those fields.
 
+Tool ACL (9H.2):
+  Role must be owner, admin, or member (NoteService.ALLOWED_NOTE_ROLES).
+  Update manage checks go through NoteService before HITL.
+  Failures are JSON envelopes from ai.harness.errors. Success stays prose.
+
 DB session for mutation tools:
   NoteService requires AsyncSession. Tools cannot accept it as a
   LLM-generated argument. Solution: contextvars.ContextVar injected
@@ -35,6 +40,12 @@ from ai.harness.context import (
     HarnessContext,
     require_harness_context,
 )
+from ai.harness.errors import (
+    CODE_FORBIDDEN,
+    CODE_NOT_FOUND,
+    CODE_UPSTREAM,
+    tool_error,
+)
 from ai.tools.schemas import (
     CreateNoteArgs,
     SearchNotesArgs,
@@ -54,11 +65,37 @@ db_session_var: contextvars.ContextVar = contextvars.ContextVar(
 
 
 def _bound_tenant() -> HarnessContext | str:
-    """Return HarnessContext or a forbidden deny string when missing."""
+    """Return HarnessContext or a forbidden envelope when missing."""
     ctx = require_harness_context()
     if ctx is None:
-        return MISSING_HARNESS_MESSAGE
+        return tool_error(CODE_FORBIDDEN, MISSING_HARNESS_MESSAGE)
     return ctx
+
+
+def _reject_unknown_role(tenant: HarnessContext) -> str | None:
+    """Fail closed before any service call when role is not owner/admin/member."""
+    from notes.service import ALLOWED_NOTE_ROLES
+
+    if tenant.role not in ALLOWED_NOTE_ROLES:
+        return tool_error(CODE_FORBIDDEN, "Role is not allowed to use this tool.")
+    return None
+
+
+def _map_note_error(exc: Exception) -> str | None:
+    """Map typed note outcomes. None means the caller should use upstream."""
+    from notes.service import NoteAccessDeniedError, NoteNotFoundError
+
+    if isinstance(exc, NoteNotFoundError):
+        return tool_error(CODE_NOT_FOUND, "Note not found.")
+    if isinstance(exc, NoteAccessDeniedError):
+        return tool_error(CODE_FORBIDDEN, "You cannot update this note.")
+    return None
+
+
+def _upstream(log_message: str, *, message: str) -> str:
+    """Log the exception server-side and return a fixed upstream envelope."""
+    logger.exception(log_message)
+    return tool_error(CODE_UPSTREAM, message)
 
 
 # ── Tool implementations ─────────────────────────────────────────────────────
@@ -81,6 +118,9 @@ async def _search_notes(question: str) -> str:
     tenant = _bound_tenant()
     if isinstance(tenant, str):
         return tenant
+    denied = _reject_unknown_role(tenant)
+    if denied:
+        return denied
 
     try:
         from ai.services.rag_service import get_rag_service
@@ -93,9 +133,8 @@ async def _search_notes(question: str) -> str:
             role=tenant.role,
         )
         return result.answer
-    except Exception as e:
-        logger.error("search_notes_tool failed", extra={"error": str(e)})
-        return f"Search failed: {str(e)}"
+    except Exception:
+        return _upstream("search_notes_tool failed", message="Search failed.")
 
 
 CHECKPOINTER_BLOCKED_MESSAGE = (
@@ -150,6 +189,9 @@ async def _create_note(title: str, content: str) -> str:
     tenant = _bound_tenant()
     if isinstance(tenant, str):
         return tenant
+    denied = _reject_unknown_role(tenant)
+    if denied:
+        return denied
 
     blocked = _ensure_checkpointer_for_mutation()
     if blocked:
@@ -179,7 +221,7 @@ async def _create_note(title: str, content: str) -> str:
 
     db = db_session_var.get()
     if db is None:
-        return "Error: database session not available for note creation."
+        return tool_error(CODE_UPSTREAM, "Database session is not available.")
 
     try:
         from notes.service import NoteService
@@ -202,9 +244,11 @@ async def _create_note(title: str, content: str) -> str:
             f"Note created successfully. ID: {result['note_id']}, "
             f"Title: {result['title']}"
         )
-    except Exception as e:
-        logger.error("create_note_tool failed", extra={"error": str(e)})
-        return f"Note creation failed: {str(e)}"
+    except Exception as exc:
+        mapped = _map_note_error(exc)
+        if mapped:
+            return mapped
+        return _upstream("create_note_tool failed", message="Note creation failed.")
 
 
 async def _update_note(note_id: str, content: str) -> str:
@@ -218,10 +262,35 @@ async def _update_note(note_id: str, content: str) -> str:
     tenant = _bound_tenant()
     if isinstance(tenant, str):
         return tenant
+    denied = _reject_unknown_role(tenant)
+    if denied:
+        return denied
 
     blocked = _ensure_checkpointer_for_mutation()
     if blocked:
         return blocked
+
+    db = db_session_var.get()
+    if db is None:
+        return tool_error(CODE_UPSTREAM, "Database session is not available.")
+
+    try:
+        from notes.service import NoteService
+
+        decision = await NoteService().decide_update(
+            db,
+            note_id=note_id,
+            workspace_id=tenant.workspace_id,
+            user_id=tenant.user_id,
+            role=tenant.role,
+        )
+    except Exception:
+        return _upstream("update_note decision failed", message="Note update failed.")
+
+    if decision.outcome == "not_found":
+        return tool_error(CODE_NOT_FOUND, "Note not found.")
+    if decision.outcome != "allowed":
+        return tool_error(CODE_FORBIDDEN, "You cannot update this note.")
 
     from langgraph.types import interrupt
 
@@ -247,7 +316,7 @@ async def _update_note(note_id: str, content: str) -> str:
 
     db = db_session_var.get()
     if db is None:
-        return "Error: database session not available for note update."
+        return tool_error(CODE_UPSTREAM, "Database session is not available.")
 
     try:
         from notes.service import NoteService
@@ -264,11 +333,14 @@ async def _update_note(note_id: str, content: str) -> str:
                 content=content,
                 workspace_id=tenant.workspace_id,
                 updated_by=tenant.user_id,
+                role=tenant.role,
             )
         return f"Note updated successfully. ID: {result['note_id']}"
-    except Exception as e:
-        logger.error("update_note_tool failed", extra={"error": str(e)})
-        return f"Note update failed: {str(e)}"
+    except Exception as exc:
+        mapped = _map_note_error(exc)
+        if mapped:
+            return mapped
+        return _upstream("update_note_tool failed", message="Note update failed.")
 
 
 async def _summarize_workspace() -> str:
@@ -282,6 +354,9 @@ async def _summarize_workspace() -> str:
     tenant = _bound_tenant()
     if isinstance(tenant, str):
         return tenant
+    denied = _reject_unknown_role(tenant)
+    if denied:
+        return denied
 
     try:
         from ai.services.rag_service import get_rag_service
@@ -298,9 +373,11 @@ async def _summarize_workspace() -> str:
             retrieval_limit=12,
         )
         return result.answer
-    except Exception as e:
-        logger.error("summarize_workspace_tool failed", extra={"error": str(e)})
-        return f"Workspace summary failed: {str(e)}"
+    except Exception:
+        return _upstream(
+            "summarize_workspace_tool failed",
+            message="Workspace summary failed.",
+        )
 
 
 # ── StructuredTool instances ─────────────────────────────────────────────────

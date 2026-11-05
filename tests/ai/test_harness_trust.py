@@ -6,11 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ai.harness.context import (
-    MISSING_HARNESS_MESSAGE,
-    HarnessContext,
-    harness_context_var,
-)
+import json
+
+from ai.harness.context import HarnessContext, harness_context_var
+from ai.harness.errors import CODE_FORBIDDEN
 from ai.tools import note_tools
 from ai.tools.schemas import (
     CreateNoteArgs,
@@ -73,7 +72,10 @@ async def test_search_denies_without_harness_context():
     try:
         with patch("ai.services.rag_service.get_rag_service", return_value=fake_rag):
             result = await note_tools._search_notes(question="alpha")
-        assert result == MISSING_HARNESS_MESSAGE
+        body = json.loads(result)
+        assert body["ok"] is False
+        assert body["code"] == CODE_FORBIDDEN
+        assert "traceback" not in body["message"].lower()
         fake_rag.answer.assert_not_called()
     finally:
         harness_context_var.reset(token)

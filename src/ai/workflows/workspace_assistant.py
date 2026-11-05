@@ -38,6 +38,7 @@ from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
+from ai.prompts.rag import UNTRUSTED_DATA_RULE, untrusted_marker_id, wrap_untrusted
 from ai.tools.note_tools import get_note_tools
 from ai.workflows.state import AgentState
 from config import get_settings
@@ -63,7 +64,29 @@ Critical rules:
 5. Use summarize_workspace when asked for an overview of all notes.
 6. If you cannot complete a task with available tools, say so clearly.
 7. Never invent note IDs — search first to find real ones.
-"""
+8. """ + UNTRUSTED_DATA_RULE + "\n"
+
+
+_OMITTED_TOOL_OUTPUT = "untrusted tool output omitted"
+
+
+def _wrap_tool_content(content: object, tool_call_id: str) -> str:
+    """Wrap a tool string for the model. Never raises and never returns the raw string on failure."""
+    try:
+        if not isinstance(content, str):
+            raise TypeError("tool content must be a string")
+        return wrap_untrusted(content, tool_call_id or None)
+    except Exception:
+        logger.exception(
+            "tool output wrap failed",
+            extra={"tool_call_id": tool_call_id or None},
+        )
+        marker_id = untrusted_marker_id(tool_call_id or None)
+        return (
+            f'<<<UNTRUSTED_DATA id="{marker_id}">>>\n'
+            f"{_OMITTED_TOOL_OUTPUT}\n"
+            f'<<<END_UNTRUSTED_DATA id="{marker_id}">>>'
+        )
 
 
 def _to_litellm_messages(messages: list[Any]) -> list[dict[str, Any]]:
@@ -92,11 +115,12 @@ def _to_litellm_messages(messages: list[Any]) -> list[dict[str, Any]]:
 
         message_type = getattr(message, "type", None)
         if message_type == "tool":
+            tool_call_id = getattr(message, "tool_call_id", "") or ""
             converted.append(
                 {
                     "role": "tool",
-                    "content": message.content or "",
-                    "tool_call_id": getattr(message, "tool_call_id", ""),
+                    "content": _wrap_tool_content(message.content or "", tool_call_id),
+                    "tool_call_id": tool_call_id,
                 }
             )
             continue
@@ -110,6 +134,15 @@ def _to_litellm_messages(messages: list[Any]) -> list[dict[str, Any]]:
             continue
 
         if isinstance(message, dict):
+            if message.get("role") == "tool":
+                tool_call_id = str(message.get("tool_call_id") or "")
+                wrapped = dict(message)
+                wrapped["content"] = _wrap_tool_content(
+                    message.get("content") or "",
+                    tool_call_id,
+                )
+                converted.append(wrapped)
+                continue
             converted.append(message)
             continue
 
@@ -142,7 +175,7 @@ async def call_model(state: AgentState) -> dict[str, Any]:
         for tool in tools
     ]
 
-    # Session context is informational only — tools bind tenant from HarnessContext.
+    # Session fields are server-bound. Do not put retrieved chunks or tool text here.
     system_content = (
         f"{WORKSPACE_ASSISTANT_PROMPT}\n\n"
         f"Current session (server-bound; do not pass these as tool arguments):\n"

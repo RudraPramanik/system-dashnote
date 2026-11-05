@@ -30,13 +30,14 @@ Search, create, update, and summarize agent tools MUST pass `workspace_id`, `use
 - **AND** tenant fields still come only from harness context
 
 ### Requirement: Missing harness context fails closed
-If trusted harness context is missing at tool execution time, the tool MUST deny the call (forbidden or the closest existing deny string available without inventing the full 9H.2 error envelope). The system MUST NOT default, guess, or parse a workspace id from the user message.
+If trusted harness context is missing at tool execution time, the tool MUST deny the call. The denial the model receives MUST be the tool error envelope with code `forbidden`. The system MUST NOT default, guess, or parse a workspace id from the user message. The system MUST NOT call NoteService or RagService with a guessed tenant.
 
 #### Scenario: Tool without context is denied
 - **GIVEN** a tool execution path with no harness context available
 - **WHEN** search, create, update, or summarize would call a service
-- **THEN** the tool returns a denial
+- **THEN** the tool returns a denial whose code is `forbidden`
 - **AND** no NoteService or RagService call is made with a guessed tenant
+- **AND** the denial does not include a stack trace
 
 ### Requirement: Chat path remains untouched by tenant bind
 Trusted-tenant bind for this change MUST apply to `/ai/agent*` tools only. `/ai/chat` and `/ai/chat/stream` MUST remain the separate fast RAG surface and MUST NOT be replaced by the agent.

@@ -169,6 +169,12 @@ class Settings(BaseSettings):
     AGENT_MAX_ITERATIONS: int = 10    # prevents infinite tool loops
     AGENT_TOOL_TIMEOUT: int = 30      # seconds per tool call
 
+    # AI budget defaults (9H.4.1). Not a production quota, and not enforced here.
+    # AI_TOKEN_BUDGET_PER_DAY 0 means the token ceiling is not configured.
+    AI_USER_REQUESTS_PER_MINUTE: int = 20
+    AI_WORKSPACE_REQUESTS_PER_DAY: int = 200
+    AI_TOKEN_BUDGET_PER_DAY: int = 0
+
     # ── Inbound channels (email / WhatsApp) ─────────────────────────
     INBOUND_API_KEY: str = ""
     INBOUND_HMAC_SECRET: str = ""

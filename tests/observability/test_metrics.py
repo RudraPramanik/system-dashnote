@@ -8,6 +8,7 @@ from prometheus_client import REGISTRY, generate_latest
 
 from observability.metrics import (
     inc_agent_interrupt,
+    inc_ai_budget_outcome,
     inc_empty_retrieval,
     inc_llm_fallback,
 )
@@ -24,6 +25,27 @@ def test_quality_counters_have_stable_names() -> None:
     assert "dashnote_ai_agent_interrupt_total" in body
     assert "dashnote_ai_llm_fallback_total" in body
     assert "user_id" not in body.split("dashnote_ai_empty_retrieval_total")[1][:200]
+
+
+def test_budget_outcome_counter_is_outcome_only() -> None:
+    inc_ai_budget_outcome("allowed")
+    inc_ai_budget_outcome("denied")
+    inc_ai_budget_outcome("fail_open")
+    inc_ai_budget_outcome("user-1")
+    body = generate_latest(REGISTRY).decode("utf-8")
+    series = [
+        line
+        for line in body.splitlines()
+        if line.startswith("dashnote_ai_budget_outcome_total{")
+    ]
+    joined = "\n".join(series)
+    assert 'outcome="allowed"' in joined
+    assert 'outcome="denied"' in joined
+    assert 'outcome="fail_open"' in joined
+    assert "user_id" not in joined
+    assert "workspace_id" not in joined
+    assert "role" not in joined
+    assert "user-1" not in joined
 
 
 def test_create_app_still_exposes_http_instrumentator_metrics() -> None:

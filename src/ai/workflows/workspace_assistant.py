@@ -38,6 +38,12 @@ from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
+from ai.harness.budget_check import (
+    OUTCOME_DENIED,
+    BudgetDenied,
+    budget_redis_var,
+    consume_ai_request_budget,
+)
 from ai.prompts.rag import UNTRUSTED_DATA_RULE, untrusted_marker_id, wrap_untrusted
 from ai.tools.note_tools import get_note_tools
 from ai.workflows.state import AgentState
@@ -159,6 +165,14 @@ async def call_model(state: AgentState) -> dict[str, Any]:
     Increments steps_taken as iteration safety counter.
     Returns partial state dict with updated messages and steps_taken.
     """
+    decision = await consume_ai_request_budget(
+        budget_redis_var.get(),
+        str(state.get("user_id") or ""),
+        str(state.get("workspace_id") or ""),
+    )
+    if decision.outcome == OUTCOME_DENIED:
+        raise BudgetDenied(decision)
+
     settings = get_settings()
     tools = get_note_tools()
 

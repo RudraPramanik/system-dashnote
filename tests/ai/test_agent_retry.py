@@ -132,7 +132,13 @@ async def test_chat_stream_unavailable_copy():
     rag = MagicMock()
     rag.stream_answer = _fail
 
-    response = await chat_stream(body=body, ctx=ctx, rag=rag, db=AsyncMock())
+    response = await chat_stream(
+        body=body,
+        ctx=ctx,
+        rag=rag,
+        db=AsyncMock(),
+        redis=None,
+    )
     chunks: list[str] = []
     async for chunk in response.body_iterator:
         if isinstance(chunk, bytes):

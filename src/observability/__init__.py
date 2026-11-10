@@ -4,6 +4,7 @@ from observability.langfuse_client import get_langfuse_client
 from observability.logging import get_logger, setup_logging
 from observability.metrics import (
     inc_agent_interrupt,
+    inc_ai_budget_outcome,
     inc_empty_retrieval,
     inc_llm_fallback,
 )
@@ -39,4 +40,5 @@ __all__ = [
     "inc_empty_retrieval",
     "inc_agent_interrupt",
     "inc_llm_fallback",
+    "inc_ai_budget_outcome",
 ]

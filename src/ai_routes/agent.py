@@ -37,6 +37,15 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from redis.asyncio import Redis
+
+from ai.harness.budget_check import (
+    budget_denied_from,
+    budget_error_payload,
+    budget_redis_var,
+    denial_message,
+    retry_after_header,
+)
 from ai.harness.context import HarnessContext, harness_context_var
 from ai.hitl import approval_event_from_interrupt, extract_interrupts
 from ai_routes.sse_heartbeat import iter_with_heartbeat
@@ -49,6 +58,7 @@ from ai.tools.note_tools import (
 from ai.workflows.workspace_assistant import get_workspace_assistant
 from ai_memory.repository import ThreadRepository
 from core.database.session import get_session
+from core.redis.deps import get_redis_connection
 from core.security.context import RequestContext
 from core.security.dependency import get_current_context
 from observability.metrics import inc_agent_interrupt
@@ -138,6 +148,14 @@ def _agent_trace_meta(
 
 def _mark_approval_required() -> None:
     inc_agent_interrupt()
+
+
+def _budget_http(decision) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=denial_message(decision),
+        headers=retry_after_header(decision),
+    )
 
 
 def _bind_harness_context(
@@ -333,6 +351,7 @@ async def agent_chat(
     body: AgentRequest,
     ctx: RequestContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_session),
+    redis: Redis | None = Depends(get_redis_connection),
 ) -> AgentResponse | ApprovalRequiredResponse:
     """
     Invoke the workspace assistant agent.
@@ -363,6 +382,7 @@ async def agent_chat(
     harness_token = _bind_harness_context(
         workspace_id=workspace_id, user_id=user_id, role=role
     )
+    budget_token = budget_redis_var.set(redis)
 
     try:
         async with start_trace(
@@ -407,6 +427,9 @@ async def agent_chat(
                     detail="LLM temporarily unavailable; retry shortly",
                 ) from e
             except Exception as e:
+                denied = budget_denied_from(e)
+                if denied is not None:
+                    raise _budget_http(denied.decision) from denied
                 logger.error(
                     "Agent invocation failed",
                     extra={"workspace_id": workspace_id, "error": str(e)},
@@ -455,6 +478,7 @@ async def agent_chat(
                 trace_id=current_trace_id(trace),
             )
     finally:
+        budget_redis_var.reset(budget_token)
         harness_context_var.reset(harness_token)
         db_session_var.reset(token)
 
@@ -464,6 +488,7 @@ async def agent_chat_stream(
     body: AgentRequest,
     ctx: RequestContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_session),
+    redis: Redis | None = Depends(get_redis_connection),
 ) -> StreamingResponse:
     """
     Stream agent execution events via SSE.
@@ -497,6 +522,7 @@ async def agent_chat_stream(
         harness_token = _bind_harness_context(
             workspace_id=workspace_id, user_id=user_id, role=role
         )
+        budget_token = budget_redis_var.set(redis)
         try:
             async with start_trace(
                 "agent.turn",
@@ -625,6 +651,11 @@ async def agent_chat_stream(
                     yield frame
 
         except Exception as e:
+            denied = budget_denied_from(e)
+            if denied is not None:
+                yield f"data: {json.dumps(budget_error_payload(denied.decision))}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             logger.exception("Agent stream failed")
             err_text = str(e).lower()
             if isinstance(e, LLMUnavailableError) or is_model_gone(e):
@@ -640,6 +671,7 @@ async def agent_chat_stream(
             yield f"data: {json.dumps(error_payload)}\n\n"
             yield "data: [DONE]\n\n"
         finally:
+            budget_redis_var.reset(budget_token)
             harness_context_var.reset(harness_token)
             db_session_var.reset(token)
 
@@ -659,6 +691,7 @@ async def agent_resume(
     body: AgentResumeRequest,
     ctx: RequestContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_session),
+    redis: Redis | None = Depends(get_redis_connection),
 ) -> AgentResponse | ApprovalRequiredResponse:
     """Approve a pending mutation interrupt and continue the agent graph."""
     workspace_id = str(ctx.workspace_id)
@@ -676,6 +709,7 @@ async def agent_resume(
     harness_token = _bind_harness_context(
         workspace_id=workspace_id, user_id=user_id, role=role
     )
+    budget_token = budget_redis_var.set(redis)
     try:
         async with start_trace(
             "agent.turn",
@@ -706,6 +740,9 @@ async def agent_resume(
             except HTTPException:
                 raise
             except Exception as e:
+                denied = budget_denied_from(e)
+                if denied is not None:
+                    raise _budget_http(denied.decision) from denied
                 logger.error(
                     "Agent resume failed",
                     extra={"workspace_id": workspace_id, "error": str(e)},
@@ -738,6 +775,7 @@ async def agent_resume(
                 trace_id=current_trace_id(trace),
             )
     finally:
+        budget_redis_var.reset(budget_token)
         harness_context_var.reset(harness_token)
         db_session_var.reset(token)
 

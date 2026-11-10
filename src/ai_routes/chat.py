@@ -28,11 +28,22 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from redis.asyncio import Redis
+
 from core.database.session import get_session
+from core.redis.deps import get_redis_connection
 from core.security.dependency import get_current_context
 from core.security.context import RequestContext
+from ai.harness.budget_check import (
+    OUTCOME_DENIED,
+    budget_error_payload,
+    consume_ai_request_budget,
+    denial_message,
+    retry_after_header,
+)
 from ai.services.rag_service import ChatResult, Citation, get_rag_service, RagService
 from ai_routes.sse_heartbeat import iter_with_heartbeat
+from shared.llm.fallback import LLM_UNAVAILABLE_MESSAGE, LLMUnavailableError
 
 router = APIRouter(prefix="/ai", tags=["ai-chat"])
 
@@ -87,6 +98,7 @@ async def chat(
     ctx: RequestContext = Depends(get_current_context),
     rag: RagService = Depends(get_rag_service),
     db: AsyncSession = Depends(get_session),
+    redis: Redis | None = Depends(get_redis_connection),
 ) -> ChatResponse:
     """
     Answer a workspace question using retrieval-augmented generation.
@@ -105,6 +117,14 @@ async def chat(
     user_id = str(ctx.user_id)             # from JWT sub claim
     role = ctx.role                         # "owner" | "admin" | "member"
 
+    decision = await consume_ai_request_budget(redis, user_id, workspace_id)
+    if decision.outcome == OUTCOME_DENIED:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=denial_message(decision),
+            headers=retry_after_header(decision),
+        )
+
     try:
         result: ChatResult = await rag.answer(
             question=body.message,
@@ -118,6 +138,11 @@ async def chat(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+    except LLMUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=LLM_UNAVAILABLE_MESSAGE,
         ) from exc
 
     return ChatResponse(
@@ -146,6 +171,7 @@ async def chat_stream(
     ctx: RequestContext = Depends(get_current_context),
     rag: RagService = Depends(get_rag_service),
     db: AsyncSession = Depends(get_session),
+    redis: Redis | None = Depends(get_redis_connection),
 ) -> StreamingResponse:
     """
     Stream a RAG answer using Server-Sent Events.
@@ -178,6 +204,25 @@ async def chat_stream(
     user_id = str(ctx.user_id)             # from JWT sub claim
     role = ctx.role                         # "owner" | "admin" | "member"
     thread_id_str = body.thread_id
+
+    decision = await consume_ai_request_budget(redis, user_id, workspace_id)
+    if decision.outcome == OUTCOME_DENIED:
+        payload = budget_error_payload(decision)
+
+        async def denied():
+            yield f"data: {json.dumps(payload)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            denied(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+                "Transfer-Encoding": "chunked",
+            },
+        )
 
     # ── Step 2: Resolve service singleton BEFORE generator opens ────────────
     # get_rag_service() is already called via Depends(get_rag_service) above.

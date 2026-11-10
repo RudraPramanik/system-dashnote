@@ -20,6 +20,13 @@ LLM_FALLBACK = Counter(
     "dashnote_ai_llm_fallback_total",
     "LLM candidate skipped (gone or timeout) before trying the next model",
 )
+AI_BUDGET_OUTCOME = Counter(
+    "dashnote_ai_budget_outcome_total",
+    "AI budget decisions",
+    ["outcome"],
+)
+
+_BUDGET_OUTCOMES = frozenset({"allowed", "denied", "fail_open"})
 
 
 def inc_empty_retrieval() -> None:
@@ -32,3 +39,9 @@ def inc_agent_interrupt() -> None:
 
 def inc_llm_fallback() -> None:
     LLM_FALLBACK.inc()
+
+
+def inc_ai_budget_outcome(outcome: str) -> None:
+    if outcome not in _BUDGET_OUTCOMES:
+        return
+    AI_BUDGET_OUTCOME.labels(outcome=outcome).inc()

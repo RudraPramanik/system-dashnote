@@ -34,16 +34,18 @@ from core.database.session import get_session
 from core.redis.deps import get_redis_connection
 from core.security.dependency import get_current_context
 from core.security.context import RequestContext
-from ai.harness.budget_check import (
+from ai.harness.control_plane import (
     OUTCOME_DENIED,
+    LLMUnavailableError,
     budget_error_payload,
-    consume_ai_request_budget,
     denial_message,
+    gate_ai_request_budget,
+    is_provider_unavailable,
+    provider_unavailable_message,
     retry_after_header,
 )
 from ai.services.rag_service import ChatResult, Citation, get_rag_service, RagService
 from ai_routes.sse_heartbeat import iter_with_heartbeat
-from shared.llm.fallback import LLM_UNAVAILABLE_MESSAGE, LLMUnavailableError
 
 router = APIRouter(prefix="/ai", tags=["ai-chat"])
 
@@ -117,7 +119,7 @@ async def chat(
     user_id = str(ctx.user_id)             # from JWT sub claim
     role = ctx.role                         # "owner" | "admin" | "member"
 
-    decision = await consume_ai_request_budget(redis, user_id, workspace_id)
+    decision = await gate_ai_request_budget(redis, user_id, workspace_id)
     if decision.outcome == OUTCOME_DENIED:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -142,7 +144,7 @@ async def chat(
     except LLMUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=LLM_UNAVAILABLE_MESSAGE,
+            detail=provider_unavailable_message(exc),
         ) from exc
 
     return ChatResponse(
@@ -205,7 +207,7 @@ async def chat_stream(
     role = ctx.role                         # "owner" | "admin" | "member"
     thread_id_str = body.thread_id
 
-    decision = await consume_ai_request_budget(redis, user_id, workspace_id)
+    decision = await gate_ai_request_budget(redis, user_id, workspace_id)
     if decision.outcome == OUTCOME_DENIED:
         payload = budget_error_payload(decision)
 
@@ -258,15 +260,9 @@ async def chat_stream(
             })
             yield f"data: {error_payload}\n\n"
         except Exception as exc:
-            from shared.llm.fallback import (
-                LLM_UNAVAILABLE_MESSAGE,
-                LLMUnavailableError,
-                is_model_gone,
-            )
-
             message = (
-                LLM_UNAVAILABLE_MESSAGE
-                if isinstance(exc, LLMUnavailableError) or is_model_gone(exc)
+                provider_unavailable_message(exc)
+                if is_provider_unavailable(exc)
                 else "Stream encountered an error. Please try again."
             )
             error_payload = json.dumps({

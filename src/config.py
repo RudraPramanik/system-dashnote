@@ -140,6 +140,9 @@ class Settings(BaseSettings):
     # on HTTP 410 / model gone, HTTP 429 / rate-limit, and AGENT_TOOL_TIMEOUT.
     LLM_MODEL: str = "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"
     LLM_MODEL_FALLBACKS: str = "gemini/gemini-2.5-flash"
+    # Default for transient 429/5xx cooldown (9H.5.2). Not a frozen production
+    # quota. Process-local in-memory map — not Redis; workers do not share it.
+    LLM_PROVIDER_COOLDOWN_SECONDS: int = 60
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2048
     LLM_MAX_RETRIES: int = 4

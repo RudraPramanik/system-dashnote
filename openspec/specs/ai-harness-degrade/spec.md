@@ -59,15 +59,32 @@ When an AI budget ceiling is exceeded, the system MUST reuse the existing AI bud
 - **THEN** the client receives HTTP 429 or an SSE `budget_exceeded` error
 - **AND** the LLM provider client is not called for that completion
 
+### Requirement: Repeated provider 429 or 5xx cools down then uses existing fallbacks
+When one configured LLM candidate repeatedly returns HTTP 429 or HTTP 5xx (or equivalent rate-limit / upstream errors), the harness degrade matrix MUST cool that model id down for a short window and skip it on later completions while continuing the existing `LLM_MODEL` / `LLM_MODEL_FALLBACKS` order. When the window ends, the id MUST be eligible again. If every candidate is cooling down or failing, chat and agent MUST keep the existing user-safe unavailable response (HTTP 503 or SSE error with `LLM temporarily unavailable; retry shortly`). Cooldown MUST NOT require Redis, MUST NOT invent a second agent framework, MUST NOT merge `/ai/chat*` into `/ai/agent*`, and MUST NOT weaken checkpointer-down fail-closed mutations or the existing AI budget refusal. Workspace and user identity MUST continue to come from the JWT / harness context.
+
+#### Scenario: Cooldown skips a failing primary then recovers
+- **GIVEN** the primary candidate has entered cooldown after repeated 429 or 5xx
+- **AND** a later fallback id is live
+- **WHEN** a subsequent AI completion runs before the cooldown expires
+- **THEN** the completion uses the later fallback
+- **AND** after the cooldown expires the primary is eligible again
+
+#### Scenario: All-cooling still maps to unavailable
+- **GIVEN** every configured candidate is cooling down or fails when tried
+- **WHEN** a client calls a chat or agent generation route
+- **THEN** the client receives the existing user-safe unavailable response
+- **AND** the response is not a silent empty HTTP 200
+
 ### Requirement: Degrade proof does not require a live model key
-The repository MUST include automated tests for the provider-unavailable and checkpointer-down rows that run without a live LLM provider key. A failing assertion MUST fail the test run. The budget row MAY be covered by the existing AI budget refusal tests. Provider cooldown and a single harness control-plane module MUST NOT be required for this capability.
+The repository MUST include automated tests for the provider-unavailable, checkpointer-down, and provider-cooldown rows that run without a live LLM provider key. A failing assertion MUST fail the test run. The budget row MAY be covered by the existing AI budget refusal tests. Provider-unavailable and budget denials for chat and agent generation MUST be reachable through the shared harness control plane required by the `ai-harness-control-plane` capability. Checkpointer-down mutation fail-closed MAY remain enforced at the tool / HITL boundary.
 
 #### Scenario: Fixture suite covers provider and checkpointer rows
 - **GIVEN** pull-request CI without a hosted model key
-- **WHEN** the degrade harness tests run
+- **WHEN** the degrade and LLM resilience harness tests run
 - **THEN** unary or stream provider exhaustion is asserted as 503 or SSE error
 - **AND** checkpointer-down create or update asserts no NoteService commit
-- **AND** neither case is skipped to stay green
+- **AND** a primary in cooldown asserts the next fallback is used, and after expiry the primary is eligible again
+- **AND** none of those cases is skipped to stay green
 
 ### Requirement: Chat and agent remain separate under degrade modes
 Degrade behavior MUST apply to both `/ai/chat*` and `/ai/agent*` without merging those routes or replacing chat with the agent. Local full-stack compose MUST keep working. No second agent framework is introduced by this capability.

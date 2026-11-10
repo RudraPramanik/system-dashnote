@@ -1,6 +1,9 @@
 """
 Walk LLM_MODEL then LLM_MODEL_FALLBACKS when a hosted id is gone (HTTP 410),
-rate-limited (HTTP 429), or exceeds the per-candidate wall clock.
+rate-limited (HTTP 429), upstream 5xx, or exceeds the per-candidate wall clock.
+
+Transient 429/5xx enter a process-local cooldown (LLM_PROVIDER_COOLDOWN_SECONDS).
+Model-gone stays a durable skip. Cooldown is not Redis.
 
 Import law: config, litellm, shared.llm.retry, observability.metrics, stdlib only.
 """
@@ -8,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 import litellm
@@ -22,6 +26,7 @@ LLM_UNAVAILABLE_MESSAGE = "LLM temporarily unavailable; retry shortly"
 
 _cached_model: str | None = None
 _skip: set[str] = set()
+_cooldown_until: dict[str, float] = {}
 
 
 class LLMUnavailableError(RuntimeError):
@@ -88,6 +93,30 @@ def is_rate_limited(exc: BaseException) -> bool:
     )
 
 
+def is_upstream_server_error(exc: BaseException) -> bool:
+    """True when the provider returned HTTP 5xx / equivalent server failure."""
+    internal = getattr(litellm.exceptions, "InternalServerError", None)
+    if internal is not None and isinstance(exc, internal):
+        return True
+    service = getattr(litellm.exceptions, "ServiceUnavailableError", None)
+    if service is not None and isinstance(exc, service):
+        return True
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and 500 <= status <= 599:
+        return True
+    msg = str(exc).lower()
+    return (
+        "error code: 500" in msg
+        or "error code: 502" in msg
+        or "error code: 503" in msg
+        or "error code: 504" in msg
+        or "internal server error" in msg
+        or "bad gateway" in msg
+        or "service unavailable" in msg
+        or "gateway timeout" in msg
+    )
+
+
 def warn_if_no_distinct_llm_fallback() -> None:
     """Soft boot warning when FALLBACKS are set but dedupe leaves one candidate.
 
@@ -112,25 +141,54 @@ def warn_if_no_distinct_llm_fallback() -> None:
 
 
 def reset_fallback_state() -> None:
-    """Test helper — clear process cache."""
+    """Test helper — clear process cache, durable skip, and cooldowns."""
     global _cached_model
     _cached_model = None
     _skip.clear()
+    _cooldown_until.clear()
 
 
 def cached_llm_model() -> str | None:
     return _cached_model
 
 
+def _cooldown_seconds(settings: Any) -> float:
+    raw = getattr(settings, "LLM_PROVIDER_COOLDOWN_SECONDS", 60)
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+        return float(raw)
+    return 60.0
+
+
+def _mark_cooldown(model: str) -> None:
+    """Skip model for LLM_PROVIDER_COOLDOWN_SECONDS (process-local)."""
+    global _cached_model
+    seconds = _cooldown_seconds(get_settings())
+    _cooldown_until[model] = time.monotonic() + seconds
+    if _cached_model == model:
+        _cached_model = None
+
+
+def _is_cooling(model: str) -> bool:
+    until = _cooldown_until.get(model)
+    if until is None:
+        return False
+    if time.monotonic() >= until:
+        _cooldown_until.pop(model, None)
+        return False
+    return True
+
+
 def _remember(model: str) -> None:
     global _cached_model
     _cached_model = model
     _skip.discard(model)
+    _cooldown_until.pop(model, None)
 
 
 def _mark_gone(model: str) -> None:
     global _cached_model
     _skip.add(model)
+    _cooldown_until.pop(model, None)
     if _cached_model == model:
         _cached_model = None
 
@@ -143,7 +201,9 @@ def _candidates(explicit: str | None) -> list[str]:
     if _cached_model and _cached_model in ordered:
         rest = [m for m in ordered if m != _cached_model]
         ordered = [_cached_model, *rest]
-    return [m for m in ordered if m not in _skip] or list(ordered)
+    # Filter after cache reorder so a cooling cached primary cannot win.
+    # Empty means unavailable — do not re-loop cooling/skipped ids.
+    return [m for m in ordered if m not in _skip and not _is_cooling(m)]
 
 
 def _wall_clock(settings: Any) -> float:
@@ -193,18 +253,25 @@ async def _invoke_candidate(
 
 async def acompletion_with_fallback(**kwargs: Any) -> Any:
     """
-    litellm.acompletion with model-gone, rate-limit, and wall-clock fallback.
+    litellm.acompletion with model-gone, rate-limit, 5xx, and wall-clock fallback.
 
     Non-stream calls use acompletion_with_retry (transient errors) inside
     asyncio.wait_for(AGENT_TOOL_TIMEOUT). Stream calls use litellm.acompletion
-    and wait for the first chunk under the same budget. Exhausted 429s walk
-    to the next candidate; they are not logged as model-gone.
+    and wait for the first chunk under the same budget. Exhausted 429/5xx walk
+    to the next candidate and enter process-local cooldown; they are not logged
+    as model-gone.
     """
     stream = bool(kwargs.get("stream", False))
-    models = _candidates(kwargs.get("model") if isinstance(kwargs.get("model"), str) else None)
+    models = _candidates(
+        kwargs.get("model") if isinstance(kwargs.get("model"), str) else None
+    )
     settings = get_settings()
     wall = _wall_clock(settings)
     last_exc: BaseException | None = None
+
+    if not models:
+        logger.error("All LLM candidates unavailable", extra={"tried": [], "error": ""})
+        raise LLMUnavailableError()
 
     for model in models:
         call_kwargs = {**kwargs, "model": model}
@@ -236,10 +303,18 @@ async def acompletion_with_fallback(**kwargs: Any) -> Any:
             if is_rate_limited(exc):
                 inc_llm_fallback()
                 logger.warning(
-                    "LLM candidate rate-limited; trying next",
+                    "LLM candidate rate-limited; cooling down then trying next",
                     extra={"model": model, "error": str(exc)[:240]},
                 )
-                _mark_gone(model)
+                _mark_cooldown(model)
+                continue
+            if is_upstream_server_error(exc):
+                inc_llm_fallback()
+                logger.warning(
+                    "LLM candidate upstream 5xx; cooling down then trying next",
+                    extra={"model": model, "error": str(exc)[:240]},
+                )
+                _mark_cooldown(model)
                 continue
             raise
 

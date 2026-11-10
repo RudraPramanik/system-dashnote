@@ -1,6 +1,7 @@
-"""Unit tests for LLM model-gone fallback — no live HTTP."""
+"""Unit tests for LLM model-gone / cooldown fallback — no live HTTP."""
 
 import sys
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,12 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from prometheus_client import REGISTRY
 
+import shared.llm.fallback as fallback_mod
 from shared.llm.fallback import (
     LLMUnavailableError,
     acompletion_with_fallback,
     cached_llm_model,
     is_model_gone,
     is_rate_limited,
+    is_upstream_server_error,
     reset_fallback_state,
     warn_if_no_distinct_llm_fallback,
 )
@@ -63,10 +66,32 @@ def test_is_rate_limited_detects_429_text():
     assert not is_rate_limited(RuntimeError("Error code: 410 - end of life"))
 
 
+def test_is_upstream_server_error_detects_5xx():
+    assert is_upstream_server_error(RuntimeError("Error code: 503 - service unavailable"))
+    assert is_upstream_server_error(RuntimeError("Internal Server Error"))
+    assert is_upstream_server_error(RuntimeError("Bad Gateway"))
+    exc_500 = RuntimeError("upstream failed")
+    exc_500.status_code = 500  # type: ignore[attr-defined]
+    assert is_upstream_server_error(exc_500)
+    assert not is_upstream_server_error(RuntimeError("Error code: 429 - rate limit"))
+    assert not is_upstream_server_error(RuntimeError("Error code: 410 - end of life"))
+    assert not is_upstream_server_error(RuntimeError("ValueError: bad args"))
+
+
+def test_cooldown_setting_default_and_env_example():
+    from config import Settings
+
+    assert Settings.model_fields["LLM_PROVIDER_COOLDOWN_SECONDS"].default == 60
+    example = Path(__file__).resolve().parents[2] / ".env.example"
+    text = example.read_text(encoding="utf-8")
+    assert "LLM_PROVIDER_COOLDOWN_SECONDS" in text
+
+
 @pytest.mark.asyncio
 async def test_fallback_skips_gone_primary():
     settings = MagicMock()
     settings.llm_model_candidates = ["gone-model", "live-model"]
+    settings.LLM_PROVIDER_COOLDOWN_SECONDS = 60
 
     async def fake_retry(**kwargs):
         if kwargs["model"] == "gone-model":
@@ -206,13 +231,15 @@ async def test_nvidia_thinking_disabled_on_nim_candidate():
 
 
 @pytest.mark.asyncio
-async def test_fallback_skips_rate_limited_primary():
+async def test_fallback_skips_rate_limited_primary_while_cooling():
+    """429 cools the primary; next request skips it until cooldown expires."""
     settings = MagicMock()
     settings.llm_model_candidates = [
         "gemini/gemini-2.5-flash",
         "nvidia_nim/nvidia/other-free",
     ]
     settings.AGENT_TOOL_TIMEOUT = 30
+    settings.LLM_PROVIDER_COOLDOWN_SECONDS = 60
     calls: list[str] = []
 
     async def fake_retry(**kwargs):
@@ -241,6 +268,7 @@ async def test_fallback_skips_rate_limited_primary():
         ]
         assert _counter_value("dashnote_ai_llm_fallback") > before
         assert cached_llm_model() == "nvidia_nim/nvidia/other-free"
+        assert "gemini/gemini-2.5-flash" in fallback_mod._cooldown_until
 
         calls.clear()
         result2 = await acompletion_with_fallback(
@@ -250,6 +278,67 @@ async def test_fallback_skips_rate_limited_primary():
     assert result2 == {"ok": True}
     assert calls == ["nvidia_nim/nvidia/other-free"]
     assert cached_llm_model() == "nvidia_nim/nvidia/other-free"
+    assert "gemini/gemini-2.5-flash" not in fallback_mod._skip
+
+
+@pytest.mark.asyncio
+async def test_cooldown_primary_skipped_then_eligible_after_expiry():
+    """Primary 5xx → cooldown → next call uses fallback → after expiry primary tried."""
+    settings = MagicMock()
+    settings.llm_model_candidates = ["primary-model", "fallback-model"]
+    settings.AGENT_TOOL_TIMEOUT = 30
+    settings.LLM_PROVIDER_COOLDOWN_SECONDS = 60
+    calls: list[str] = []
+
+    async def first_pass(**kwargs):
+        model = kwargs["model"]
+        calls.append(model)
+        if model == "primary-model":
+            raise RuntimeError("Error code: 503 - service unavailable")
+        return {"ok": True}
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        patch(
+            "shared.llm.fallback.acompletion_with_retry",
+            new_callable=AsyncMock,
+            side_effect=first_pass,
+        ),
+    ):
+        result = await acompletion_with_fallback(
+            messages=[{"role": "user", "content": "hi"}]
+        )
+        assert result == {"ok": True}
+        assert calls == ["primary-model", "fallback-model"]
+
+        calls.clear()
+        result2 = await acompletion_with_fallback(
+            messages=[{"role": "user", "content": "hi"}]
+        )
+        assert result2 == {"ok": True}
+        assert calls == ["fallback-model"]
+
+        fallback_mod._cooldown_until["primary-model"] = time.monotonic() - 1.0
+        # Clear cache so ordering prefers configured primary again.
+        fallback_mod._cached_model = None
+        calls.clear()
+
+        async def after_expiry(**kwargs):
+            model = kwargs["model"]
+            calls.append(model)
+            return {"ok": True, "model": model}
+
+        with patch(
+            "shared.llm.fallback.acompletion_with_retry",
+            new_callable=AsyncMock,
+            side_effect=after_expiry,
+        ):
+            result3 = await acompletion_with_fallback(
+                messages=[{"role": "user", "content": "hi"}]
+            )
+
+    assert result3 == {"ok": True, "model": "primary-model"}
+    assert calls[0] == "primary-model"
 
 
 @pytest.mark.asyncio
@@ -257,6 +346,7 @@ async def test_all_candidates_rate_limited_raises_unavailable():
     settings = MagicMock()
     settings.llm_model_candidates = ["gemini/gemini-2.5-flash", "nvidia_nim/other"]
     settings.AGENT_TOOL_TIMEOUT = 30
+    settings.LLM_PROVIDER_COOLDOWN_SECONDS = 60
 
     with (
         patch("shared.llm.fallback.get_settings", return_value=settings),
@@ -268,6 +358,26 @@ async def test_all_candidates_rate_limited_raises_unavailable():
     ):
         with pytest.raises(LLMUnavailableError, match="LLM temporarily unavailable"):
             await acompletion_with_fallback(messages=[{"role": "user", "content": "hi"}])
+
+
+@pytest.mark.asyncio
+async def test_all_candidates_cooling_raises_without_loop():
+    settings = MagicMock()
+    settings.llm_model_candidates = ["a", "b"]
+    settings.AGENT_TOOL_TIMEOUT = 30
+    settings.LLM_PROVIDER_COOLDOWN_SECONDS = 60
+    fallback_mod._cooldown_until["a"] = time.monotonic() + 120.0
+    fallback_mod._cooldown_until["b"] = time.monotonic() + 120.0
+    mock_retry = AsyncMock()
+
+    with (
+        patch("shared.llm.fallback.get_settings", return_value=settings),
+        patch("shared.llm.fallback.acompletion_with_retry", mock_retry),
+    ):
+        with pytest.raises(LLMUnavailableError, match="LLM temporarily unavailable"):
+            await acompletion_with_fallback(messages=[{"role": "user", "content": "hi"}])
+
+    mock_retry.assert_not_called()
 
 
 def test_warn_if_no_distinct_llm_fallback_when_dedupe_collapses(caplog):

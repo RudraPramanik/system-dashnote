@@ -66,7 +66,7 @@ When a completion (stream or non-stream) exceeds the configured per-call wall cl
 - **AND** `GET /health` MUST remain unaffected
 
 ### Requirement: LLM candidates are tried in order on provider rate-limit
-When a completion (stream or non-stream) fails because the current candidate is rate-limited (HTTP 429 or an equivalent provider quota / rate-limit error), the system MUST retry the same request with the next unused `LLM_MODEL` / `LLM_MODEL_FALLBACKS` id. The rate-limited id MUST NOT remain the cached success for later requests in that process. Workspace and user identity MUST continue to come from JWT / request context, never from the model id. Chat and agent routes MUST both remain; fallback MUST NOT merge `/ai/chat*` into `/ai/agent*`.
+When a completion (stream or non-stream) fails because the current candidate is rate-limited (HTTP 429 or an equivalent provider quota / rate-limit error), the system MUST retry the same request with the next unused `LLM_MODEL` / `LLM_MODEL_FALLBACKS` id. The rate-limited id MUST enter the time-bounded cooldown for subsequent requests in that process and MUST NOT remain the sticky cached success while cooling. After the cooldown expires, the id MAY be selected again. Workspace and user identity MUST continue to come from JWT / request context, never from the model id. Chat and agent routes MUST both remain; fallback MUST NOT merge `/ai/chat*` into `/ai/agent*`.
 
 #### Scenario: Gemini 429 walks to NVIDIA NIM
 - **GIVEN** the current candidate returns HTTP 429 or a rate-limit error
@@ -77,12 +77,13 @@ When a completion (stream or non-stream) fails because the current candidate is 
 
 #### Scenario: Rate-limited id is not sticky
 - **GIVEN** a candidate returned 429 and a later candidate succeeded
+- **AND** the rate-limited id is still inside its cooldown window
 - **WHEN** a subsequent chat or agent completion runs in the same process
 - **THEN** the system MUST NOT select the rate-limited id as the cached primary
-- **AND** it MUST prefer a candidate that was not marked rate-limited
+- **AND** it MUST prefer a candidate that is not cooling down for rate-limit
 
 #### Scenario: All candidates rate-limited or unavailable
-- **GIVEN** every configured candidate returns 429, is gone, or exceeds the wall clock
+- **GIVEN** every configured candidate returns 429, is gone, exceeds the wall clock, or is cooling down
 - **WHEN** a client calls `POST /ai/chat/stream` or `POST /ai/agent/stream`
 - **THEN** the stream yields an SSE `type: "error"` frame whose `message` is `LLM temporarily unavailable; retry shortly`
 - **AND** `GET /health` is unaffected
@@ -91,6 +92,36 @@ When a completion (stream or non-stream) fails because the current candidate is 
 - **GIVEN** the current candidate is rate-limited and a later NVIDIA NIM id is live
 - **WHEN** a client calls `POST /ai/agent` or `POST /ai/agent/stream` with a valid JWT
 - **THEN** the agent uses the later candidate instead of failing on the first 429
+
+### Requirement: Transient provider failures use a time-bounded cooldown
+When a configured `LLM_MODEL` / `LLM_MODEL_FALLBACKS` candidate fails with HTTP 429 (or an equivalent provider rate-limit error) or with HTTP 5xx (or an equivalent upstream server error) enough times that the completion walk leaves that candidate, the system MUST mark that model id as cooling down for a short window controlled by `LLM_PROVIDER_COOLDOWN_SECONDS`. While the id is cooling down, later completions in that process MUST skip it and continue the existing candidate order. When the cooldown window ends, the id MUST become eligible again. Cooldown storage MUST be in-process for the API worker; it MUST NOT require Redis. Cooldown MUST NOT stick forever. Model-gone / end-of-life candidates MAY remain durably skipped and MUST NOT be rewritten into the same timer as transient 429/5xx. Workspace and user identity MUST continue to come from the JWT / harness context, never from the model id. Chat and agent routes MUST both remain. If every candidate is cooling down or failing, the system MUST return the existing user-safe unavailable response (`LLM temporarily unavailable; retry shortly`) and MUST NOT loop forever. `GET /health` MUST remain unaffected. `LLM_PROVIDER_COOLDOWN_SECONDS` MUST load from settings as a positive integer default documented as a default, not a frozen production quota.
+
+#### Scenario: Primary in cooldown yields the next fallback
+- **GIVEN** the primary model id is marked cooling down after repeated 429 or 5xx
+- **AND** a later `LLM_MODEL_FALLBACKS` id is live
+- **WHEN** a subsequent chat or agent completion runs in the same process before the cooldown expires
+- **THEN** the completion uses the later fallback id
+- **AND** it does not call the cooling primary first
+
+#### Scenario: Primary is eligible again after cooldown expires
+- **GIVEN** the primary model id was cooling down
+- **AND** the cooldown window has ended
+- **WHEN** a later chat or agent completion runs in the same process
+- **THEN** the primary id is eligible to be tried again
+- **AND** the cooldown does not remain permanent for that process lifetime solely because of the earlier 429 or 5xx
+
+#### Scenario: All candidates cooling or failing stay user-safe unavailable
+- **GIVEN** every configured candidate is cooling down or fails when tried
+- **WHEN** a client calls `POST /ai/chat`, `POST /ai/chat/stream`, `POST /ai/agent`, or `POST /ai/agent/stream` with a valid JWT
+- **THEN** the client receives HTTP 503 or an SSE `type: "error"` whose message includes `LLM temporarily unavailable; retry shortly`
+- **AND** the process does not spin forever across the same candidate list
+- **AND** `GET /health` is unaffected
+
+#### Scenario: Cooldown does not need Redis and stays process-local
+- **GIVEN** Redis is unavailable or unused for LLM candidate state
+- **WHEN** a candidate enters cooldown after 429 or 5xx
+- **THEN** later requests in that same process still skip the cooling id
+- **AND** the system does not require a Redis cooldown key to enforce the skip
 
 ### Requirement: Default candidates prefer Lightning NIM then Gemini
 Documented code defaults and example env files MUST set `LLM_MODEL` to `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b`. `LLM_MODEL_FALLBACKS` MUST list `gemini/gemini-2.5-flash` when a Gemini key is expected, and MUST NOT list `nvidia_nim/openai/gpt-oss-20b`, Nemotron Super 120B, or Ultra 550B. Operators MAY still pin Super 120B, Ultra, or `gpt-oss-20b` explicitly. Completions MUST NOT enable unbounded hidden reasoning traces that ignore `LLM_MAX_TOKENS`. Chat and agent routes MUST both remain. Gone, timeout, and rate-limit walks MUST keep their existing order and error frames. Documentation MUST note that NIM free tiers are typically higher RPM than Gemini free tiers, so product defaults prefer the small NIM id for routine chat.

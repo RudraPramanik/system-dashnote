@@ -39,14 +39,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from redis.asyncio import Redis
 
-from ai.harness.budget_check import (
+from ai.harness.control_plane import (
+    LLMUnavailableError,
+    bind_agent_harness,
     budget_denied_from,
     budget_error_payload,
-    budget_redis_var,
     denial_message,
+    is_provider_unavailable,
+    provider_unavailable_message,
+    reset_agent_harness,
     retry_after_header,
 )
-from ai.harness.context import HarnessContext, harness_context_var
 from ai.hitl import approval_event_from_interrupt, extract_interrupts
 from ai_routes.sse_heartbeat import iter_with_heartbeat
 from ai.memory.service import ThreadService
@@ -63,11 +66,6 @@ from core.security.context import RequestContext
 from core.security.dependency import get_current_context
 from observability.metrics import inc_agent_interrupt
 from observability.tracing import current_trace_id, mark_first_token, start_trace
-from shared.llm.fallback import (
-    LLM_UNAVAILABLE_MESSAGE,
-    LLMUnavailableError,
-    is_model_gone,
-)
 from shared.llm.retry import RETRYABLE_EXCEPTIONS
 
 router = APIRouter(prefix="/ai", tags=["ai-agent"])
@@ -155,22 +153,6 @@ def _budget_http(decision) -> HTTPException:
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         detail=denial_message(decision),
         headers=retry_after_header(decision),
-    )
-
-
-def _bind_harness_context(
-    *,
-    workspace_id: str,
-    user_id: str,
-    role: str,
-):
-    """Freeze JWT tenant into HarnessContext for tool wrappers (9H.1)."""
-    return harness_context_var.set(
-        HarnessContext(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            role=role,
-        )
     )
 
 
@@ -379,10 +361,12 @@ async def agent_chat(
         ) from e
 
     token = db_session_var.set(db)
-    harness_token = _bind_harness_context(
-        workspace_id=workspace_id, user_id=user_id, role=role
+    harness = bind_agent_harness(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        role=role,
+        redis=redis,
     )
-    budget_token = budget_redis_var.set(redis)
 
     try:
         async with start_trace(
@@ -410,7 +394,7 @@ async def agent_chat(
             except LLMUnavailableError as e:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=str(e),
+                    detail=provider_unavailable_message(e),
                 ) from e
             except RuntimeError as e:
                 raise HTTPException(
@@ -424,7 +408,7 @@ async def agent_chat(
                 )
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="LLM temporarily unavailable; retry shortly",
+                    detail=provider_unavailable_message(e),
                 ) from e
             except Exception as e:
                 denied = budget_denied_from(e)
@@ -478,8 +462,7 @@ async def agent_chat(
                 trace_id=current_trace_id(trace),
             )
     finally:
-        budget_redis_var.reset(budget_token)
-        harness_context_var.reset(harness_token)
+        reset_agent_harness(harness)
         db_session_var.reset(token)
 
 
@@ -519,10 +502,12 @@ async def agent_chat_stream(
 
     async def generate():
         token = db_session_var.set(db)
-        harness_token = _bind_harness_context(
-            workspace_id=workspace_id, user_id=user_id, role=role
+        harness = bind_agent_harness(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role=role,
+            redis=redis,
         )
-        budget_token = budget_redis_var.set(redis)
         try:
             async with start_trace(
                 "agent.turn",
@@ -658,8 +643,8 @@ async def agent_chat_stream(
                 return
             logger.exception("Agent stream failed")
             err_text = str(e).lower()
-            if isinstance(e, LLMUnavailableError) or is_model_gone(e):
-                err_message = LLM_UNAVAILABLE_MESSAGE
+            if is_provider_unavailable(e):
+                err_message = provider_unavailable_message(e)
             elif "checkpointer" in err_text:
                 err_message = MUTATION_CHECKPOINTER_SSE_ERROR
             else:
@@ -671,8 +656,7 @@ async def agent_chat_stream(
             yield f"data: {json.dumps(error_payload)}\n\n"
             yield "data: [DONE]\n\n"
         finally:
-            budget_redis_var.reset(budget_token)
-            harness_context_var.reset(harness_token)
+            reset_agent_harness(harness)
             db_session_var.reset(token)
 
     return StreamingResponse(
@@ -706,10 +690,12 @@ async def agent_resume(
     )
 
     token = db_session_var.set(db)
-    harness_token = _bind_harness_context(
-        workspace_id=workspace_id, user_id=user_id, role=role
+    harness = bind_agent_harness(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        role=role,
+        redis=redis,
     )
-    budget_token = budget_redis_var.set(redis)
     try:
         async with start_trace(
             "agent.turn",
@@ -743,6 +729,11 @@ async def agent_resume(
                 denied = budget_denied_from(e)
                 if denied is not None:
                     raise _budget_http(denied.decision) from denied
+                if is_provider_unavailable(e):
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail=provider_unavailable_message(e),
+                    ) from e
                 logger.error(
                     "Agent resume failed",
                     extra={"workspace_id": workspace_id, "error": str(e)},
@@ -775,8 +766,7 @@ async def agent_resume(
                 trace_id=current_trace_id(trace),
             )
     finally:
-        budget_redis_var.reset(budget_token)
-        harness_context_var.reset(harness_token)
+        reset_agent_harness(harness)
         db_session_var.reset(token)
 
 
@@ -799,8 +789,12 @@ async def agent_reject(
     )
 
     token = db_session_var.set(db)
-    harness_token = _bind_harness_context(
-        workspace_id=workspace_id, user_id=user_id, role=role
+    # Reject skips AI request budget spend (9H.4.2); bind context only.
+    harness = bind_agent_harness(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        role=role,
+        with_budget_redis=False,
     )
     try:
         async with start_trace(
@@ -859,5 +853,5 @@ async def agent_reject(
                 trace_id=current_trace_id(trace),
             )
     finally:
-        harness_context_var.reset(harness_token)
+        reset_agent_harness(harness)
         db_session_var.reset(token)

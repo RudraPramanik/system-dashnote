@@ -38,6 +38,24 @@ evals/
 PR CI must not require `--mode live`, `run_quality.py`, Langfuse keys, or paid LLM keys. Fixture evals (including
 agent trajectory goldens) are wired as a blocking step in `.github/workflows/ci.yml`.
 
+### Blueprint 9 harness themes (PR vs nightly)
+
+Four no-secrets harness grade-proof themes live in
+`tests/ai/test_harness_fixture_themes.py` (invented workspace, role forbidden,
+poisoned retrieval, budget exceeded). They ride the **merge-blocking** thin CI
+pytest job (`.github/workflows/ci.yml` → `python -m pytest -q`).
+
+Focused catalog command (same four checks, no live LLM key):
+
+```bash
+python -m pytest tests/ai/test_harness_fixture_themes.py -q
+```
+
+Live jailbreak / red-team, `run_eval.py --mode live`, LLM-as-judge
+(`run_quality.py`, Langfuse faithfulness, RAGAS) stay **operator or nightly
+only** and are **not** merge gates. Do not add provider keys to PR CI for them.
+Grade B+/A- claims remain a later 9H.6.3 doc rule — themes alone do not claim them.
+
 **L0 is keyless.** `python evals/run_eval.py --mode fixture` MUST complete with no
 `GEMINI_API_KEY`, `GEMINI_API_KEY_2`, or `NVIDIA_NIM_API_KEY`. It never calls a
 live LLM.

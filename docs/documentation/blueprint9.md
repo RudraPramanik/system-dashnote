@@ -35,6 +35,8 @@ The product stays demoable while the harness hardens.
 | Trust bind, tool ACL, delimiters, Redis budgets, degrade modes | Live jailbreak suites and LLM-as-judge |
 | Fixture goldens in PR CI (no live model key) | Operator red-team against production models |
 
+**9H.6.2 lane:** Harness fixture themes are on the merge-blocking thin CI pytest path (`tests/ai/test_harness_fixture_themes.py`; see [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) and [`evals/README.md`](../../evals/README.md)). Live red-team / judges remain operator or nightly and non-blocking. Grade B+/A- wording waits for 9H.6.3.
+
 ---
 
 ## Grade targets

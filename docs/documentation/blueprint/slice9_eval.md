@@ -68,6 +68,8 @@ ERROR BOUNDARY:
 
 **Goal:** The four themes are on the pull-request path. Live red-team and judges stay operator/nightly.
 
+**Status (9H.6.2):** Themes ride thin CI’s merge-blocking `python -m pytest -q` job (catalog: `tests/ai/test_harness_fixture_themes.py`). Operator lane note: [`evals/README.md`](../../../evals/README.md) (Blueprint 9 harness themes). Live jailbreak / LLM-as-judge stay non-blocking. Do not claim B+/A- grades here (9H.6.3).
+
 **Fallback:** If CI time is tight, the four tests stay in the existing pytest CI job rather than a new workflow. Do not add a live-provider job to PR.
 
 **Error boundary:** A nightly job failing must not be required for merge. A PR fixture failing must block merge.

@@ -2,6 +2,12 @@
 # No deploy, no VPS secrets, no required live LLM/Qdrant keys.
 # Parity: match Dockerfile (python:3.12-slim + libmagic1 + requirements/base.txt).
 # Inventory: openspec/changes/add-thin-ci/inventory.md
+#
+# Blueprint 9H.6.2 — harness grade proof on the blocking pytest lane:
+#   tests/ai/test_harness_fixture_themes.py (four themes; no live model key).
+#   Focused: python -m pytest tests/ai/test_harness_fixture_themes.py -q
+# Live jailbreak / LLM-as-judge / run_eval --mode live are operator or nightly
+# only and MUST NOT be merge requirements. Do not add provider keys for them here.
 
 name: ci
 
@@ -45,6 +51,7 @@ jobs:
       - name: Run pytest
         # Allowlist (inventory): sqlite+aiosqlite create_all fails on JSONB columns
         # (files.tags). Revisit when these suites use Postgres fixtures / PG service.
+        # Includes Blueprint 9 harness themes under tests/ai/ (not ignored).
         run: >
           python -m pytest -q
           --ignore=tests/auth/test_auth_tokens_api.py
